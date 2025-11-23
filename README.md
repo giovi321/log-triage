@@ -151,60 +151,60 @@ defaults:
 pipelines:
   - name: rsnapshot
     match:
-      filename_regex: "rsnapshot.*\\.log"
+      filename_regex: 'rsnapshot.*\.log'
     grouping:
-      type: "marker"
-      start_regex: "^\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\].*rsnapshot .*: started$"
-      end_regex: ""
+      type: 'marker'
+      start_regex: '^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\].*rsnapshot .*: started$'
+      end_regex: ''
     classifier:
-      type: "rsnapshot_basic"
+      type: 'rsnapshot_basic'
       error_regexes:
-        - "ERROR:"
-        - "rsync error"
+        - 'ERROR:'
+        - 'rsync error'
       warning_regexes:
-        - "WARNING"
+        - 'WARNING'
       ignore_regexes: []
     llm:
       enabled: true
       min_severity: ERROR
       max_chunk_lines: 5000
-      prompt_template: "./prompts/rsnapshot.txt"  # optional custom prompt
+      prompt_template: './prompts/rsnapshot.txt'  # optional custom prompt
 
   - name: homeassistant
     match:
-      filename_regex: "homeassistant.*\\.log"
+      filename_regex: 'homeassistant.*\.log'
     grouping:
-      type: "whole_file"
+      type: 'whole_file'
     classifier:
-      type: "regex_counter"
+      type: 'regex_counter'
       error_regexes:
-        - "\\berror\\b"
-        - "Traceback"
+        - '\berror\b'
+        - 'Traceback'
       warning_regexes:
-        - "\\bwarning\\b"
-        - "\\bfailed to\\b"
+        - '\bwarning\b'
+        - '\bfailed to\b'
       ignore_regexes:
-        - "Some noisy integration .* does not support.*"
+        - 'Some noisy integration .* does not support.*'
     llm:
       enabled: true
       min_severity: WARNING
       max_chunk_lines: 1000
-      prompt_template: "./prompts/homeassistant.txt"
+      prompt_template: './prompts/homeassistant.txt'
 
   - name: generic_default
     match:
-      filename_regex: ".*"
+      filename_regex: '.*'
     grouping:
-      type: "whole_file"
+      type: 'whole_file'
     classifier:
-      type: "regex_counter"
+      type: 'regex_counter'
       error_regexes:
-        - "\\berror\\b"
-        - "\\bfailed\\b"
-        - "exception"
+        - '\berror\b'
+        - '\bfailed\b'
+        - 'exception'
       warning_regexes:
-        - "\\bwarn\\b"
-        - "\\bdegraded\\b"
+        - '\bwarn\b'
+        - '\bdegraded\b'
       ignore_regexes: []
     llm:
       enabled: true
@@ -214,13 +214,13 @@ pipelines:
 modules:
   - name: rsnapshot_daily
     enabled: true
-    path: "/var/log/rsnapshot.log"
-    mode: "batch"
-    pipeline: "rsnapshot"
-    output_format: "json"
-    min_print_severity: "INFO"
-    emit_llm_payloads_dir: "./rsnapshot_payloads"
-    llm_payload_mode: "errors_only"   # "full" or "errors_only"
+    path: '/var/log/rsnapshot.log'
+    mode: 'batch'
+    pipeline: 'rsnapshot'
+    output_format: 'json'
+    min_print_severity: 'INFO'
+    emit_llm_payloads_dir: './rsnapshot_payloads'
+    llm_payload_mode: 'errors_only'   # 'full' or 'errors_only'
     only_last_chunk: true             # only last rsnapshot run
     exit_code_by_severity:
       OK: 0
@@ -231,44 +231,44 @@ modules:
     alerts:
       webhook:
         enabled: true
-        url: "https://example/rsnapshot-hook"
-        method: "POST"
-        min_severity: "ERROR"
+        url: 'https://example/rsnapshot-hook'
+        method: 'POST'
+        min_severity: 'ERROR'
         headers:
-          X-Source: "logtriage"
+          X-Source: 'logtriage'
       mqtt:
         enabled: false
-        host: "localhost"
+        host: 'localhost'
         port: 1883
-        topic: "logtriage/rsnapshot"
-        username: ""
-        password: ""
-        min_severity: "WARNING"
+        topic: 'logtriage/rsnapshot'
+        username: ''
+        password: ''
+        min_severity: 'WARNING'
     baseline:
       enabled: true
-      state_file: "/var/lib/logtriage/rsnapshot_baseline.json"
+      state_file: '/var/lib/logtriage/rsnapshot_baseline.json'
       window: 20
       error_multiplier: 3.0
       warning_multiplier: 3.0
-      severity_on_anomaly: "ERROR"
+      severity_on_anomaly: 'ERROR'
 
   - name: homeassistant_follow
     enabled: true
-    path: "/var/log/fluent-bit/homeassistant.log"
-    mode: "follow"
-    pipeline: "homeassistant"
-    output_format: "text"
-    min_print_severity: "WARNING"
-    emit_llm_payloads_dir: "./ha_llm_payloads"
-    llm_payload_mode: "errors_only"
+    path: '/var/log/fluent-bit/homeassistant.log'
+    mode: 'follow'
+    pipeline: 'homeassistant'
+    output_format: 'text'
+    min_print_severity: 'WARNING'
+    emit_llm_payloads_dir: './ha_llm_payloads'
+    llm_payload_mode: 'errors_only'
     only_last_chunk: false
     alerts:
       mqtt:
         enabled: true
-        host: "localhost"
+        host: 'localhost'
         port: 1883
-        topic: "logtriage/homeassistant"
-        min_severity: "ERROR"
+        topic: 'logtriage/homeassistant'
+        min_severity: 'ERROR'
     baseline:
       enabled: false
     stream:
@@ -277,42 +277,32 @@ modules:
 
   - name: all_logs_batch
     enabled: false
-    path: "/var/log/fluent-bit"
-    mode: "batch"
-    output_format: "json"
-    min_print_severity: "INFO"
-    emit_llm_payloads_dir: "./llm_payloads"
-    llm_payload_mode: "full"
+    path: '/var/log/fluent-bit'
+    mode: 'batch'
+    output_format: 'json'
+    min_print_severity: 'INFO'
+    emit_llm_payloads_dir: './llm_payloads'
+    llm_payload_mode: 'full'
     only_last_chunk: false
 
 database:
-  url: "sqlite:////var/lib/logtriage/logtriage.db"
+  url: 'sqlite:////var/lib/logtriage/logtriage.db'
   retention_days: 30
 
 webui:
   enabled: true
-  host: "127.0.0.1"
+  host: '127.0.0.1'
   port: 8090
-  base_path: "/"
-  secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_STRING"
-  session_cookie_name: "logtriage_session"
+  base_path: '/'
+  secret_key: 'CHANGE_THIS_TO_A_LONG_RANDOM_STRING'
+  session_cookie_name: 'logtriage_session'
   dark_mode_default: true
   csrf_enabled: true     # reserved; not fully wired yet
-  allowed_ips: ["127.0.0.1"]
+  allowed_ips: ['127.0.0.1']
   admin_users:
-    - username: "admin"
-      password_hash: "bcrypt:$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    - username: 'admin'
+      password_hash: 'bcrypt:$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 ```
-
-Web UI notes:
-
-- Web UI reads this same `config.yaml` using `LOGTRIAGE_CONFIG` or default `./config.yaml`.
-- Editing via `/config/edit` performs YAML validation and atomic update with `.bak` backup.
-- Regex lab at `/regex` lets you:
-  - pick a module, tail its log file
-  - generate a regex from a selected line
-  - test a regex against the sample
-  - save the regex into the matching pipeline classifier.
 
 ## Usage
 
