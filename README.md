@@ -366,13 +366,13 @@ python -m logtriage.webui
 Each pipeline can point to a prompt template file via `llm.prompt_template`. The file is read once and formatted with Python
 `str.format`, so you can reference these placeholders:
 
-- `{pipeline}` — pipeline name (from the `pipelines` list)
-- `{file_path}` — log file path for the chunk
-- `{severity}` — rule-based severity before the LLM runs
-- `{reason}` — rule-based reason text
-- `{error_count}` — number of lines matching error rules
-- `{warning_count}` — number of lines matching warning rules
-- `{line_count}` — number of lines included in the payload (full chunk or filtered errors-only, depending on `llm_payload_mode`)
+- `{pipeline}` - pipeline name (from the `pipelines` list)
+- `{file_path}` - log file path for the chunk
+- `{severity}` - rule-based severity before the LLM runs
+- `{reason}` - rule-based reason text
+- `{error_count}` - number of lines matching error rules
+- `{warning_count}` - number of lines matching warning rules
+- `{line_count}` - number of lines included in the payload (full chunk or filtered errors-only, depending on `llm_payload_mode`)
 
 Guidelines for writing effective prompts:
 
