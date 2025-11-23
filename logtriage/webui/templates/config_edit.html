@@ -105,6 +105,11 @@
     errorBox.style.display = text ? 'block' : 'none';
   }
 
+  function showClientError(text) {
+    errorBox.textContent = text;
+    errorBox.style.display = text ? 'block' : 'none';
+  }
+
   function setHint(text) {
     hintBody.textContent = text;
   }
