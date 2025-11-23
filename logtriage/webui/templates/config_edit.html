@@ -3,8 +3,8 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 2.2fr) minmax(320px, 1fr);
-    gap: 1.25rem;
+    grid-template-columns: minmax(0, 4.5fr) minmax(320px, 1.35fr);
+    gap: 1.5rem;
     align-items: start;
   }
 
@@ -15,8 +15,10 @@
   }
 
   .config-editor .CodeMirror {
-    min-height: 680px;
+    min-height: 720px;
     height: auto;
+    width: 100%;
+    box-sizing: border-box;
     border-radius: 0.75rem;
     box-shadow: inset 0 0 0 1px #222a38;
     background: #0b1020;
@@ -28,11 +30,21 @@
 
   .hint-panel {
     position: sticky;
-    top: 1rem;
+    top: 1.5rem;
   }
 
   .hint-panel .hint-body {
     white-space: pre-wrap;
+  }
+
+  .client-error {
+    color: #ffb4b4;
+    background: #2d1a1d;
+    border: 1px solid #42232a;
+    border-radius: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    margin-top: 0.6rem;
+    display: none;
   }
 </style>
 <div class="card">
@@ -47,7 +59,8 @@
   <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor">
     <div class="config-editor-grid">
       <div class="editor-pane">
-        <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" style="width:100%; font-family:monospace; font-size:0.95rem; background:#0f131b; border:1px solid #222a38; border-radius:0.65rem; padding:0.75rem;">{{ config_text }}</textarea>
+        <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" aria-label="config.yaml editor">{{ config_text }}</textarea>
+        <div id="client-error" class="client-error" role="alert"></div>
         <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
           <button type="submit">Save</button>
           <a class="muted" href="{{ url_for('dashboard') }}">Cancel</a>
@@ -63,8 +76,10 @@
 </div>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" integrity="sha512-mSC76njgb5Rh1yxTrntHbObr5nyK0pm3PzqzFteXe5EW8trK6GRvtvtnB1ZduGucz3Sgr7vAldqQL5cVVBcHaw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" integrity="sha512-FIOh9pI/CeUL8wf8rr1IXYj+WognZ/dRhqEpxP9Iaw7uJLLky54La5QOKxH5YhCmnY4MnBCqYOsk6vtCYsCMwg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" integrity="sha512-fNWiaG1Yg+JZSyH3pALwtoSHrCHu6mDGcWhGAdr2X3xpJMMfovMT4MtZP3B+25IVHItlT/zdJpGZc2JkyHG4IQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js" integrity="sha512-szXHqFkPU2pPDalJYs5Jj+WZicVQfrv/1S9JQ8lbIlt1RmDE30xH6CR6VGrCvc0Njykg9DrJU0B3zGBgkDcJdA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js" integrity="sha512-6xS0dT+Tv1kVqmUoVXOG3GgXBIc+8D8qZjgkI3c5nIEKF0M8qRkK5fVPVIpzANfuCRtBSqD4/YK4JYVU7jzrVA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
 <script>
   const textarea = document.getElementById('config-text');
@@ -74,7 +89,7 @@
     lineWrapping: false,
     tabSize: 2,
     indentUnit: 2,
-    theme: 'default',
+    theme: 'material-darker',
   });
 
   editor.getInputField().setAttribute('spellcheck', 'false');
@@ -83,8 +98,15 @@
   editor.getWrapperElement().style.minHeight = '640px';
 
   const hintBody = document.getElementById('hint-body');
-  let hintTexts = {};
-  let hintsLoaded = false;
+  const errorBox = document.getElementById('client-error');
+  const hintTexts = {{ context_hints | tojson | safe }} || {};
+  const hintsLoaded = Object.keys(hintTexts).length > 0;
+  const defaultHint = hintTexts.root || 'Top-level settings for logtriage.';
+
+  function showClientError(text) {
+    errorBox.textContent = text;
+    errorBox.style.display = text ? 'block' : 'none';
+  }
 
   function setHint(text) {
     hintBody.textContent = text;
@@ -115,7 +137,7 @@
     return stack.map(s => s.key);
   }
 
-    function hintForPath(parts) {
+  function hintForPath(parts) {
     if (!parts.length) return hintTexts.root || 'Top-level settings for logtriage.';
     const top = parts[0];
     const leaf = parts[parts.length - 1];
@@ -160,35 +182,38 @@
   }
 
   function updateHint() {
-    const pos = editor.getCursor();
-    const path = pathForCursor(editor, pos.line);
-    const hint = hintForPath(path);
-    if (hint) {
-      setHint(hint);
-    } else {
-      setHint(hintsLoaded ? 'No hint available for this section yet.' : 'Loading context hints...');
+    try {
+      const pos = editor.getCursor();
+      const path = pathForCursor(editor, pos.line);
+      const hint = hintForPath(path);
+      if (hint) {
+        setHint(hint);
+      } else {
+        setHint(hintsLoaded ? 'No hint available for this section yet.' : 'Loading context hints...');
+      }
+    } catch (err) {
+      console.error('Hint update error', err);
+      setHint(defaultHint);
     }
   }
 
-  function loadHints() {
-    const url = '{{ url_for('assets', path='context_hints.json') }}';
-    fetch(url)
-      .then(resp => resp.json())
-      .then(data => {
-        hintTexts = data || {};
-        hintsLoaded = true;
-        updateHint();
-      })
-      .catch(() => {
-        hintTexts = { root: 'Unable to load context hints.' };
-        hintsLoaded = false;
-        updateHint();
-      });
-  }
-
   editor.on('cursorActivity', updateHint);
-  editor.on('changes', () => editor.save());
-  loadHints();
+  editor.on('changes', () => {
+    editor.save();
+    showClientError('');
+  });
+  document.querySelector('.config-editor').addEventListener('submit', (event) => {
+    const value = editor.getValue();
+    try {
+      jsyaml.load(value);
+      showClientError('');
+      editor.save();
+    } catch (err) {
+      event.preventDefault();
+      showClientError(`YAML error: ${err.message}`);
+    }
+  });
+  setHint(defaultHint);
   updateHint();
 </script>
 {% endblock %}
