@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from sqlalchemy import (
     create_engine,
@@ -171,7 +171,40 @@ def get_module_stats() -> Dict[str, ModuleStats]:
             s.last_severity = row.severity
             s.last_reason = row.reason
             s.last_seen = row.created_at
+    except Exception:
+        return {}
     finally:
         sess.close()
 
     return stats
+
+
+def get_latest_chunk_time():
+    sess = get_session()
+    if sess is None:
+        return None
+    try:
+        row = sess.query(Chunk).order_by(Chunk.created_at.desc()).first()
+        return row.created_at if row else None
+    except Exception:
+        return None
+    finally:
+        sess.close()
+
+
+def get_recent_chunks_for_module(module_name: str, limit: int = 50) -> List[Chunk]:
+    sess = get_session()
+    if sess is None:
+        return []
+    try:
+        return (
+            sess.query(Chunk)
+            .filter(Chunk.module_name == module_name)
+            .order_by(Chunk.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+    except Exception:
+        return []
+    finally:
+        sess.close()
