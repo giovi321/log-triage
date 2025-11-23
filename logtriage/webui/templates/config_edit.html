@@ -3,8 +3,8 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 5.5fr) minmax(340px, 1.2fr);
-    gap: 1.5rem;
+    grid-template-columns: minmax(0, 4fr) minmax(360px, 1fr);
+    gap: 1.25rem;
     align-items: start;
   }
 
@@ -18,6 +18,7 @@
     min-height: 720px;
     height: auto;
     width: 100%;
+    max-width: 100%;
     box-sizing: border-box;
     border-radius: 0.75rem;
     box-shadow: inset 0 0 0 1px #222a38;
@@ -35,6 +36,7 @@
 
   .editor-pane {
     min-width: 0;
+    width: 100%;
   }
 
   .hint-panel .hint-body {
@@ -141,55 +143,42 @@
     return stack.map(s => s.key);
   }
 
-  function hintForPath(parts) {
-    if (!parts.length) return hintTexts.root || 'Top-level settings for logtriage.';
-    const top = parts[0];
-    const leaf = parts[parts.length - 1];
+  function firstWordForLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return null;
+    const match = trimmed.match(/^(-\s*)?([A-Za-z0-9_-]+)/);
+    return match ? normalizeSegment(match[2]) : null;
+  }
 
-    if (top === 'defaults') {
-      return hintTexts[`defaults_${leaf}`] || hintTexts.defaults;
+  function hintForLine(line) {
+    const pos = editor.getCursor();
+    const ancestors = pathForCursor(editor, pos.line);
+    const firstWord = firstWordForLine(line);
+
+    const candidates = [];
+    if (firstWord) {
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const prefix = normalizeSegment(ancestors[i]);
+        if (prefix) {
+          candidates.push(`${prefix}_${firstWord}`);
+        }
+      }
+      candidates.push(firstWord);
     }
-    if (top === 'pipelines') {
-      if (leaf === 'filename_regex' || leaf === 'match') return hintTexts.pipelines_match;
-      if (leaf === 'grouping' || leaf === 'type') return hintTexts.pipelines_grouping;
-      if (leaf === 'classifier' || leaf === 'error_regexes' || leaf === 'warning_regexes' || leaf === 'ignore_regexes') return hintTexts.pipelines_classifier;
-      if (leaf === 'llm' || leaf === 'prompt_template' || leaf === 'min_severity') return hintTexts.pipelines_llm;
-      return hintTexts.pipelines;
+
+    for (const key of candidates) {
+      if (key && hintTexts[key]) {
+        return hintTexts[key];
+      }
     }
-    if (top === 'modules') {
-      if (leaf === 'path') return hintTexts.modules_path;
-      if (leaf === 'mode') return hintTexts.modules_mode;
-      if (leaf === 'pipeline' || leaf === 'pipeline_name') return hintTexts.modules_pipeline;
-      if (leaf === 'output_format') return hintTexts.modules_output_format;
-      if (leaf === 'llm_payload_mode') return hintTexts.modules_llm_payload_mode;
-      if (leaf === 'only_last_chunk') return hintTexts.modules_only_last_chunk;
-      if (leaf === 'exit_code_by_severity') return hintTexts.modules_exit_code_by_severity;
-      if (leaf === 'alerts' || leaf === 'webhook' || leaf === 'mqtt') return hintTexts.modules_alerts;
-      if (leaf === 'baseline') return hintTexts.modules_baseline;
-      if (leaf === 'stream') return hintTexts.modules_stream;
-      return hintTexts.modules;
-    }
-    if (top === 'database') {
-      if (leaf === 'retention_days') return hintTexts.database_retention_days;
-      return hintTexts.database;
-    }
-    if (top === 'webui') {
-      if (leaf === 'admin_users') return hintTexts.webui_admin_users;
-      if (leaf === 'allowed_ips') return hintTexts.webui_allowed_ips;
-      if (leaf === 'secret_key') return hintTexts.webui_secret_key;
-      if (leaf === 'session_cookie_name') return hintTexts.webui_session_cookie_name;
-      return hintTexts.webui;
-    }
-    if (top === 'alerts') return hintTexts.alerts;
-    if (top === 'baseline') return hintTexts.baseline;
-    return `${top}: configuration section.`;
+
+    return hintTexts.root || defaultHint;
   }
 
   function updateHint() {
     try {
-      const pos = editor.getCursor();
-      const path = pathForCursor(editor, pos.line);
-      const hint = hintForPath(path);
+      const lineText = editor.getLine(editor.getCursor().line) || '';
+      const hint = hintForLine(lineText);
       if (hint) {
         setHint(hint);
       } else {
