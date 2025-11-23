@@ -5,7 +5,7 @@
   "defaults_llm_min_severity": "defaults.llm_min_severity: minimum severity to emit LLM payloads; WARNING in the README example. Use DEBUG/INFO/WARNING/ERROR/CRITICAL.",
   "defaults_max_chunk_lines": "defaults.max_chunk_lines: cap chunk size before grouping/LLM to avoid giant payloads; typical values range from 120-500.",
   "pipelines": "pipelines: reusable grouping + classifier bundles referenced by modules via pipeline_name. Keep names short and lowercase.",
-  "pipelines_match": "pipelines.match.filename_regex: regex to pick which files feed this pipeline (e.g. .*\\\.log$). Use anchors to avoid accidental matches.",
+  "pipelines_match": "pipelines.match.filename_regex: regex to pick which files feed this pipeline. Use anchors to avoid accidental matches.",
   "pipelines_grouping": "pipelines.grouping: choose whole_file or marker to define chunk boundaries. For marker, set start/end strings per the README grouping section.",
   "pipelines_classifier": "pipelines.classifier: regex_counter or rsnapshot_basic; set error/warning/ignore regex lists. Make regexes specific to avoid noise.",
   "pipelines_llm": "pipelines.llm: enable per-pipeline payloads, set min_severity, max_chunk_lines, and optional prompt_template paths. Set enabled: true to turn it on.",
