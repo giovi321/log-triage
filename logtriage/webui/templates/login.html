@@ -1,22 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card" style="max-width: 400px;">
-  <h2>Login</h2>
-  {% if error %}
-    <p style="color:#ff6b6b;">{{ error }}</p>
-  {% endif %}
-  <form method="post" action="{{ url_for('login_form') }}">
-    <div style="margin-bottom:0.5rem;">
-      <label>Username<br>
+<div class="page-center">
+  <div class="card" style="max-width: 460px; width: 100%;">
+    <h2>Login</h2>
+    <p class="helper-text">Sign in with a web UI admin user from <code>config.yaml</code>.</p>
+    {% if error %}
+      <p style="color:#ff6b6b;">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('login_form') }}" style="display:grid; gap:0.75rem;">
+      <label style="display:block;">
+        <span class="muted" style="display:block; margin-bottom:0.25rem;">Username</span>
         <input type="text" name="username" required>
       </label>
-    </div>
-    <div style="margin-bottom:0.5rem;">
-      <label>Password<br>
+      <label style="display:block;">
+        <span class="muted" style="display:block; margin-bottom:0.25rem;">Password</span>
         <input type="password" name="password" required>
       </label>
-    </div>
-    <button type="submit">Login</button>
-  </form>
+      <button type="submit" style="width: 100%;">Login</button>
+    </form>
+  </div>
 </div>
 {% endblock %}
