@@ -66,12 +66,37 @@ def _init_database(raw: Dict[str, Any]):
 
 
 def _load_context_hints() -> Dict[str, str]:
-    hints_path = ASSETS_DIR / "context_hints.json"
-    try:
-        with hints_path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    """Load context hints for the config editor.
+    We try a couple of locations and also repair common escape issues
+    (like unescaped `\.` in regex examples inside JSON strings).
+    """
+    candidates = [
+        BASE_DIR / "context_hints.json",
+        ASSETS_DIR / "context_hints.json",
+    ]
+
+    for path in candidates:
+        try:
+            if not path.exists():
+                continue
+            raw = path.read_text(encoding="utf-8")
+            # Fix common invalid escape in JSON like `\.` (used in regex examples)
+            # which otherwise triggers `Invalid \escape` errors.
+            raw_fixed = raw.replace("\\.", "\\\\.")
+            data = json.loads(raw_fixed)
+            if isinstance(data, dict):
+                data.setdefault(
+                    "root",
+                    "Top-level sections mirror the README. Move the cursor to a section to see details.",
+                )
+                return data
+        except Exception:
+            continue
+
+    # Fallback: generic root hint only
+    return {
+        "root": "Top-level sections mirror the README. Move the cursor to a section to see details."
+    }
 
 
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
