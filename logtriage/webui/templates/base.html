@@ -52,9 +52,12 @@
       }
       main.container {
         padding: 1.25rem;
-        width: min(1480px, 98vw);
+        width: 100%;
+        max-width: 1400px;
+        box-sizing: border-box;
         margin: 0 auto;
         flex: 1;
+        overflow-x: hidden;
       }
       .card {
         background-color: #141821;
@@ -96,6 +99,18 @@
         align-items: center;
         flex-wrap: wrap;
         gap: 0.5rem 1rem;
+      }
+      .topnav-links a {
+        padding: 0.35rem 0.6rem;
+        border-radius: 0.6rem;
+        transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+        border: 1px solid transparent;
+      }
+      .topnav-links a.active {
+        background: #1f2a3e;
+        border-color: #2f3b53;
+        color: #cfe1ff;
+        box-shadow: inset 0 0 0 1px rgba(79, 123, 212, 0.4);
       }
       .topnav-links .pill {
         padding: 0.35rem 0.6rem;
@@ -185,13 +200,18 @@
     </div>
     <div class="topnav-links">
       {% if username %}
+        {% set current_path = request.url.path %}
+        {% set dashboard_url = url_for('dashboard') | string %}
+        {% set module_logs_url = url_for('module_logs') | string %}
+        {% set edit_config_url = url_for('edit_config') | string %}
+        {% set regex_lab_url = url_for('regex_lab') | string %}
+        {% set account_url = url_for('account') | string %}
         <span class="pill">{{ username }}</span>
-        <a href="{{ url_for('dashboard') }}">Dashboard</a>
-        <a href="{{ url_for('module_logs') }}">Logs</a>
-        <a href="{{ url_for('edit_config') }}">Edit Config</a>
-        <a href="{{ url_for('regex_lab') }}">Regex Lab</a>
-        <a href="{{ url_for('user_admin') }}">Users</a>
-        <a href="{{ url_for('account') }}">Password</a>
+        <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Dashboard</a>
+        <a href="{{ module_logs_url }}" class="{% if current_path.startswith(module_logs_url) %}active{% endif %}">Logs</a>
+        <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Edit Config</a>
+        <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
+        <a href="{{ account_url }}" class="{% if current_path.startswith(account_url) %}active{% endif %}">Password</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
         <a href="{{ url_for('login_form') }}">Login</a>
