@@ -13,11 +13,17 @@ from .stream import stream_file
 from .baseline import apply_baseline
 from .alerts import send_alerts
 from .webui.db import setup_database, cleanup_old_chunks, store_chunk
+from .version import __version__
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="log-triage: rule-based log triage and LLM payload generator."
+    )
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     p.add_argument(
         "--config",
