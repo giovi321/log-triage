@@ -1,0 +1,24 @@
+[Unit]
+Description=Log Triage main service
+Documentation=https://github.com/giovi321/log-triage
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust the user/group and paths to match your installation.
+User=logtriage
+Group=logtriage
+WorkingDirectory=/opt/logtriage
+Environment=LOGTRIAGE_CONFIG=/etc/logtriage/config.yaml
+Environment="PATH=/opt/logtriage/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+ExecStart=/usr/bin/env python -m logtriage --config /etc/logtriage/config.yaml
+Restart=on-failure
+RestartSec=5s
+StateDirectory=logtriage
+RuntimeDirectory=logtriage
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
