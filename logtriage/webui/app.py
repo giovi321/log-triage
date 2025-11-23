@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
 from pathlib import Path
@@ -64,6 +65,15 @@ def _init_database(raw: Dict[str, Any]):
         db_status["error"] = str(exc)
 
 
+def _load_context_hints() -> Dict[str, str]:
+    hints_path = ASSETS_DIR / "context_hints.json"
+    try:
+        with hints_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
@@ -74,6 +84,7 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
 
 
 settings, raw_config, CONFIG_PATH = _load_settings_and_config()
+context_hints = _load_context_hints()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
 
 
@@ -167,10 +178,11 @@ async def edit_config(request: Request):
         "config_edit.html",
         {
             "request": request,
-            "username": username,
-            "config_text": text,
-            "error": None,
-            "message": None,
+        "username": username,
+        "config_text": text,
+        "error": None,
+        "message": None,
+            "context_hints": context_hints,
         },
     )
 
