@@ -13,11 +13,25 @@
 <div class="card">
   <h2>Logs explorer</h2>
   <p class="helper-text">Pick a module to browse its log tail and recent chunk summaries. Use the copy helpers to share errors or snippets quickly.</p>
+  {% if message %}
+    <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #2e4735; background:#142018; color:#b7e6c5; border-radius:0.5rem;">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #5c2f2f; background:#1c1114; color:#ffcdd2; border-radius:0.5rem;">{{ error }}</div>
+  {% endif %}
   <form method="get" action="{{ url_for('module_logs') }}" style="margin-bottom:0.75rem;">
     <label>Module:
       <select name="module" onchange="this.form.submit()">
         {% for m in modules %}
         <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="margin-left:0.75rem;">Tail view:
+      <select name="tail_filter" onchange="this.form.submit()">
+        <option value="all" {% if tail_filter == 'ALL' %}selected{% endif %}>All lines</option>
+        {% for sev in tail_severities %}
+          <option value="{{ sev }}" {% if tail_filter == sev %}selected{% endif %}>{{ sev }} only</option>
         {% endfor %}
       </select>
     </label>
@@ -37,6 +51,9 @@
             <button type="button" class="secondary" onclick="copyAllLines()">Copy all lines</button>
             <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
             <button type="button" class="secondary" onclick="toggleAllChunks()" id="toggle-all-chunks">Collapse chunks</button>
+            {% if tail_filter != 'ALL' %}
+              <a href="{{ url_for('module_logs') }}?module={{ current_module.name }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
+            {% endif %}
           </div>
           <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% if chunked_tail %}
@@ -67,6 +84,8 @@
                   </div>
                 </div>
               {% endfor %}
+            {% elif had_chunked_tail and tail_filter != 'ALL' %}
+              <p class="muted" style="margin:0.5rem 0;">No log sections matched the {{ tail_filter }} filter.</p>
             {% else %}
               {% for line in sample_lines %}
                 <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
@@ -91,6 +110,11 @@
         {% else %}
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
             <button type="button" class="secondary" onclick="copyAllChunks()">Copy all summaries</button>
+            <form method="post" action="{{ url_for('flush_logs_db') }}" style="margin:0;">
+              <input type="hidden" name="module" value="{{ current_module.name }}">
+              <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+              <button type="submit" class="secondary" style="border-color:#5c2f2f; color:#ffcdd2;">Flush database</button>
+            </form>
           </div>
           <div style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% for c in recent_chunks %}
@@ -100,9 +124,32 @@
                     <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
                     <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at|localtime }}</span>
                   </div>
-                  <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
+                  <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+                    <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
+                    <form method="post" action="{{ url_for('delete_chunk') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                      <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                      <input type="hidden" name="module" value="{{ current_module.name }}">
+                      <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                      <button type="submit" class="secondary" style="border-color:#5c2f2f; color:#ffcdd2;">Delete</button>
+                    </form>
+                  </div>
                 </div>
-                <div class="helper-text" style="margin:0.25rem 0;">errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</div>
+                <div class="helper-text" style="margin:0.25rem 0; display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                  <span>errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</span>
+                  <form method="post" action="{{ url_for('change_chunk_severity') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                    <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                    <input type="hidden" name="module" value="{{ current_module.name }}">
+                    <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                    <label class="muted" style="font-size:0.9rem;">Severity
+                      <select name="severity">
+                        {% for sev in severity_choices %}
+                          <option value="{{ sev }}" {% if sev == c.severity %}selected{% endif %}>{{ sev }}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
+                    <button type="submit" class="secondary">Update</button>
+                  </form>
+                </div>
                 <div style="font-family:monospace; font-size:0.95rem; white-space:pre-wrap;">{{ c.reason }}</div>
               </div>
             {% endfor %}
