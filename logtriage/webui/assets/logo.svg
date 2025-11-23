@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="630"
+   height="110"
+   viewBox="0 0 630 110"
+   role="img"
+   aria-labelledby="title desc"
+   version="1.1"
+   id="svg25"
+   sodipodi:docname="logo.svg"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <sodipodi:namedview
+     id="namedview27"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="0.97404981"
+     inkscape:cx="362.40446"
+     inkscape:cy="22.586114"
+     inkscape:window-width="1536"
+     inkscape:window-height="891"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="logo-log-triage-bw-bold-big" />
+  <title
+     id="title">log-triage logo monochrome bold large text</title>
+  <desc
+     id="desc">Minimal terminal-style log icon with heartbeat and log-triage wordmark with text nearly as tall as the icon.</desc>
+  <defs
+     id="defs6">
+    <style
+       type="text/css"
+       id="style4"><![CDATA[
+      .icon-bg { fill: #000000; }
+      .icon-outline {
+        fill: none;
+        stroke: #FFFFFF;
+        stroke-width: 3;
+        stroke-linejoin: round;
+      }
+      .log-line, .heartbeat {
+        fill: none;
+        stroke: #FFFFFF;
+        stroke-width: 3;
+        stroke-linecap: round;
+      }
+      .wordmark {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont,
+                     "SF Mono", Menlo, Monaco, Consolas,
+                     "Liberation Mono", "Fira Code", "JetBrains Mono",
+                     monospace;
+        font-size: 80px;
+        font-weight: 700;
+        letter-spacing: 2.4px;
+        fill: #FFFFFF;
+      }
+    ]]></style>
+  </defs>
+  <g
+     id="logo-log-triage-bw-bold-big"
+     transform="translate(-16,-22)">
+    <!-- Icon block -->
+    <!-- Wordmark -->
+    <g
+       id="g442"
+       transform="translate(9.5039291,7)">
+      <g
+         id="g317">
+        <g
+           id="icon"
+           transform="translate(16,22)">
+          <!-- Outer terminal / log container -->
+          <rect
+             class="icon-bg"
+             x="0"
+             y="0"
+             width="96"
+             height="96"
+             rx="18"
+             id="rect8" />
+          <rect
+             class="icon-outline"
+             x="1.5"
+             y="1.5"
+             width="93"
+             height="93"
+             rx="16.5"
+             id="rect10" />
+          <!-- Log lines -->
+          <line
+             class="log-line"
+             x1="18"
+             y1="30"
+             x2="58"
+             y2="30"
+             id="line12" />
+          <line
+             class="log-line"
+             x1="18"
+             y1="46"
+             x2="52"
+             y2="46"
+             id="line14" />
+          <line
+             class="log-line"
+             x1="18"
+             y1="62"
+             x2="46"
+             y2="62"
+             id="line16" />
+          <!-- Heartbeat / anomaly graph -->
+          <path
+             class="heartbeat"
+             d="m 42,76 8,-10 6,16 8,-30 8,18 8,-8"
+             id="path18" />
+        </g>
+      </g>
+      <g
+         id="wordmark">
+        <text
+           class="wordmark"
+           x="129.22026"
+           y="97.966492"
+           id="text21"><tspan
+             style="fill:#000000"
+             id="tspan427">log-triage</tspan></text>
+      </g>
+    </g>
+  </g>
+  <metadata
+     id="metadata429">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:title>log-triage logo monochrome bold large text</dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+</svg>
