@@ -3,6 +3,10 @@
 <style>
   .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.1rem 0; }
   .log-line input[type="checkbox"] { margin-top:0.15rem; }
+  .log-line.selected { background:#182233; border-radius:0.4rem; padding:0.25rem 0.2rem; }
+  .log-section { border:1px solid #222a38; border-radius:0.65rem; margin-bottom:0.75rem; overflow:hidden; }
+  .log-section-header { display:flex; gap:0.5rem; align-items:center; justify-content:space-between; padding:0.45rem 0.5rem; background:#111520; border-bottom:1px solid #1f2530; }
+  .log-section-body { padding:0.35rem 0.45rem; display:flex; flex-direction:column; gap:0.1rem; }
 </style>
 <div class="card">
   <h2>Logs explorer</h2>
@@ -32,13 +36,40 @@
             <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
           </div>
           <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
-            {% for line in sample_lines %}
-              <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
-                <input type="checkbox" name="selected_line" value="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e }}">
-                <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % loop.index0 }}:</span>
-                <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
-              </div>
-            {% endfor %}
+            {% if chunked_tail %}
+              {% for section in chunked_tail %}
+                <div class="log-section">
+                  <div class="log-section-header">
+                    {% if section.chunk %}
+                      <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+                        <span class="status-badge sev-{{ section.chunk.severity }}">{{ section.chunk.severity }}</span>
+                        <span class="muted" style="font-size:0.85rem;">Chunk #{{ section.chunk.chunk_index }} · {{ section.chunk.created_at|localtime }}</span>
+                      </div>
+                      <div class="helper-text" style="flex:1; text-align:right;">{{ section.chunk.reason }}</div>
+                    {% else %}
+                      <div class="muted">Tail lines</div>
+                    {% endif %}
+                  </div>
+                  <div class="log-section-body">
+                    {% for line in section.lines %}
+                      <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
+                        <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
+                        <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                        <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              {% for line in sample_lines %}
+                <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
+                  <input type="checkbox" name="selected_line" value="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e }}">
+                  <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % loop.index0 }}:</span>
+                  <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
+                </div>
+              {% endfor %}
+            {% endif %}
           </div>
         {% else %}
           <p class="muted">No lines read from this log path.</p>
@@ -61,9 +92,9 @@
                 <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
                   <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                     <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
-                    <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at }}</span>
+                    <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at|localtime }}</span>
                   </div>
-                  <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
+                  <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
                 </div>
                 <div class="helper-text" style="margin:0.25rem 0;">errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</div>
                 <div style="font-family:monospace; font-size:0.95rem; white-space:pre-wrap;">{{ c.reason }}</div>
@@ -102,6 +133,19 @@
       .filter(Boolean);
     copyText(selected.join('\n'));
   }
+
+  function refreshSelectedHighlights() {
+    document.querySelectorAll('.log-line').forEach(row => {
+      const cb = row.querySelector('input[name="selected_line"]');
+      row.classList.toggle('selected', cb && cb.checked);
+    });
+  }
+
+  document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+    cb.addEventListener('change', refreshSelectedHighlights);
+  });
+
+  refreshSelectedHighlights();
 
   function copyChunk(btn) {
     const text = btn.dataset.summary || '';
