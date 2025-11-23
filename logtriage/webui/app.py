@@ -209,6 +209,7 @@ async def edit_config_post(
                 "config_text": config_text,
                 "error": f"YAML error: {e}",
                 "message": None,
+                "context_hints": context_hints,
             },
             status_code=status.HTTP_400_BAD_REQUEST,
         )
@@ -229,6 +230,7 @@ async def edit_config_post(
                 "config_text": config_text,
                 "error": f"Write error: {e}",
                 "message": None,
+                "context_hints": context_hints,
             },
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
@@ -247,6 +249,7 @@ async def edit_config_post(
             "config_text": config_text,
             "error": None,
             "message": "Configuration saved.",
+            "context_hints": context_hints,
         },
     )
 

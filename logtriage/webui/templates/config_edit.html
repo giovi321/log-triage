@@ -3,8 +3,8 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 3.25fr) minmax(320px, 1fr);
-    gap: 1.35rem;
+    grid-template-columns: minmax(0, 4.5fr) minmax(320px, 1.35fr);
+    gap: 1.5rem;
     align-items: start;
   }
 
@@ -17,6 +17,8 @@
   .config-editor .CodeMirror {
     min-height: 720px;
     height: auto;
+    width: 100%;
+    box-sizing: border-box;
     border-radius: 0.75rem;
     box-shadow: inset 0 0 0 1px #222a38;
     background: #0b1020;
@@ -99,11 +101,7 @@
   const errorBox = document.getElementById('client-error');
   const hintTexts = {{ context_hints | tojson | safe }} || {};
   const hintsLoaded = Object.keys(hintTexts).length > 0;
-
-  function showClientError(text) {
-    errorBox.textContent = text;
-    errorBox.style.display = text ? 'block' : 'none';
-  }
+  const defaultHint = hintTexts.root || 'Top-level settings for logtriage.';
 
   function showClientError(text) {
     errorBox.textContent = text;
@@ -184,13 +182,18 @@
   }
 
   function updateHint() {
-    const pos = editor.getCursor();
-    const path = pathForCursor(editor, pos.line);
-    const hint = hintForPath(path);
-    if (hint) {
-      setHint(hint);
-    } else {
-      setHint(hintsLoaded ? 'No hint available for this section yet.' : 'Loading context hints...');
+    try {
+      const pos = editor.getCursor();
+      const path = pathForCursor(editor, pos.line);
+      const hint = hintForPath(path);
+      if (hint) {
+        setHint(hint);
+      } else {
+        setHint(hintsLoaded ? 'No hint available for this section yet.' : 'Loading context hints...');
+      }
+    } catch (err) {
+      console.error('Hint update error', err);
+      setHint(defaultHint);
     }
   }
 
@@ -210,7 +213,7 @@
       showClientError(`YAML error: ${err.message}`);
     }
   });
-  setHint(hintTexts.root || 'Top-level settings for logtriage.');
+  setHint(defaultHint);
   updateHint();
 </script>
 {% endblock %}
