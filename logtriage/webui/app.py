@@ -14,8 +14,8 @@ from starlette import status
 
 from ..config import build_modules, load_config
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
-from .auth import authenticate_user, create_session_token, get_current_user
-from .db import get_module_stats
+from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
+from .db import get_module_stats, setup_database, get_latest_chunk_time
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -24,11 +24,33 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
+db_status: Dict[str, Any] = {
+    "configured": False,
+    "connected": False,
+    "error": None,
+    "url": None,
+}
+
+
+def _init_database(raw: Dict[str, Any]):
+    db_cfg = raw.get("database") or {}
+    url = db_cfg.get("url")
+    db_status.update({"configured": bool(url), "connected": False, "error": None, "url": url})
+    if not url:
+        return
+    try:
+        setup_database(url)
+        db_status["connected"] = True
+    except Exception as exc:
+        db_status["error"] = str(exc)
+
+
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
     raw = load_full_config(cfg_path)
     web_settings = parse_webui_settings(raw)
+    _init_database(raw)
     return web_settings, raw, cfg_path
 
 
@@ -95,6 +117,7 @@ async def dashboard(request: Request):
 
     modules = build_modules(raw_config)
     stats = get_module_stats()
+    latest_chunk_at = get_latest_chunk_time()
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -102,27 +125,24 @@ async def dashboard(request: Request):
             "username": username,
             "modules": modules,
             "stats": stats,
+            "db_status": db_status,
+            "latest_chunk_at": latest_chunk_at,
         },
     )
 
 
-@app.get("/config", name="view_config")
-async def view_config(request: Request):
+@app.get("/users", name="user_admin")
+async def user_admin(request: Request):
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    try:
-        text = CONFIG_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        text = f"Error reading {CONFIG_PATH}: {e}"
-
     return templates.TemplateResponse(
-        "config.html",
+        "users.html",
         {
             "request": request,
             "username": username,
-            "config_text": text,
+            "admin_users": settings.admin_users,
         },
     )
 
@@ -200,6 +220,7 @@ async def edit_config_post(
 
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
+    _init_database(raw_config)
 
     return templates.TemplateResponse(
         "config_edit.html",
@@ -249,6 +270,159 @@ async def regex_lab(
             "message": None,
         },
     )
+
+
+@app.get("/account", name="account")
+async def account(request: Request):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "account.html",
+        {"request": request, "username": username, "error": None, "message": None},
+    )
+
+
+@app.post("/account/password", name="change_password")
+async def change_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    global settings, raw_config
+
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    user = authenticate_user(settings, username, current_password)
+    if not user:
+        return templates.TemplateResponse(
+            "account.html",
+            {
+                "request": request,
+                "username": username,
+                "error": "Current password is incorrect.",
+                "message": None,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if new_password != confirm_password:
+        return templates.TemplateResponse(
+            "account.html",
+            {
+                "request": request,
+                "username": username,
+                "error": "New passwords do not match.",
+                "message": None,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if len(new_password) < 8:
+        return templates.TemplateResponse(
+            "account.html",
+            {
+                "request": request,
+                "username": username,
+                "error": "Use at least 8 characters for the new password.",
+                "message": None,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        cfg_dict = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        return templates.TemplateResponse(
+            "account.html",
+            {
+                "request": request,
+                "username": username,
+                "error": f"Failed to read config: {e}",
+                "message": None,
+            },
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    webui_cfg = cfg_dict.setdefault("webui", {})
+    admins = webui_cfg.get("admin_users") or []
+    target = None
+    for entry in admins:
+        if isinstance(entry, dict) and entry.get("username") == username:
+            target = entry
+            break
+
+    if target is None:
+        return templates.TemplateResponse(
+            "account.html",
+            {
+                "request": request,
+                "username": username,
+                "error": "Your account is not present in webui.admin_users. Update it via the config editor.",
+                "message": None,
+            },
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    target["password_hash"] = pwd_context.hash(new_password)
+
+    try:
+        new_text = yaml.safe_dump(cfg_dict, sort_keys=False)
+        tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+        backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        if CONFIG_PATH.exists():
+            CONFIG_PATH.replace(backup_path)
+        tmp_path.replace(CONFIG_PATH)
+    except Exception as e:
+        return templates.TemplateResponse(
+            "account.html",
+            {
+                "request": request,
+                "username": username,
+                "error": f"Failed to write config: {e}",
+                "message": None,
+            },
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    from .config import parse_webui_settings  # avoid cycle
+
+    raw_config = load_config(CONFIG_PATH)
+    settings = parse_webui_settings(raw_config)
+
+    return templates.TemplateResponse(
+        "account.html",
+        {
+            "request": request,
+            "username": username,
+            "error": None,
+            "message": "Password updated. Existing sessions stay active until their cookies expire.",
+        },
+    )
+
+
+def _tail_lines(path: Path, max_lines: int = 200) -> List[str]:
+    if not path.exists() or not path.is_file():
+        return []
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            return lines[-max_lines:]
+    except Exception:
+        return []
+
+
+def _suggest_regex_from_line(line: str) -> str:
+    # Naive regex suggestion: escape special chars, generalize digits/hex blocks
+    escaped = re.escape(line.strip())
+    escaped = re.sub(r"\d+", r"\\d+", escaped)
+    escaped = re.sub(r"[A-Fa-f0-9]{6,}", r"[A-Fa-f0-9]+", escaped)
+    return escaped
 
 
 @app.post("/regex/test", name="regex_test")
