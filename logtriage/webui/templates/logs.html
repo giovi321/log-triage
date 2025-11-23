@@ -7,6 +7,8 @@
   .log-section { border:1px solid #222a38; border-radius:0.65rem; margin-bottom:0.75rem; overflow:hidden; }
   .log-section-header { display:flex; gap:0.5rem; align-items:center; justify-content:space-between; padding:0.45rem 0.5rem; background:#111520; border-bottom:1px solid #1f2530; }
   .log-section-body { padding:0.35rem 0.45rem; display:flex; flex-direction:column; gap:0.1rem; }
+  .log-section.collapsed .log-section-body { display:none; }
+  .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; }
 </style>
 <div class="card">
   <h2>Logs explorer</h2>
@@ -34,18 +36,22 @@
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
             <button type="button" class="secondary" onclick="copyAllLines()">Copy all lines</button>
             <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
+            <button type="button" class="secondary" onclick="toggleAllChunks()" id="toggle-all-chunks">Collapse chunks</button>
           </div>
           <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% if chunked_tail %}
               {% for section in chunked_tail %}
-                <div class="log-section">
+                <div class="log-section" {% if section.chunk %}data-chunk-section="true"{% endif %}>
                   <div class="log-section-header">
                     {% if section.chunk %}
                       <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                         <span class="status-badge sev-{{ section.chunk.severity }}">{{ section.chunk.severity }}</span>
                         <span class="muted" style="font-size:0.85rem;">Chunk #{{ section.chunk.chunk_index }} · {{ section.chunk.created_at|localtime }}</span>
                       </div>
-                      <div class="helper-text" style="flex:1; text-align:right;">{{ section.chunk.reason }}</div>
+                      <div class="section-actions" style="flex:1; justify-content:flex-end;">
+                        <div class="helper-text" style="text-align:right;">{{ section.chunk.reason }}</div>
+                        <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
+                      </div>
                     {% else %}
                       <div class="muted">Tail lines</div>
                     {% endif %}
@@ -155,6 +161,28 @@
   function copyAllChunks() {
     const summaries = Array.from(document.querySelectorAll('button[data-summary]')).map(btn => btn.dataset.summary);
     copyText(summaries.join('\n'));
+  }
+
+  function toggleSection(btn) {
+    const section = btn.closest('.log-section');
+    if (!section) return;
+    const collapsed = section.classList.toggle('collapsed');
+    btn.textContent = collapsed ? 'Expand' : 'Collapse';
+  }
+
+  function toggleAllChunks() {
+    const sections = Array.from(document.querySelectorAll('#log-lines .log-section[data-chunk-section="true"]'));
+    const allCollapsed = sections.every(sec => sec.classList.contains('collapsed'));
+    sections.forEach(sec => {
+      const shouldCollapse = !allCollapsed;
+      sec.classList.toggle('collapsed', shouldCollapse);
+      const btn = sec.querySelector('button[data-section-index]');
+      if (btn) btn.textContent = shouldCollapse ? 'Expand' : 'Collapse';
+    });
+    const masterBtn = document.getElementById('toggle-all-chunks');
+    if (masterBtn) {
+      masterBtn.textContent = allCollapsed ? 'Collapse chunks' : 'Expand chunks';
+    }
   }
 </script>
 {% endblock %}
