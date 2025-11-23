@@ -28,15 +28,6 @@
   </div>
 
   <div class="card">
-    <h2>Good practices</h2>
-    <ul class="helper-text" style="padding-left:1rem;">
-      <li>Use unique, long passwords for each admin user.</li>
-      <li>Rotate <code>secret_key</code> after personnel changes to invalidate sessions.</li>
-      <li>Keep <code>allowed_ips</code> narrow when exposing the UI behind a proxy.</li>
-    </ul>
-  </div>
-
-  <div class="card">
     <h2>Need to add an admin?</h2>
     <p class="helper-text">Edit <code>webui.admin_users</code> directly in the <a href="{{ url_for('edit_config') }}">config editor</a>. Each entry needs a <code>username</code> and <code>password_hash</code> generated with bcrypt.</p>
   </div>
