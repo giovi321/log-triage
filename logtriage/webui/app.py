@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -18,7 +19,15 @@ from fastapi.staticfiles import StaticFiles
 from ..config import build_modules, load_config
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
-from .db import get_module_stats, setup_database, get_latest_chunk_time, get_recent_chunks_for_module
+from .db import (
+    delete_all_chunks,
+    delete_chunk_by_id,
+    get_module_stats,
+    setup_database,
+    get_latest_chunk_time,
+    get_recent_chunks_for_module,
+    update_chunk_severity,
+)
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -50,6 +59,8 @@ db_status: Dict[str, Any] = {
     "error": None,
     "url": None,
 }
+
+SEVERITY_CHOICES = ["CRITICAL", "ERROR", "WARNING", "INFO", "OK"]
 
 
 def _init_database(raw: Dict[str, Any]):
@@ -320,8 +331,37 @@ async def regex_lab(
     )
 
 
+def _logs_redirect(
+    module: Optional[str],
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    tail_filter: Optional[str] = None,
+):
+    params = {}
+    if module:
+        params["module"] = module
+    if tail_filter:
+        params["tail_filter"] = tail_filter
+    if message:
+        params["message"] = message
+    if error:
+        params["error"] = error
+
+    query = urllib.parse.urlencode(params)
+    url = app.url_path_for("module_logs")
+    if query:
+        url = f"{url}?{query}"
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
 @app.get("/logs", name="module_logs")
-async def module_logs(request: Request, module: Optional[str] = None):
+async def module_logs(
+    request: Request,
+    module: Optional[str] = None,
+    tail_filter: str = "all",
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+):
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
@@ -337,10 +377,26 @@ async def module_logs(request: Request, module: Optional[str] = None):
     sample_lines: List[str] = []
     recent_chunks = []
     chunked_tail: List[Dict[str, Any]] = []
+    available_severities: List[str] = []
+    tail_filter_normalized = (tail_filter or "all").upper()
+    severity_choices = list(SEVERITY_CHOICES)
+    had_chunked_tail = False
     if module_obj is not None:
         sample_lines = _tail_lines(Path(module_obj.path), max_lines=400)
         recent_chunks = get_recent_chunks_for_module(module_obj.name, limit=50)
         chunked_tail = _build_chunked_tail(sample_lines, recent_chunks)
+        had_chunked_tail = bool(chunked_tail)
+        for section in chunked_tail:
+            chunk = section.get("chunk")
+            if not chunk:
+                continue
+            sev = str(getattr(chunk, "severity", "")).upper()
+            if sev and sev not in available_severities:
+                available_severities.append(sev)
+            if sev and sev not in severity_choices:
+                severity_choices.append(sev)
+
+        chunked_tail = _filter_chunked_tail(chunked_tail, tail_filter_normalized)
 
     return templates.TemplateResponse(
         "logs.html",
@@ -353,7 +409,100 @@ async def module_logs(request: Request, module: Optional[str] = None):
             "recent_chunks": recent_chunks,
             "db_status": db_status,
             "chunked_tail": chunked_tail,
+            "had_chunked_tail": had_chunked_tail,
+            "tail_filter": tail_filter_normalized,
+            "tail_severities": available_severities,
+            "severity_choices": severity_choices,
+            "message": message,
+            "error": error,
         },
+    )
+
+
+@app.post("/logs/db/flush", name="flush_logs_db")
+async def flush_logs_db(
+    request: Request,
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(module, error="Database not connected.", tail_filter=tail_filter)
+
+    try:
+        deleted = delete_all_chunks()
+    except Exception as exc:
+        return _logs_redirect(
+            module, error=f"Failed to flush database: {exc}", tail_filter=tail_filter
+        )
+
+    msg = "Database already empty." if deleted == 0 else f"Deleted {deleted} stored chunk(s)."
+    return _logs_redirect(module, message=msg, tail_filter=tail_filter)
+
+
+@app.post("/logs/chunk/delete", name="delete_chunk")
+async def delete_chunk(
+    request: Request,
+    chunk_id: int = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(module, error="Database not connected.", tail_filter=tail_filter)
+
+    try:
+        deleted = delete_chunk_by_id(chunk_id)
+    except Exception as exc:
+        return _logs_redirect(
+            module, error=f"Failed to delete entry: {exc}", tail_filter=tail_filter
+        )
+
+    if not deleted:
+        return _logs_redirect(module, error="Entry not found.", tail_filter=tail_filter)
+
+    return _logs_redirect(module, message="Log entry removed.", tail_filter=tail_filter)
+
+
+@app.post("/logs/chunk/severity", name="change_chunk_severity")
+async def change_chunk_severity(
+    request: Request,
+    chunk_id: int = Form(...),
+    severity: str = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(module, error="Database not connected.", tail_filter=tail_filter)
+
+    normalized = (severity or "").upper()
+    if normalized not in SEVERITY_CHOICES:
+        return _logs_redirect(
+            module, error="Invalid severity provided.", tail_filter=tail_filter
+        )
+
+    try:
+        updated = update_chunk_severity(chunk_id, normalized)
+    except Exception as exc:
+        return _logs_redirect(
+            module, error=f"Failed to update severity: {exc}", tail_filter=tail_filter
+        )
+
+    if not updated:
+        return _logs_redirect(module, error="Entry not found.", tail_filter=tail_filter)
+
+    return _logs_redirect(
+        module, message=f"Severity updated to {normalized}.", tail_filter=tail_filter
     )
 
 
@@ -572,7 +721,25 @@ def _build_chunked_tail(sample_lines: List[str], recent_chunks: List) -> List[Di
     if remaining:
         sections.append({"chunk": None, "lines": remaining})
 
-    return list(reversed(sections))
+    return sections
+
+
+def _filter_chunked_tail(sections: List[Dict[str, Any]], tail_filter: str) -> List[Dict[str, Any]]:
+    if not sections:
+        return []
+
+    normalized = (tail_filter or "ALL").upper()
+    if normalized in {"", "ALL"}:
+        return sections
+
+    filtered: List[Dict[str, Any]] = []
+    for section in sections:
+        chunk = section.get("chunk")
+        severity = str(getattr(chunk, "severity", "")).upper() if chunk else ""
+        if severity == normalized:
+            filtered.append(section)
+
+    return filtered
 
 
 def _suggest_regex_from_line(line: str) -> str:

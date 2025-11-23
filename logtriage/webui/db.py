@@ -208,3 +208,59 @@ def get_recent_chunks_for_module(module_name: str, limit: int = 50) -> List[Chun
         return []
     finally:
         sess.close()
+
+
+def delete_all_chunks() -> int:
+    sess = get_session()
+    if sess is None:
+        return 0
+
+    try:
+        deleted = sess.query(Chunk).delete(synchronize_session=False)
+        sess.commit()
+        return deleted or 0
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+def delete_chunk_by_id(chunk_id: int) -> bool:
+    sess = get_session()
+    if sess is None:
+        return False
+
+    try:
+        deleted = (
+            sess.query(Chunk)
+            .filter(Chunk.id == chunk_id)
+            .delete(synchronize_session=False)
+        )
+        sess.commit()
+        return bool(deleted)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+def update_chunk_severity(chunk_id: int, severity: str) -> bool:
+    sess = get_session()
+    if sess is None:
+        return False
+
+    try:
+        updated = (
+            sess.query(Chunk)
+            .filter(Chunk.id == chunk_id)
+            .update({"severity": severity}, synchronize_session=False)
+        )
+        sess.commit()
+        return bool(updated)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
