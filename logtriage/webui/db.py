@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from sqlalchemy import (
     create_engine,
@@ -188,5 +188,23 @@ def get_latest_chunk_time():
         return row.created_at if row else None
     except Exception:
         return None
+    finally:
+        sess.close()
+
+
+def get_recent_chunks_for_module(module_name: str, limit: int = 50) -> List[Chunk]:
+    sess = get_session()
+    if sess is None:
+        return []
+    try:
+        return (
+            sess.query(Chunk)
+            .filter(Chunk.module_name == module_name)
+            .order_by(Chunk.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+    except Exception:
+        return []
     finally:
         sess.close()

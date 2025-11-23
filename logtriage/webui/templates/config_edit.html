@@ -11,7 +11,7 @@
   {% endif %}
   <form method="post" action="{{ url_for('edit_config_post') }}">
     <div class="editor-layout">
-      <div>
+      <div class="editor-pane">
         <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" style="width:100%; font-family:monospace; font-size:0.95rem; background:#0f131b; border:1px solid #222a38; border-radius:0.65rem; padding:0.75rem;">{{ config_text }}</textarea>
         <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
           <button type="submit">Save</button>
@@ -41,6 +41,11 @@
     indentUnit: 2,
     theme: 'default',
   });
+
+  editor.getInputField().setAttribute('spellcheck', 'false');
+  editor.getInputField().setAttribute('autocorrect', 'off');
+  editor.getWrapperElement().style.marginRight = '0.5rem';
+  editor.getWrapperElement().style.minHeight = '640px';
 
   const hintBody = document.getElementById('hint-body');
 
@@ -73,38 +78,82 @@
     return stack.map(s => s.key);
   }
 
+  const hintTexts = {
+    root: 'Top-level settings mirror the README: defaults, pipelines, modules, database, and webui.',
+    defaults: 'defaults: global knobs applied to every module unless overridden. Good place for llm_min_severity and max_chunk_lines.',
+    defaults_llm_enabled: 'defaults.llm_enabled: gate LLM payload generation everywhere by default.',
+    defaults_llm_min_severity: 'defaults.llm_min_severity: minimum severity to emit LLM payloads; WARNING in the README example.',
+    defaults_max_chunk_lines: 'defaults.max_chunk_lines: cap chunk size before grouping/LLM to avoid giant payloads.',
+    pipelines: 'pipelines: reusable grouping + classifier bundles referenced by modules via pipeline_name.',
+    pipelines_match: 'pipelines.match.filename_regex: regex to pick which files feed this pipeline.',
+    pipelines_grouping: 'pipelines.grouping: choose whole_file or marker to define chunk boundaries (see README grouping section).',
+    pipelines_classifier: 'pipelines.classifier: regex_counter or rsnapshot_basic; set error/warning/ignore regex lists.',
+    pipelines_llm: 'pipelines.llm: enable per-pipeline payloads, set min_severity, max_chunk_lines, and optional prompt_template paths.',
+    pipelines_ignore: 'pipelines.classifier.ignore_regexes: drop known noisy lines before counting severities.',
+    modules: 'modules: concrete tasks; each ties a path + mode to a pipeline and output options.',
+    modules_path: 'modules.path: source log file or directory (batch) pulled by logtriage. Ensure the service can read it.',
+    modules_mode: 'modules.mode: batch scans once, follow tails a file, stream tails with interval, journal reads systemd logs.',
+    modules_pipeline: 'modules.pipeline: name of a pipeline entry; controls grouping/classifier used on this module.',
+    modules_output_format: 'modules.output_format: json or text summaries written by the CLI.',
+    modules_llm_payload_mode: 'modules.llm_payload_mode: errors_only or full—matches README guidance on LLM payload size.',
+    modules_only_last_chunk: 'modules.only_last_chunk: true to only analyze most recent chunk per file (e.g., last rsnapshot run).',
+    modules_exit_code_by_severity: 'modules.exit_code_by_severity: map severity to process exit codes for automation.',
+    modules_alerts: 'modules.alerts: optional webhook/mqtt sinks; match README examples for min_severity and target.',
+    modules_baseline: 'modules.baseline: anomaly detection window and multipliers; stores state_file as in README.',
+    modules_stream: 'modules.stream: stream/tailing settings like from_beginning and interval.',
+    database: 'database: URL + retention_days. Web UI and CLI must share this to show per-module stats.',
+    database_retention_days: 'database.retention_days: how long to keep historical chunks before cleanup.',
+    webui: 'webui: host/port/base_path plus security (secret_key, allowed_ips) and admin_users with bcrypt hashes.',
+    webui_admin_users: 'webui.admin_users: usernames + password_hash fields. Update via Password page or regenerate hashes.',
+    webui_allowed_ips: 'webui.allowed_ips: IP allowlist for the UI; empty list means allow all.',
+    webui_secret_key: 'webui.secret_key: long random string used for session signing; rotate to sign everyone out.',
+    webui_session_cookie_name: 'webui.session_cookie_name: customize cookie name to avoid clashes behind reverse proxies.',
+    alerts: 'alerts: webhook + MQTT hooks; follow README examples for headers, topics, and min_severity.',
+    baseline: 'baseline: enable baseline detection, window size, and multipliers controlling anomaly severity bump.',
+  };
+
   function hintForPath(parts) {
-    if (!parts.length) return 'General settings live here. Click in a section to see focused guidance.';
+    if (!parts.length) return hintTexts.root;
     const top = parts[0];
     const leaf = parts[parts.length - 1];
 
-    if (top === 'modules') {
-      if (leaf === 'mode') return 'module.mode: tail follows a file, stream keeps a reader, journal reads systemd logs, batch consumes JSON batches.';
-      if (leaf === 'path') return 'module.path: the log file or directory to read. Ensure permissions allow the logtriage process to read it.';
-      if (leaf === 'pipeline_name') return 'module.pipeline_name: must match a pipeline entry. Pipelines define classifiers and grouping rules used for this module.';
-      return 'modules: list of inputs. Each module can define name, path, mode, and pipeline_name to tie into classifiers.';
+    if (top === 'defaults') {
+      return hintTexts[`defaults_${leaf}`] || hintTexts.defaults;
     }
     if (top === 'pipelines') {
-      if (leaf === 'classifier') return 'pipelines.classifier: set error_regexes, warning_regexes, and ignore_regexes. Use the Regex Lab to test updates.';
-      if (leaf === 'grouping') return 'pipelines.grouping: controls how related lines collapse into events. Tune thresholds to avoid alert floods.';
-      return 'pipelines: reusable classifiers and grouping logic referenced by modules via pipeline_name.';
+      if (leaf === 'filename_regex' || leaf === 'match') return hintTexts.pipelines_match;
+      if (leaf === 'grouping' || leaf === 'type') return hintTexts.pipelines_grouping;
+      if (leaf === 'classifier' || leaf === 'error_regexes' || leaf === 'warning_regexes' || leaf === 'ignore_regexes') return hintTexts.pipelines_classifier;
+      if (leaf === 'llm' || leaf === 'prompt_template' || leaf === 'min_severity') return hintTexts.pipelines_llm;
+      return hintTexts.pipelines;
     }
-    if (top === 'alerts') {
-      return 'alerts: optional sinks (MQTT, webhook, etc.). Disable unused ones to reduce noise and external connections.';
+    if (top === 'modules') {
+      if (leaf === 'path') return hintTexts.modules_path;
+      if (leaf === 'mode') return hintTexts.modules_mode;
+      if (leaf === 'pipeline' || leaf === 'pipeline_name') return hintTexts.modules_pipeline;
+      if (leaf === 'output_format') return hintTexts.modules_output_format;
+      if (leaf === 'llm_payload_mode') return hintTexts.modules_llm_payload_mode;
+      if (leaf === 'only_last_chunk') return hintTexts.modules_only_last_chunk;
+      if (leaf === 'exit_code_by_severity') return hintTexts.modules_exit_code_by_severity;
+      if (leaf === 'alerts' || leaf === 'webhook' || leaf === 'mqtt') return hintTexts.modules_alerts;
+      if (leaf === 'baseline') return hintTexts.modules_baseline;
+      if (leaf === 'stream') return hintTexts.modules_stream;
+      return hintTexts.modules;
     }
     if (top === 'database') {
-      return 'database.url configures where chunks are stored. The Web UI reads stats here; ensure the ingest process uses the same URL.';
+      if (leaf === 'retention_days') return hintTexts.database_retention_days;
+      return hintTexts.database;
     }
     if (top === 'webui') {
-      if (leaf === 'secret_key') return 'webui.secret_key: rotate to a long random string. Changing it signs users out.';
-      if (leaf === 'allowed_ips') return 'webui.allowed_ips: IP allowlist checked before handling requests. Leave empty to allow all.';
-      if (leaf === 'admin_users') return 'webui.admin_users: list of usernames with bcrypt hashes. Update your own hash from the Password page.';
-      return 'webui: UI host, port, base path, and security settings. Align these with your reverse proxy if present.';
+      if (leaf === 'admin_users') return hintTexts.webui_admin_users;
+      if (leaf === 'allowed_ips') return hintTexts.webui_allowed_ips;
+      if (leaf === 'secret_key') return hintTexts.webui_secret_key;
+      if (leaf === 'session_cookie_name') return hintTexts.webui_session_cookie_name;
+      return hintTexts.webui;
     }
-    if (top === 'baseline') {
-      return 'baseline: baseline configuration for anomaly detection. Enable only if you have the model files available.';
-    }
-    return `${top}: section configuration.`;
+    if (top === 'alerts') return hintTexts.alerts;
+    if (top === 'baseline') return hintTexts.baseline;
+    return `${top}: configuration section.`;
   }
 
   function updateHint() {

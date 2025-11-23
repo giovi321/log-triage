@@ -15,7 +15,7 @@ from starlette import status
 from ..config import build_modules, load_config
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
-from .db import get_module_stats, setup_database, get_latest_chunk_time
+from .db import get_module_stats, setup_database, get_latest_chunk_time, get_recent_chunks_for_module
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -127,22 +127,6 @@ async def dashboard(request: Request):
             "stats": stats,
             "db_status": db_status,
             "latest_chunk_at": latest_chunk_at,
-        },
-    )
-
-
-@app.get("/users", name="user_admin")
-async def user_admin(request: Request):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    return templates.TemplateResponse(
-        "users.html",
-        {
-            "request": request,
-            "username": username,
-            "admin_users": settings.admin_users,
         },
     )
 
@@ -284,6 +268,40 @@ async def regex_lab(
             "matches": [],
             "error": None,
             "message": None,
+        },
+    )
+
+
+@app.get("/logs", name="module_logs")
+async def module_logs(request: Request, module: Optional[str] = None):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    modules = build_modules(raw_config)
+    module_obj = None
+    if modules:
+        if module:
+            module_obj = next((m for m in modules if m.name == module), None)
+        if module_obj is None:
+            module_obj = modules[0]
+
+    sample_lines: List[str] = []
+    recent_chunks = []
+    if module_obj is not None:
+        sample_lines = _tail_lines(Path(module_obj.path), max_lines=400)
+        recent_chunks = get_recent_chunks_for_module(module_obj.name, limit=50)
+
+    return templates.TemplateResponse(
+        "logs.html",
+        {
+            "request": request,
+            "username": username,
+            "modules": modules,
+            "current_module": module_obj,
+            "sample_lines": sample_lines,
+            "recent_chunks": recent_chunks,
+            "db_status": db_status,
         },
     )
 

@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .regex-line { display:flex; align-items:flex-start; gap:0.4rem; white-space:pre-wrap; word-break:break-word; }
-  .regex-line input[type="radio"] { margin-top:0.15rem; }
-  .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; margin-right:0.75rem; }
+  .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.15rem 0; }
+  .regex-line input[type="radio"] { margin-top:0.2rem; }
+  .regex-kind { display:flex; flex-wrap:wrap; gap:0.4rem 0.75rem; }
+  .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; }
+  .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
+  .match-line { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
 </style>
 <div class="card">
   <h2>Regex lab</h2>
@@ -35,15 +38,16 @@
           <form method="post" action="{{ url_for('regex_suggest') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
-            <div style="max-height:400px; overflow:auto; border:1px solid #333; padding:0.25rem;">
-              {% for line in sample_lines %}
-                <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
-                  <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
-                  <span {% if matches and (loop.index0 in matches) %}style="background:#3c2a00;"{% endif %}>
-                    {{ "%4d" % loop.index0 }}: {{ line }}
-                  </span>
-                </div>
-              {% endfor %}
+            <div style="max-height:400px; overflow:auto; border:1px solid #333; padding:0.35rem;">
+              <div class="regex-lines">
+                {% for line in sample_lines %}
+                  <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
+                    <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
+                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % loop.index0 }}:</span>
+                    <span style="flex:1;" {% if matches and (loop.index0 in matches) %}class="match-line"{% endif %}>{{ line }}</span>
+                  </div>
+                {% endfor %}
+              </div>
             </div>
             <div style="margin-top:0.5rem;">
               <button type="submit">Suggest regex from selected line</button>
