@@ -46,7 +46,7 @@
       }
       main.container {
         padding: 1.25rem;
-        width: min(1200px, 96vw);
+        width: min(1440px, 98vw);
         margin: 0 auto;
         flex: 1;
       }
@@ -106,6 +106,10 @@
       .grid.two-col {
         grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       }
+      .grid.wide-two-col {
+        grid-template-columns: 2fr 1fr;
+        align-items: start;
+      }
       .status-badge {
         display: inline-block;
         padding: 0.2rem 0.55rem;
@@ -142,6 +146,20 @@
       .tag { display:inline-block; padding:0.15rem 0.5rem; border:1px solid #2b3242; border-radius:999px; font-size:0.8rem; }
       .helper-text { font-size: 0.9rem; color: #aeb9cc; }
       .page-center { min-height: calc(100vh - 64px); display:flex; align-items:center; justify-content:center; }
+      .status-strip { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; }
+      .status-chip { border:1px solid #2b3242; border-radius:999px; padding:0.35rem 0.65rem; background:#1b1f29; font-size:0.85rem; }
+      .status-chip.error { border-color:#ff6b6b; color:#ffb0b0; }
+      .status-chip.ok { border-color:#4caf50; color:#b7e6c5; }
+      .status-chip.warn { border-color:#f2b705; color:#f4e3a7; }
+      .editor-layout { display:grid; grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); gap:1rem; align-items:start; }
+      @media (max-width: 960px) {
+        .editor-layout { grid-template-columns: 1fr; }
+      }
+      .hint-panel { background:#11141d; border:1px solid #222a38; border-radius:0.75rem; padding:0.75rem; }
+      .hint-panel h3 { margin-top:0; margin-bottom:0.35rem; }
+      .hint-panel .hint-body { font-size:0.9rem; color:#cdd6e5; line-height:1.4; }
+      .CodeMirror { height: auto; border:1px solid #222a38; border-radius:0.65rem; font-size:0.95rem; }
+      .CodeMirror-scroll { max-height: 640px; }
     </style>
 </head>
 <body>
@@ -154,7 +172,6 @@
       {% if username %}
         <span class="pill">{{ username }}</span>
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
-        <a href="{{ url_for('view_config') }}">Config</a>
         <a href="{{ url_for('edit_config') }}">Edit Config</a>
         <a href="{{ url_for('regex_lab') }}">Regex Lab</a>
         <a href="{{ url_for('user_admin') }}">Users</a>

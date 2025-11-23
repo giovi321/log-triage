@@ -15,7 +15,7 @@ from starlette import status
 from ..config import build_modules, load_config
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
-from .db import get_module_stats
+from .db import get_module_stats, setup_database, get_latest_chunk_time
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -24,11 +24,33 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
+db_status: Dict[str, Any] = {
+    "configured": False,
+    "connected": False,
+    "error": None,
+    "url": None,
+}
+
+
+def _init_database(raw: Dict[str, Any]):
+    db_cfg = raw.get("database") or {}
+    url = db_cfg.get("url")
+    db_status.update({"configured": bool(url), "connected": False, "error": None, "url": url})
+    if not url:
+        return
+    try:
+        setup_database(url)
+        db_status["connected"] = True
+    except Exception as exc:
+        db_status["error"] = str(exc)
+
+
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
     raw = load_full_config(cfg_path)
     web_settings = parse_webui_settings(raw)
+    _init_database(raw)
     return web_settings, raw, cfg_path
 
 
@@ -95,6 +117,7 @@ async def dashboard(request: Request):
 
     modules = build_modules(raw_config)
     stats = get_module_stats()
+    latest_chunk_at = get_latest_chunk_time()
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -102,27 +125,24 @@ async def dashboard(request: Request):
             "username": username,
             "modules": modules,
             "stats": stats,
+            "db_status": db_status,
+            "latest_chunk_at": latest_chunk_at,
         },
     )
 
 
-@app.get("/config", name="view_config")
-async def view_config(request: Request):
+@app.get("/users", name="user_admin")
+async def user_admin(request: Request):
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    try:
-        text = CONFIG_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        text = f"Error reading {CONFIG_PATH}: {e}"
-
     return templates.TemplateResponse(
-        "config.html",
+        "users.html",
         {
             "request": request,
             "username": username,
-            "config_text": text,
+            "admin_users": settings.admin_users,
         },
     )
 
@@ -216,6 +236,7 @@ async def edit_config_post(
 
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
+    _init_database(raw_config)
 
     return templates.TemplateResponse(
         "config_edit.html",

@@ -171,7 +171,22 @@ def get_module_stats() -> Dict[str, ModuleStats]:
             s.last_severity = row.severity
             s.last_reason = row.reason
             s.last_seen = row.created_at
+    except Exception:
+        return {}
     finally:
         sess.close()
 
     return stats
+
+
+def get_latest_chunk_time():
+    sess = get_session()
+    if sess is None:
+        return None
+    try:
+        row = sess.query(Chunk).order_by(Chunk.created_at.desc()).first()
+        return row.created_at if row else None
+    except Exception:
+        return None
+    finally:
+        sess.close()
