@@ -34,7 +34,7 @@
           <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% for line in sample_lines %}
               <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
-                <input type="checkbox" name="selected_line" value="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e('html_attr') }}">
+                <input type="checkbox" name="selected_line" value="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e }}">
                 <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % loop.index0 }}:</span>
                 <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
               </div>
