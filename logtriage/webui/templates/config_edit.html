@@ -3,7 +3,7 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 4.5fr) minmax(320px, 1.35fr);
+    grid-template-columns: minmax(0, 5.5fr) minmax(340px, 1.2fr);
     gap: 1.5rem;
     align-items: start;
   }
@@ -31,6 +31,10 @@
   .hint-panel {
     position: sticky;
     top: 1.5rem;
+  }
+
+  .editor-pane {
+    min-width: 0;
   }
 
   .hint-panel .hint-body {
@@ -69,7 +73,7 @@
       </div>
       <div class="hint-panel" id="hint-panel">
         <h3>Context hints</h3>
-        <div class="hint-body" id="hint-body">Place the cursor in a section to see guidance for that part of the YAML.</div>
+        <div class="hint-body" id="hint-body">{{ context_hints.root or "Top-level sections mirror the README. Move the cursor to a section to see details." }}</div>
       </div>
     </div>
   </form>
@@ -94,7 +98,7 @@
 
   editor.getInputField().setAttribute('spellcheck', 'false');
   editor.getInputField().setAttribute('autocorrect', 'off');
-  editor.getWrapperElement().style.marginRight = '0.5rem';
+  editor.getWrapperElement().style.marginRight = '0';
   editor.getWrapperElement().style.minHeight = '640px';
 
   const hintBody = document.getElementById('hint-body');
