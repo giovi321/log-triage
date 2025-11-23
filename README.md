@@ -1,4 +1,5 @@
 # log-triage
+<img width="635" height="110" alt="logo-rounded-bg" src="https://github.com/user-attachments/assets/f6201eee-cbeb-4261-94cc-c8f42289dbaf" />
 
 `log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM.
 
@@ -327,11 +328,10 @@ webui:
   secret_key: 'CHANGE_THIS_TO_A_LONG_RANDOM_STRING'
   session_cookie_name: 'logtriage_session'
   dark_mode_default: true
-  csrf_enabled: true     # reserved; not fully wired yet
-  allowed_ips: ['127.0.0.1']
+  allowed_ips: ['127.0.0.1','192.168.1.1']
   admin_users:
     - username: 'admin'
-      password_hash: 'bcrypt:$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+      password_hash: '$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 ```
 
 ## Usage
