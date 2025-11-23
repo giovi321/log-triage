@@ -11,7 +11,7 @@
 </style>
 <div class="card">
   <h2>Regex lab</h2>
-  <p class="helper-text">Pick a module and test regexes against identified errors or the raw log tail.</p>
+  <p class="helper-text">Pick a module and test regexes against identified chunks or the raw log tail.</p>
   <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
     <label style="display:block;">Module:
       <select name="module" onchange="this.form.submit()">
@@ -40,7 +40,7 @@
   {% if current_module %}
     <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
       <div style="flex:1 1 50%; min-width:260px;">
-        <h3>Sample lines ({{ 'identified errors' if sample_source == 'errors' else 'log tail' }})</h3>
+        <h3>Sample lines ({{ 'identified chunks' if sample_source == 'errors' else 'log tail' }})</h3>
         {% if sample_lines %}
           <form method="post" action="{{ url_for('regex_suggest') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
@@ -52,7 +52,7 @@
                   <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
                     <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
                     <span style="min-width:3.25rem; color:#9fb1d3;">{{ loop.index0 }}:</span>
-                    <span style="flex:1;" {% if matches and (loop.index0 in matches) %}class="match-line"{% endif %}>{{ line }}</span>
+                    <span style="flex:1; white-space:pre-wrap;" {% if matches and (loop.index0 in matches) %}class="match-line"{% endif %}>{{ line }}</span>
                   </div>
                 {% endfor %}
               </div>

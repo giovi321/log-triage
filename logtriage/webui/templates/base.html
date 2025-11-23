@@ -34,6 +34,12 @@
         align-items: center;
         font-weight: 700;
       }
+      .brand img.logo {
+        height: 32px;
+        width: auto;
+        object-fit: contain;
+        filter: drop-shadow(0 0 6px rgba(0,0,0,0.35));
+      }
       .brand span {
         color: #8ab4f8;
       }
@@ -173,6 +179,7 @@
 <body>
   <header>
     <div class="brand">
+      <img src="{{ url_for('assets', path='logo.svg') }}" alt="logo" class="logo" loading="lazy" onerror="this.style.display='none'">
       <span>log-triage</span>
       <span class="muted">Web UI</span>
     </div>

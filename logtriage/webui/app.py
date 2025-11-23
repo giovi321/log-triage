@@ -12,6 +12,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette import status
+from fastapi.staticfiles import StaticFiles
 
 from ..config import build_modules, load_config
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
@@ -22,7 +23,10 @@ from .db import get_module_stats, setup_database, get_latest_chunk_time, get_rec
 app = FastAPI(title="log-triage Web UI")
 
 BASE_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = BASE_DIR / "assets"
+ASSETS_DIR.mkdir(exist_ok=True)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
 
 def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
@@ -133,6 +137,7 @@ async def dashboard(request: Request):
     modules = build_modules(raw_config)
     stats = get_module_stats()
     latest_chunk_at = get_latest_chunk_time()
+    page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -142,6 +147,7 @@ async def dashboard(request: Request):
             "stats": stats,
             "db_status": db_status,
             "latest_chunk_at": latest_chunk_at,
+            "page_rendered_at": page_rendered_at,
         },
     )
 
@@ -479,9 +485,16 @@ def _error_lines_from_chunks(module_name: str, max_lines: int = 200) -> List[str
         sev = (chunk.severity or "").upper()
         if sev in {"OK", "INFO"} and not (chunk.error_count or chunk.warning_count):
             continue
-        reason = (chunk.reason or "").strip()
-        if reason:
-            lines.append(f"[{chunk.severity}] {reason}")
+        reason = (chunk.reason or "").strip() or "-"
+        created_at = _format_local_timestamp(getattr(chunk, "created_at", None))
+        chunk_header = (
+            f"[{chunk.severity}] chunk #{getattr(chunk, 'chunk_index', '?')} @ {created_at}"
+        )
+        counts = (
+            f"errors: {getattr(chunk, 'error_count', 0)}, warnings: {getattr(chunk, 'warning_count', 0)}, "
+            f"lines: {getattr(chunk, 'line_count', 0)}"
+        )
+        lines.append(f"{chunk_header}\n{counts}\nreason: {reason}")
         if len(lines) >= max_lines:
             break
     return lines[:max_lines]

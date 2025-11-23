@@ -20,6 +20,9 @@
     {% else %}
       <span class="status-chip warn">No chunks recorded yet</span>
     {% endif %}
+    {% if page_rendered_at %}
+      <span class="status-chip">Page last updated: {{ page_rendered_at|localtime }}</span>
+    {% endif %}
   </div>
   <p class="helper-text" style="margin-top:0.4rem;">If you only see <em>n/a</em> values, make sure the log-triage process (e.g. <code>logtriage run</code>) is running with this same config and writing to the configured database.</p>
 </div>
