@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<<<<<<< HEAD
 <div class="card">
   <h2>Data plane status</h2>
   <div class="status-strip">
@@ -77,5 +78,72 @@
   {% else %}
     <p class="muted">No modules configured.</p>
   {% endif %}
+=======
+<div class="grid two-col">
+  <div class="card">
+    <h2>Modules</h2>
+    <p class="helper-text">Live view of configured modules with last seen events and their severities.</p>
+    {% if modules %}
+      <table style="font-size:0.9rem;">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Mode</th>
+            <th>Path</th>
+            <th>Pipeline</th>
+            <th>Enabled</th>
+            <th>Last severity</th>
+            <th>Last seen</th>
+            <th>Last reason</th>
+            <th>24h errors</th>
+            <th>24h warnings</th>
+            <th>24h chunks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in modules %}
+          {% set st = stats.get(m.name) if stats else None %}
+          {% set sev = st.last_severity if st else None %}
+          <tr>
+            <td>{{ m.name }}</td>
+            <td><span class="tag">{{ m.mode }}</span></td>
+            <td style="font-family:monospace; font-size:0.85rem;">{{ m.path }}</td>
+            <td>{{ m.pipeline_name or "-" }}</td>
+            <td>{{ "yes" if m.enabled else "no" }}</td>
+            <td>
+              {% if sev %}
+                <span class="status-badge sev-{{ sev }}">{{ sev }}</span>
+              {% else %}
+                <span class="muted">n/a</span>
+              {% endif %}
+            </td>
+            <td style="font-size:0.85rem;">
+              {% if st and st.last_seen %}{{ st.last_seen }}{% else %}<span class="muted">n/a</span>{% endif %}
+            </td>
+            <td style="font-size:0.85rem; max-width:240px; overflow:hidden; text-overflow:ellipsis;">
+              {% if st and st.last_reason %}{{ st.last_reason }}{% else %}<span class="muted">n/a</span>{% endif %}
+            </td>
+            <td style="text-align:right;">{{ st.errors_24h if st else 0 }}</td>
+            <td style="text-align:right;">{{ st.warnings_24h if st else 0 }}</td>
+            <td style="text-align:right;">{{ st.chunks_24h if st else 0 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">No modules configured.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Quick links</h2>
+    <ul class="helper-text">
+      <li>Fine-tune log parsing in the <a href="{{ url_for('regex_lab') }}">regex lab</a>.</li>
+      <li>Review or update settings with the <a href="{{ url_for('edit_config') }}">config editor</a>.</li>
+      <li>Manage web admins in <a href="{{ url_for('user_admin') }}">Users</a> or change your <a href="{{ url_for('account') }}">password</a>.</li>
+    </ul>
+    <p class="helper-text">All pages are accessible from the top navigation.</p>
+  </div>
+>>>>>>> main
 </div>
 {% endblock %}

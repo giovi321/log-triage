@@ -15,7 +15,11 @@ from starlette import status
 from ..config import build_modules, load_config
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
+<<<<<<< HEAD
 from .db import get_module_stats, setup_database, get_latest_chunk_time
+=======
+from .db import get_module_stats
+>>>>>>> main
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -127,6 +131,22 @@ async def dashboard(request: Request):
             "stats": stats,
             "db_status": db_status,
             "latest_chunk_at": latest_chunk_at,
+        },
+    )
+
+
+@app.get("/users", name="user_admin")
+async def user_admin(request: Request):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    return templates.TemplateResponse(
+        "users.html",
+        {
+            "request": request,
+            "username": username,
+            "admin_users": settings.admin_users,
         },
     )
 
