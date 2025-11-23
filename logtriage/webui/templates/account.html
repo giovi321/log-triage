@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid two-col">
+  <div class="card" style="grid-column: span 2;">
+    <h2>Change password</h2>
+    <p class="helper-text">Update your bcrypt hash inside <code>webui.admin_users</code>. A backup of <code>config.yaml</code> will be written.</p>
+    {% if error %}
+      <p style="color:#ff6b6b;">{{ error }}</p>
+    {% endif %}
+    {% if message %}
+      <p style="color:#81c784;">{{ message }}</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('change_password') }}" style="display:grid; gap:0.75rem; max-width:520px;">
+      <label>
+        <span class="muted" style="display:block; margin-bottom:0.25rem;">Current password</span>
+        <input type="password" name="current_password" required>
+      </label>
+      <label>
+        <span class="muted" style="display:block; margin-bottom:0.25rem;">New password</span>
+        <input type="password" name="new_password" minlength="8" required>
+      </label>
+      <label>
+        <span class="muted" style="display:block; margin-bottom:0.25rem;">Confirm new password</span>
+        <input type="password" name="confirm_password" minlength="8" required>
+      </label>
+      <button type="submit">Save new password</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Good practices</h2>
+    <ul class="helper-text" style="padding-left:1rem;">
+      <li>Use unique, long passwords for each admin user.</li>
+      <li>Rotate <code>secret_key</code> after personnel changes to invalidate sessions.</li>
+      <li>Keep <code>allowed_ips</code> narrow when exposing the UI behind a proxy.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Need to add an admin?</h2>
+    <p class="helper-text">Use the <a href="{{ url_for('user_admin') }}">Users page</a> for guidance or edit <code>webui.admin_users</code> directly in the <a href="{{ url_for('edit_config') }}">config editor</a>.</p>
+  </div>
+</div>
+{% endblock %}

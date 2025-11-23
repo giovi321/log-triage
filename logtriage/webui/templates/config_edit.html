@@ -1,19 +1,45 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card">
-  <h2>Edit config.yaml</h2>
-  {% if error %}
-    <p style="color:#ff6b6b;">{{ error }}</p>
-  {% endif %}
-  {% if message %}
-    <p style="color:#81c784;">{{ message }}</p>
-  {% endif %}
-  <form method="post" action="{{ url_for('edit_config_post') }}">
-    <textarea name="config_text" rows="30" style="width:100%; font-family:monospace; font-size:0.8rem;">{{ config_text }}</textarea>
-    <div style="margin-top:0.5rem;">
-      <button type="submit">Save</button>
-      <a href="{{ url_for('view_config') }}" style="margin-left:0.5rem;">Cancel</a>
-    </div>
-  </form>
+<div class="grid two-col">
+  <div class="card" style="grid-column: span 2;">
+    <h2>Edit config.yaml</h2>
+    <p class="helper-text">Changes are validated as YAML. A <code>.bak</code> backup is written before the file is replaced.</p>
+    {% if error %}
+      <p style="color:#ff6b6b;">{{ error }}</p>
+    {% endif %}
+    {% if message %}
+      <p style="color:#81c784;">{{ message }}</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('edit_config_post') }}">
+      <textarea name="config_text" rows="28" style="width:100%; font-family:monospace; font-size:0.9rem; background:#0f131b; border:1px solid #222a38; border-radius:0.5rem; padding:0.75rem;">{{ config_text }}</textarea>
+      <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center;">
+        <button type="submit">Save</button>
+        <a class="muted" href="{{ url_for('view_config') }}">Cancel</a>
+        <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Module & pipeline hints</h2>
+    <ul class="helper-text" style="padding-left:1rem;">
+      <li><strong>modules[*].mode</strong>: <em>tail</em> follows a file; <em>stream</em> keeps an open reader; <em>journal</em> reads systemd. Match this to the source.</li>
+      <li><strong>modules[*].pipeline_name</strong>: must match a pipeline entry. Pipelines provide classifiers and grouping rules.</li>
+      <li><strong>pipelines[*].classifier</strong>: contains <code>error_regexes</code>, <code>warning_regexes</code>, and <code>ignore_regexes</code>. Use the regex lab to suggest or test updates.</li>
+      <li><strong>pipelines[*].grouping</strong>: controls how related lines collapse into events; tune thresholds to avoid alert floods.</li>
+      <li><strong>alerts</strong>: optional sinks. Disable unused ones to avoid connection noise.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Web UI & security</h2>
+    <ul class="helper-text" style="padding-left:1rem;">
+      <li><strong>webui.secret_key</strong>: change from the default; rotating it logs out all sessions.</li>
+      <li><strong>webui.allowed_ips</strong>: IP allowlist applied before request handling.</li>
+      <li><strong>webui.admin_users</strong>: list of usernames with bcrypt hashes. Use the <a href="{{ url_for('account') }}">password changer</a> to update your own hash.</li>
+      <li><strong>session_cookie_name</strong>: rename when running multiple instances behind a reverse proxy.</li>
+      <li>Need more room? Copy the contents, edit locally, and paste back here.</li>
+    </ul>
+  </div>
 </div>
 {% endblock %}
