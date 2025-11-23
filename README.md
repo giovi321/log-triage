@@ -359,37 +359,4 @@ Run the Web UI:
 ```bash
 export LOGTRIAGE_CONFIG=/path/to/config.yaml
 python -m logtriage.webui
-```
-
-## Resolving GitHub merge conflicts
-
-If GitHub marks your branch as “conflicting,” it means the base branch (often `main`) has new commits that touch the same files or lines you modified. To resolve it locally:
-
-1. Add the upstream remote (if you haven’t already):
-   ```bash
-   git remote add origin https://github.com/giovi321/log-triage.git
-   ```
-2. Fetch the latest base branch:
-   ```bash
-   git fetch origin
-   ```
-3. Rebase your feature branch onto the updated base (recommended):
-   ```bash
-   git checkout work  # or your feature branch
-   git rebase origin/main
-   ```
-   If conflicts appear, open the reported files, resolve the `<<<<<<<` markers, then continue:
-   ```bash
-   git add <files you fixed>
-   git rebase --continue
-   ```
-   Alternatively, you can merge instead of rebasing:
-   ```bash
-   git merge origin/main
-   ```
-4. Run tests as needed, then push the updated branch (force-push if you rebased):
-   ```bash
-   git push --force-with-lease origin work
-   ```
-
-This keeps your branch aligned with the latest upstream changes so GitHub can auto-merge your pull request.
+```YAML example
