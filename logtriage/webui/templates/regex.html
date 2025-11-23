@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .regex-line { display:flex; align-items:flex-start; gap:0.4rem; white-space:pre-wrap; word-break:break-word; }
+  .regex-line input[type="radio"] { margin-top:0.15rem; }
+  .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; margin-right:0.75rem; }
+</style>
 <div class="card">
   <h2>Regex lab</h2>
+  <p class="helper-text">Pick a module, test regexes against recent log lines, and save them into the pipeline classifier.</p>
   <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.5rem;">
     <label>Module:
       <select name="module" onchange="this.form.submit()">
@@ -31,13 +37,11 @@
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <div style="max-height:400px; overflow:auto; border:1px solid #333; padding:0.25rem;">
               {% for line in sample_lines %}
-                <div style="font-family:monospace; font-size:0.8rem; white-space:pre;">
-                  <label>
-                    <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
-                    <span {% if matches and (loop.index0 in matches) %}style="background:#3c2a00;"{% endif %}>
-                      {{ "%4d" % loop.index0 }}: {{ line }}
-                    </span>
-                  </label>
+                <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
+                  <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
+                  <span {% if matches and (loop.index0 in matches) %}style="background:#3c2a00;"{% endif %}>
+                    {{ "%4d" % loop.index0 }}: {{ line }}
+                  </span>
                 </div>
               {% endfor %}
             </div>
@@ -57,10 +61,10 @@
           <div style="margin-bottom:0.5rem;">
             <textarea name="regex_value" rows="4" style="width:100%; font-family:monospace;">{{ regex_value }}</textarea>
           </div>
-          <div style="margin-bottom:0.5rem;">
+          <div class="regex-kind" style="margin-bottom:0.5rem;">
             <label><input type="radio" name="regex_kind" value="error" {% if regex_kind == "error" %}checked{% endif %}> error</label>
-            <label style="margin-left:0.5rem;"><input type="radio" name="regex_kind" value="warning" {% if regex_kind == "warning" %}checked{% endif %}> warning</label>
-            <label style="margin-left:0.5rem;"><input type="radio" name="regex_kind" value="ignore" {% if regex_kind == "ignore" %}checked{% endif %}> ignore</label>
+            <label><input type="radio" name="regex_kind" value="warning" {% if regex_kind == "warning" %}checked{% endif %}> warning</label>
+            <label><input type="radio" name="regex_kind" value="ignore" {% if regex_kind == "ignore" %}checked{% endif %}> ignore</label>
           </div>
           <button type="submit">Test against sample</button>
         </form>

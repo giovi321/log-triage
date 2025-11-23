@@ -1,22 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="card">
+  <h2>Data plane status</h2>
+  <div class="status-strip">
+    {% if db_status.configured %}
+      {% if db_status.connected %}
+        <span class="status-chip ok">Database connected</span>
+      {% elif db_status.error %}
+        <span class="status-chip error">DB error: {{ db_status.error }}</span>
+      {% else %}
+        <span class="status-chip warn">Database unreachable</span>
+      {% endif %}
+      <span class="status-chip">URL: {{ db_status.url }}</span>
+    {% else %}
+      <span class="status-chip warn">Database URL not set</span>
+    {% endif %}
+    {% if latest_chunk_at %}
+      <span class="status-chip">Latest chunk: {{ latest_chunk_at }}</span>
+    {% else %}
+      <span class="status-chip warn">No chunks recorded yet</span>
+    {% endif %}
+  </div>
+  <p class="helper-text" style="margin-top:0.4rem;">If you only see <em>n/a</em> values, make sure the log-triage process (e.g. <code>logtriage run</code>) is running with this same config and writing to the configured database.</p>
+</div>
+
+<div class="card">
   <h2>Modules</h2>
+  <p class="helper-text">Live view of configured modules with last seen events and their severities.</p>
   {% if modules %}
-    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+    <table style="font-size:0.9rem;">
       <thead>
         <tr>
-          <th style="text-align:left; padding:0.25rem;">Name</th>
-          <th style="text-align:left; padding:0.25rem;">Mode</th>
-          <th style="text-align:left; padding:0.25rem;">Path</th>
-          <th style="text-align:left; padding:0.25rem;">Pipeline</th>
-          <th style="text-align:left; padding:0.25rem;">Enabled</th>
-          <th style="text-align:left; padding:0.25rem;">Last severity</th>
-          <th style="text-align:left; padding:0.25rem;">Last seen</th>
-          <th style="text-align:left; padding:0.25rem;">Last reason</th>
-          <th style="text-align:left; padding:0.25rem;">24h errors</th>
-          <th style="text-align:left; padding:0.25rem;">24h warnings</th>
-          <th style="text-align:left; padding:0.25rem;">24h chunks</th>
+          <th>Name</th>
+          <th>Mode</th>
+          <th>Path</th>
+          <th>Pipeline</th>
+          <th>Enabled</th>
+          <th>Last severity</th>
+          <th>Last seen</th>
+          <th>Last reason</th>
+          <th>24h errors</th>
+          <th>24h warnings</th>
+          <th>24h chunks</th>
         </tr>
       </thead>
       <tbody>
@@ -24,33 +49,33 @@
         {% set st = stats.get(m.name) if stats else None %}
         {% set sev = st.last_severity if st else None %}
         <tr>
-          <td style="padding:0.25rem;">{{ m.name }}</td>
-          <td style="padding:0.25rem;">{{ m.mode }}</td>
-          <td style="padding:0.25rem; font-family:monospace;">{{ m.path }}</td>
-          <td style="padding:0.25rem;">{{ m.pipeline_name or "-" }}</td>
-          <td style="padding:0.25rem;">{{ "yes" if m.enabled else "no" }}</td>
-          <td style="padding:0.25rem;">
+          <td>{{ m.name }}</td>
+          <td><span class="tag">{{ m.mode }}</span></td>
+          <td style="font-family:monospace; font-size:0.85rem;">{{ m.path }}</td>
+          <td>{{ m.pipeline_name or "-" }}</td>
+          <td>{{ "yes" if m.enabled else "no" }}</td>
+          <td>
             {% if sev %}
               <span class="status-badge sev-{{ sev }}">{{ sev }}</span>
             {% else %}
-              <span style="font-size:0.8rem; color:#888;">n/a</span>
+              <span class="muted">n/a</span>
             {% endif %}
           </td>
-          <td style="padding:0.25rem; font-size:0.8rem;">
-            {% if st and st.last_seen %}{{ st.last_seen }}{% else %}<span style="color:#888;">n/a</span>{% endif %}
+          <td style="font-size:0.85rem;">
+            {% if st and st.last_seen %}{{ st.last_seen }}{% else %}<span class="muted">n/a</span>{% endif %}
           </td>
-          <td style="padding:0.25rem; font-size:0.8rem; max-width:260px; overflow:hidden; text-overflow:ellipsis;">
-            {% if st and st.last_reason %}{{ st.last_reason }}{% else %}<span style="color:#888;">n/a</span>{% endif %}
+          <td style="font-size:0.85rem; max-width:240px; overflow:hidden; text-overflow:ellipsis;">
+            {% if st and st.last_reason %}{{ st.last_reason }}{% else %}<span class="muted">n/a</span>{% endif %}
           </td>
-          <td style="padding:0.25rem; text-align:right;">{{ st.errors_24h if st else 0 }}</td>
-          <td style="padding:0.25rem; text-align:right;">{{ st.warnings_24h if st else 0 }}</td>
-          <td style="padding:0.25rem; text-align:right;">{{ st.chunks_24h if st else 0 }}</td>
+          <td style="text-align:right;">{{ st.errors_24h if st else 0 }}</td>
+          <td style="text-align:right;">{{ st.warnings_24h if st else 0 }}</td>
+          <td style="text-align:right;">{{ st.chunks_24h if st else 0 }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   {% else %}
-    <p>No modules configured.</p>
+    <p class="muted">No modules configured.</p>
   {% endif %}
 </div>
 {% endblock %}
