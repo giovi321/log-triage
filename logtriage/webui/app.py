@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 import re
 from pathlib import Path
@@ -22,6 +23,20 @@ app = FastAPI(title="log-triage Web UI")
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    ts = value
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+templates.env.filters["localtime"] = _format_local_timestamp
 
 
 db_status: Dict[str, Any] = {
@@ -238,6 +253,7 @@ async def edit_config_post(
 async def regex_lab(
     request: Request,
     module: Optional[str] = None,
+    sample_source: str = "tail",
 ):
     username = get_current_user(request, settings)
     if not username:
@@ -252,8 +268,9 @@ async def regex_lab(
             module_obj = modules[0]
 
     sample_lines: List[str] = []
+    sample_error: Optional[str] = None
     if module_obj is not None:
-        sample_lines = _tail_lines(Path(module_obj.path), max_lines=200)
+        sample_lines, sample_error = _get_sample_lines_for_module(module_obj, sample_source, max_lines=200)
 
     return templates.TemplateResponse(
         "regex.html",
@@ -266,8 +283,9 @@ async def regex_lab(
             "regex_value": "",
             "regex_kind": "error",
             "matches": [],
-            "error": None,
+            "error": sample_error,
             "message": None,
+            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
 
@@ -288,9 +306,11 @@ async def module_logs(request: Request, module: Optional[str] = None):
 
     sample_lines: List[str] = []
     recent_chunks = []
+    chunked_tail: List[Dict[str, Any]] = []
     if module_obj is not None:
         sample_lines = _tail_lines(Path(module_obj.path), max_lines=400)
         recent_chunks = get_recent_chunks_for_module(module_obj.name, limit=50)
+        chunked_tail = _build_chunked_tail(sample_lines, recent_chunks)
 
     return templates.TemplateResponse(
         "logs.html",
@@ -302,6 +322,7 @@ async def module_logs(request: Request, module: Optional[str] = None):
             "sample_lines": sample_lines,
             "recent_chunks": recent_chunks,
             "db_status": db_status,
+            "chunked_tail": chunked_tail,
         },
     )
 
@@ -446,9 +467,68 @@ def _tail_lines(path: Path, max_lines: int = 200) -> List[str]:
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
-            return lines[-max_lines:]
+            return [ln.rstrip("\n") for ln in lines[-max_lines:]]
     except Exception:
         return []
+
+
+def _error_lines_from_chunks(module_name: str, max_lines: int = 200) -> List[str]:
+    chunks = get_recent_chunks_for_module(module_name, limit=max_lines)
+    lines: List[str] = []
+    for chunk in chunks:
+        sev = (chunk.severity or "").upper()
+        if sev in {"OK", "INFO"} and not (chunk.error_count or chunk.warning_count):
+            continue
+        reason = (chunk.reason or "").strip()
+        if reason:
+            lines.append(f"[{chunk.severity}] {reason}")
+        if len(lines) >= max_lines:
+            break
+    return lines[:max_lines]
+
+
+def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int = 200) -> tuple[List[str], Optional[str]]:
+    if module_obj is None:
+        return [], None
+
+    source = sample_source if sample_source in {"errors", "tail"} else "tail"
+    if source == "errors":
+        if not db_status.get("connected"):
+            return [], "Database not connected; cannot load identified errors."
+        return _error_lines_from_chunks(module_obj.name, max_lines=max_lines), None
+
+    return _tail_lines(Path(module_obj.path), max_lines=max_lines), None
+
+
+def _build_chunked_tail(sample_lines: List[str], recent_chunks: List) -> List[Dict[str, Any]]:
+    if not sample_lines:
+        return []
+
+    indexed_lines = [{"index": idx, "text": line} for idx, line in enumerate(sample_lines)]
+    remaining = list(indexed_lines)
+    sections: List[Dict[str, Any]] = []
+
+    sorted_chunks = sorted(
+        recent_chunks,
+        key=lambda c: getattr(c, "created_at", datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)),
+        reverse=True,
+    )
+
+    for chunk in sorted_chunks:
+        if not remaining:
+            break
+        count = int(getattr(chunk, "line_count", 0) or 0)
+        if count <= 0:
+            continue
+        take = min(count, len(remaining))
+        chunk_lines = remaining[-take:]
+        remaining = remaining[:-take]
+        sections.append({"chunk": chunk, "lines": chunk_lines})
+
+    if remaining:
+        sections.append({"chunk": None, "lines": remaining})
+
+    return list(reversed(sections))
 
 
 def _suggest_regex_from_line(line: str) -> str:
@@ -465,6 +545,7 @@ async def regex_test(
     module: str = Form(...),
     regex_value: str = Form(...),
     regex_kind: str = Form("error"),
+    sample_source: str = Form("tail"),
 ):
     username = get_current_user(request, settings)
     if not username:
@@ -473,8 +554,9 @@ async def regex_test(
     modules = build_modules(raw_config)
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
+    sample_error: Optional[str] = None
     if module_obj is not None:
-        sample_lines = _tail_lines(Path(module_obj.path), max_lines=200)
+        sample_lines, sample_error = _get_sample_lines_for_module(module_obj, sample_source, max_lines=200)
 
     error_msg = None
     matches: List[int] = []
@@ -497,8 +579,9 @@ async def regex_test(
             "regex_value": regex_value,
             "regex_kind": regex_kind,
             "matches": matches,
-            "error": error_msg,
+            "error": error_msg or sample_error,
             "message": None,
+            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
 
@@ -509,6 +592,7 @@ async def regex_suggest(
     module: str = Form(...),
     sample_line: str = Form(...),
     regex_kind: str = Form("error"),
+    sample_source: str = Form("tail"),
 ):
     username = get_current_user(request, settings)
     if not username:
@@ -517,8 +601,9 @@ async def regex_suggest(
     modules = build_modules(raw_config)
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
+    sample_error: Optional[str] = None
     if module_obj is not None:
-        sample_lines = _tail_lines(Path(module_obj.path), max_lines=200)
+        sample_lines, sample_error = _get_sample_lines_for_module(module_obj, sample_source, max_lines=200)
 
     suggestion = _suggest_regex_from_line(sample_line)
 
@@ -533,8 +618,9 @@ async def regex_suggest(
             "regex_value": suggestion,
             "regex_kind": regex_kind,
             "matches": [],
-            "error": None,
+            "error": sample_error,
             "message": "Suggested regex generated from selected line.",
+            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
 
@@ -545,8 +631,11 @@ async def regex_save(
     module: str = Form(...),
     regex_value: str = Form(...),
     regex_kind: str = Form("error"),
+    sample_source: str = Form("tail"),
 ):
     global raw_config, settings
+
+    safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
 
     username = get_current_user(request, settings)
     if not username:
@@ -571,6 +660,7 @@ async def regex_save(
                 "matches": [],
                 "error": "Module has no explicit pipeline; cannot save regex automatically.",
                 "message": None,
+                "sample_source": safe_sample_source,
             },
         )
 
@@ -590,6 +680,7 @@ async def regex_save(
                 "matches": [],
                 "error": f"Failed to read config: {e}",
                 "message": None,
+                "sample_source": safe_sample_source,
             },
         )
 
@@ -614,6 +705,7 @@ async def regex_save(
                 "matches": [],
                 "error": f"Pipeline {module_obj.pipeline_name} not found in config.",
                 "message": None,
+                "sample_source": safe_sample_source,
             },
         )
 
@@ -654,6 +746,7 @@ async def regex_save(
                 "matches": [],
                 "error": f"Failed to write config: {e}",
                 "message": None,
+                "sample_source": safe_sample_source,
             },
         )
 
@@ -677,6 +770,7 @@ async def regex_save(
             "matches": [],
             "error": None,
             "message": f"Regex added to classifier.{key} for pipeline {module_obj.pipeline_name}.",
+            "sample_source": safe_sample_source,
         },
     )
 

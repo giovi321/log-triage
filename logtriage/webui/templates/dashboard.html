@@ -16,7 +16,7 @@
       <span class="status-chip warn">Database URL not set</span>
     {% endif %}
     {% if latest_chunk_at %}
-      <span class="status-chip">Latest chunk: {{ latest_chunk_at }}</span>
+      <span class="status-chip">Latest chunk: {{ latest_chunk_at|localtime }}</span>
     {% else %}
       <span class="status-chip warn">No chunks recorded yet</span>
     {% endif %}
@@ -62,7 +62,7 @@
             {% endif %}
           </td>
           <td style="font-size:0.85rem;">
-            {% if st and st.last_seen %}{{ st.last_seen }}{% else %}<span class="muted">n/a</span>{% endif %}
+            {% if st and st.last_seen %}{{ st.last_seen|localtime }}{% else %}<span class="muted">n/a</span>{% endif %}
           </td>
           <td style="font-size:0.85rem; max-width:240px; overflow:hidden; text-overflow:ellipsis;">
             {% if st and st.last_reason %}{{ st.last_reason }}{% else %}<span class="muted">n/a</span>{% endif %}

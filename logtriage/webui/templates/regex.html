@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.15rem 0; }
+  .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.35rem 0.25rem; border-radius:0.4rem; transition:background 0.15s ease, border 0.15s ease; }
   .regex-line input[type="radio"] { margin-top:0.2rem; }
+  .regex-line.selected { background:#182233; border:1px solid #2c3a55; }
   .regex-kind { display:flex; flex-wrap:wrap; gap:0.4rem 0.75rem; }
   .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; }
   .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
@@ -10,15 +11,21 @@
 </style>
 <div class="card">
   <h2>Regex lab</h2>
-  <p class="helper-text">Pick a module, test regexes against recent log lines, and save them into the pipeline classifier.</p>
-  <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.5rem;">
-    <label>Module:
+  <p class="helper-text">Pick a module and test regexes against identified errors or the raw log tail.</p>
+  <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
+    <label style="display:block;">Module:
       <select name="module" onchange="this.form.submit()">
         {% for m in modules %}
         <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>
           {{ m.name }}
         </option>
         {% endfor %}
+      </select>
+    </label>
+    <label style="display:block;">Sample source:
+      <select name="sample_source" onchange="this.form.submit()">
+        <option value="tail" {% if sample_source != 'errors' %}selected{% endif %}>Log tail</option>
+        <option value="errors" {% if sample_source == 'errors' %}selected{% endif %}>Identified errors</option>
       </select>
     </label>
   </form>
@@ -33,17 +40,18 @@
   {% if current_module %}
     <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
       <div style="flex:1 1 50%; min-width:260px;">
-        <h3>Sample lines (tail)</h3>
+        <h3>Sample lines ({{ 'identified errors' if sample_source == 'errors' else 'log tail' }})</h3>
         {% if sample_lines %}
           <form method="post" action="{{ url_for('regex_suggest') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
+            <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <div style="max-height:400px; overflow:auto; border:1px solid #333; padding:0.35rem;">
               <div class="regex-lines">
                 {% for line in sample_lines %}
                   <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
                     <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
-                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % loop.index0 }}:</span>
+                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ loop.index0 }}:</span>
                     <span style="flex:1;" {% if matches and (loop.index0 in matches) %}class="match-line"{% endif %}>{{ line }}</span>
                   </div>
                 {% endfor %}
@@ -62,6 +70,7 @@
         <h3>Regex</h3>
         <form method="post" action="{{ url_for('regex_test') }}">
           <input type="hidden" name="module" value="{{ current_module.name }}">
+          <input type="hidden" name="sample_source" value="{{ sample_source }}">
           <div style="margin-bottom:0.5rem;">
             <textarea name="regex_value" rows="4" style="width:100%; font-family:monospace;">{{ regex_value }}</textarea>
           </div>
@@ -73,16 +82,6 @@
           <button type="submit">Test against sample</button>
         </form>
 
-        <form method="post" action="{{ url_for('regex_save') }}" style="margin-top:0.75rem;">
-          <input type="hidden" name="module" value="{{ current_module.name }}">
-          <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
-          <input type="hidden" name="regex_value" value="{{ regex_value }}">
-          <button type="submit">Save to pipeline classifier</button>
-          <p style="font-size:0.8rem; color:#aaa; margin-top:0.25rem;">
-            Saved regex is appended to classifier.{{ regex_kind }}_regexes for pipeline of this module.
-          </p>
-        </form>
-
         {% if matches %}
           <p style="margin-top:0.5rem; font-size:0.8rem;">Matched lines: {{ matches|length }}</p>
         {% endif %}
@@ -92,4 +91,20 @@
     <p>No modules configured.</p>
   {% endif %}
 </div>
+<script>
+  function highlightSelectedLine() {
+    document.querySelectorAll('.regex-line').forEach(el => el.classList.remove('selected'));
+    const selected = document.querySelector('input[name="sample_line"]:checked');
+    if (selected) {
+      const row = selected.closest('.regex-line');
+      if (row) row.classList.add('selected');
+    }
+  }
+
+  document.querySelectorAll('input[name="sample_line"]').forEach(input => {
+    input.addEventListener('change', highlightSelectedLine);
+  });
+
+  highlightSelectedLine();
+</script>
 {% endblock %}
