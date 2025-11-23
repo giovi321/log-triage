@@ -69,7 +69,7 @@ pip install paho-mqtt
 # Web UI + DB
 pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous
 
-# The default installed bcrypt library version is incompatible with Passlib’s backend detection, we need to install a compatible verison
+# Passlib needs bcrypt >=4.0,<4.1; reinstall it with the compatible version
 pip install --upgrade --force-reinstall "bcrypt>=4.0,<4.1"
 ```
 
