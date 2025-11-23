@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <title>log-triage Web UI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background-color: #111;
+        color: #eee;
+      }
+      header {
+        padding: 0.75rem 1rem;
+        background-color: #181818;
+        border-bottom: 1px solid #333;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      a {
+        color: #8ab4f8;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .container {
+        padding: 1rem;
+      }
+      .card {
+        background-color: #1e1e1e;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        border: 1px solid #333;
+        margin-bottom: 1rem;
+      }
+      .card h2 {
+        margin-top: 0;
+      }
+      input, button, select, textarea {
+        background-color: #262626;
+        color: #eee;
+        border-radius: 0.25rem;
+        border: 1px solid #444;
+        padding: 0.4rem 0.6rem;
+      }
+      button {
+        cursor: pointer;
+      }
+      .topnav-links a {
+        margin-left: 1rem;
+      }
+      .status-badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 0.4rem;
+        font-size: 0.8rem;
+      }
+      .sev-OK { background-color: #1b5e20; }
+      .sev-INFO { background-color: #1565c0; }
+      .sev-WARNING { background-color: #ff8f00; }
+      .sev-ERROR { background-color: #c62828; }
+      .sev-CRITICAL { background-color: #6a1b9a; }
+    </style>
+</head>
+<body>
+  <header>
+    <div>
+      <strong>log-triage</strong> Web UI
+    </div>
+    <div class="topnav-links">
+      {% if username %}
+        <span>Logged in as {{ username }}</span>
+        <a href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a href="{{ url_for('view_config') }}">Config</a>
+        <a href="{{ url_for('logout') }}">Logout</a>
+      {% else %}
+        <a href="{{ url_for('login_form') }}">Login</a>
+      {% endif %}
+    </div>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

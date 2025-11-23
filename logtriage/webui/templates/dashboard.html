@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Modules</h2>
+  {% if modules %}
+    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left; padding:0.25rem;">Name</th>
+          <th style="text-align:left; padding:0.25rem;">Mode</th>
+          <th style="text-align:left; padding:0.25rem;">Path</th>
+          <th style="text-align:left; padding:0.25rem;">Pipeline</th>
+          <th style="text-align:left; padding:0.25rem;">Enabled</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in modules %}
+        <tr>
+          <td style="padding:0.25rem;">{{ m.name }}</td>
+          <td style="padding:0.25rem;">{{ m.mode }}</td>
+          <td style="padding:0.25rem; font-family:monospace;">{{ m.path }}</td>
+          <td style="padding:0.25rem;">{{ m.pipeline_name or "-" }}</td>
+          <td style="padding:0.25rem;">{{ "yes" if m.enabled else "no" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No modules configured.</p>
+  {% endif %}
+</div>
+{% endblock %}

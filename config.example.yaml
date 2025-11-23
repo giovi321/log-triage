@@ -23,6 +23,7 @@ pipelines:
       enabled: true
       min_severity: ERROR
       max_chunk_lines: 5000
+      prompt_template: "./prompts/rsnapshot.txt"
 
   - name: homeassistant
     match:
@@ -43,6 +44,7 @@ pipelines:
       enabled: true
       min_severity: WARNING
       max_chunk_lines: 1000
+      prompt_template: "./prompts/homeassistant.txt"
 
   - name: generic_default
     match:
@@ -65,13 +67,13 @@ pipelines:
       max_chunk_lines: 300
 
 modules:
-  - name: rsnapshot
+  - name: rsnapshot_daily
     enabled: true
     path: "/var/log/rsnapshot.log"
-    mode: "batch"              # process file or directory once
+    mode: "batch"
     pipeline: "rsnapshot"
-    output_format: "json"      # "text" or "json"
-    min_print_severity: "INFO" # filter for console output
+    output_format: "json"
+    min_print_severity: "INFO"
     emit_llm_payloads_dir: "./rsnapshot_payloads"
     llm_payload_mode: "errors_only"
     only_last_chunk: true
@@ -81,6 +83,29 @@ modules:
       WARNING: 1
       ERROR: 2
       CRITICAL: 3
+    alerts:
+      webhook:
+        enabled: true
+        url: "https://example/rsnapshot-hook"
+        method: "POST"
+        min_severity: "ERROR"
+        headers:
+          X-Source: "logtriage"
+      mqtt:
+        enabled: false
+        host: "localhost"
+        port: 1883
+        topic: "logtriage/rsnapshot"
+        username: ""
+        password: ""
+        min_severity: "WARNING"
+    baseline:
+      enabled: true
+      state_file: "/var/lib/logtriage/rsnapshot_baseline.json"
+      window: 20
+      error_multiplier: 3.0
+      warning_multiplier: 3.0
+      severity_on_anomaly: "ERROR"
 
   - name: homeassistant_follow
     enabled: true
@@ -92,6 +117,15 @@ modules:
     emit_llm_payloads_dir: "./ha_llm_payloads"
     llm_payload_mode: "errors_only"
     only_last_chunk: false
+    alerts:
+      mqtt:
+        enabled: true
+        host: "localhost"
+        port: 1883
+        topic: "logtriage/homeassistant"
+        min_severity: "ERROR"
+    baseline:
+      enabled: false
     stream:
       from_beginning: false
       interval: 1.0
@@ -105,3 +139,21 @@ modules:
     emit_llm_payloads_dir: "./llm_payloads"
     llm_payload_mode: "full"
     only_last_chunk: false
+
+database:
+  url: "sqlite:////var/lib/logtriage/logtriage.db"
+  retention_days: 30
+
+webui:
+  enabled: true
+  host: "127.0.0.1"
+  port: 8090
+  base_path: "/"
+  secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_STRING"
+  session_cookie_name: "logtriage_session"
+  dark_mode_default: true
+  csrf_enabled: true
+  allowed_ips: ["127.0.0.1"]
+  admin_users:
+    - username: "admin"
+      password_hash: "bcrypt:$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
