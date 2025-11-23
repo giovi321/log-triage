@@ -128,6 +128,29 @@ def get_settings() -> WebUISettings:
     return settings
 
 
+def _render_config_editor(
+    request: Request,
+    username: str,
+    config_text: str,
+    *,
+    error: Optional[str] = None,
+    message: Optional[str] = None,
+    status_code: int = status.HTTP_200_OK,
+):
+    return templates.TemplateResponse(
+        "config_edit.html",
+        {
+            "request": request,
+            "username": username,
+            "config_text": config_text,
+            "error": error,
+            "message": message,
+            "context_hints": context_hints,
+        },
+        status_code=status_code,
+    )
+
+
 @app.middleware("http")
 async def ip_allowlist_middleware(request: Request, call_next):
     s = settings
@@ -210,17 +233,7 @@ async def edit_config(request: Request):
     except Exception as e:
         text = f"Error reading {CONFIG_PATH}: {e}"
 
-    return templates.TemplateResponse(
-        "config_edit.html",
-        {
-            "request": request,
-        "username": username,
-        "config_text": text,
-        "error": None,
-        "message": None,
-            "context_hints": context_hints,
-        },
-    )
+    return _render_config_editor(request, username, text)
 
 
 @app.post("/config/edit", name="edit_config_post")
@@ -237,16 +250,11 @@ async def edit_config_post(
     try:
         parsed = yaml.safe_load(config_text) or {}
     except Exception as e:
-        return templates.TemplateResponse(
-            "config_edit.html",
-            {
-                "request": request,
-                "username": username,
-                "config_text": config_text,
-                "error": f"YAML error: {e}",
-                "message": None,
-                "context_hints": context_hints,
-            },
+        return _render_config_editor(
+            request,
+            username,
+            config_text,
+            error=f"YAML error: {e}",
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -258,35 +266,59 @@ async def edit_config_post(
             CONFIG_PATH.replace(backup_path)
         tmp_path.replace(CONFIG_PATH)
     except Exception as e:
-        return templates.TemplateResponse(
-            "config_edit.html",
-            {
-                "request": request,
-                "username": username,
-                "config_text": config_text,
-                "error": f"Write error: {e}",
-                "message": None,
-                "context_hints": context_hints,
-            },
+        return _render_config_editor(
+            request,
+            username,
+            config_text,
+            error=f"Write error: {e}",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-
-    from .config import parse_webui_settings  # avoid cycle
 
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
     _init_database(raw_config)
 
-    return templates.TemplateResponse(
-        "config_edit.html",
-        {
-            "request": request,
-            "username": username,
-            "config_text": config_text,
-            "error": None,
-            "message": "Configuration saved.",
-            "context_hints": context_hints,
-        },
+    return _render_config_editor(
+        request,
+        username,
+        config_text,
+        message="Configuration saved.",
+    )
+
+
+@app.post("/config/reload", name="reload_config")
+async def reload_config(request: Request):
+    global settings, raw_config
+
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    try:
+        text = CONFIG_PATH.read_text(encoding="utf-8")
+    except Exception as e:
+        text = f"Error reading {CONFIG_PATH}: {e}"
+        return _render_config_editor(request, username, text, error=f"Reload failed: {e}")
+
+    try:
+        new_raw = load_config(CONFIG_PATH)
+        raw_config = new_raw
+        settings = parse_webui_settings(new_raw)
+        _init_database(new_raw)
+    except Exception as e:
+        return _render_config_editor(
+            request,
+            username,
+            text,
+            error=f"Reload failed: {e}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return _render_config_editor(
+        request,
+        username,
+        text,
+        message="Configuration reloaded from disk.",
     )
 
 

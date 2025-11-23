@@ -100,7 +100,14 @@
                   aria-label="config.yaml editor">{{ config_text }}</textarea>
         <div id="client-error" class="client-error" role="alert"></div>
         <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-          <button type="submit">Save</button>
+          <button id="save-button" type="submit">Save</button>
+          <button type="submit"
+                  form="config-reload-form"
+                  formmethod="post"
+                  formaction="{{ url_for('reload_config') }}"
+                  aria-label="Reload configuration from disk">
+            Reload from disk
+          </button>
           <a class="muted" href="{{ url_for('dashboard') }}">Cancel</a>
           <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
         </div>
@@ -113,6 +120,7 @@
       </div>
     </div>
   </form>
+  <form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true"></form>
 </div>
 
 {# Local assets: put the files into logtriage/webui/assets #}
@@ -140,7 +148,7 @@
 
   const hintBody = document.getElementById('hint-body');
   const errorBox = document.getElementById('client-error');
-  const saveButton = document.querySelector('.config-editor button[type="submit"]');
+  const saveButton = document.getElementById('save-button');
 
   const hintTexts = {{ context_hints | tojson | safe }} || {};
   const hintsLoaded = Object.keys(hintTexts).length > 0;
