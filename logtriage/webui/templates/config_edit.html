@@ -15,8 +15,8 @@
   }
 
   .config-editor .CodeMirror {
-    height: 75vh;
-    min-height: 480px;
+    height: 60vh;
+    min-height: 300px;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
@@ -39,7 +39,7 @@
 
   #config-text {
     width: 95%;
-    min-height: 720px;
+    min-height: 300px;
   }
 
   .editor-pane {
@@ -136,7 +136,7 @@
   editor.getInputField().setAttribute('spellcheck', 'false');
   editor.getInputField().setAttribute('autocorrect', 'off');
   editor.getWrapperElement().style.marginRight = '0';
-  editor.getWrapperElement().style.minHeight = '720px';
+  editor.getWrapperElement().style.minHeight = '300px';
 
   const hintBody = document.getElementById('hint-body');
   const errorBox = document.getElementById('client-error');
