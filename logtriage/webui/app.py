@@ -155,6 +155,8 @@ async def edit_config_post(
     request: Request,
     config_text: str = Form(...),
 ):
+    global settings, raw_config
+
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
@@ -196,7 +198,6 @@ async def edit_config_post(
 
     from .config import parse_webui_settings  # avoid cycle
 
-    global settings, raw_config
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
 
@@ -210,33 +211,6 @@ async def edit_config_post(
             "message": "Configuration saved.",
         },
     )
-
-
-def _tail_lines(path: Path, max_lines: int = 200) -> List[str]:
-    lines: List[str] = []
-    try:
-        with path.open("rb") as f:
-            all_lines = f.readlines()
-        for b in all_lines[-max_lines:]:
-            try:
-                lines.append(b.decode("utf-8", errors="replace").rstrip("\n"))
-            except Exception:
-                lines.append(str(b))
-    except Exception:
-        pass
-    return lines
-
-
-def _suggest_regex_from_line(line: str) -> str:
-    s = re.escape(line)
-    s = re.sub(r"\\d+", r"\\d+", s)
-    s = re.sub(
-        r"(\\d{1,3}\\.){3}\\d{1,3}",
-        r"\\d{1,3}(?:\\.\\d{1,3}){3}",
-        s,
-    )
-    s = re.sub(r"[0-9A-Fa-f]{8,}", r"[0-9A-Fa-f]{8,}", s)
-    return s
 
 
 @app.get("/regex", name="regex_lab")
@@ -364,6 +338,8 @@ async def regex_save(
     regex_value: str = Form(...),
     regex_kind: str = Form("error"),
 ):
+    global raw_config, settings
+
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
@@ -475,7 +451,6 @@ async def regex_save(
 
     from .config import parse_webui_settings  # avoid cycle
 
-    global raw_config, settings
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
 
@@ -496,3 +471,4 @@ async def regex_save(
             "message": f"Regex added to classifier.{key} for pipeline {module_obj.pipeline_name}.",
         },
     )
+

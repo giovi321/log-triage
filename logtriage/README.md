@@ -52,9 +52,7 @@ cd log-triage
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install pyyaml
-# optional for MQTT alerts
-pip install paho-mqtt
+pip install pyyaml fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous paho-mqtt
 ```
 
 Package layout:

@@ -146,14 +146,14 @@ database:
 
 webui:
   enabled: true
-  host: '127.0.0.1'
+  host: '192.168.1.10'
   port: 8090
   base_path: '/'
   secret_key: 'CHANGE_THIS_TO_A_LONG_RANDOM_STRING'
   session_cookie_name: 'logtriage_session'
   dark_mode_default: true
   csrf_enabled: true
-  allowed_ips: ['127.0.0.1']
+  allowed_ips: ['192.168.2.2']
   admin_users:
     - username: 'admin'
-      password_hash: 'bcrypt:$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+      password_hash: '$2a$12$38c7iQ3n8lACPHEiSO4ZQ.V7ZbhvoVNxv7x3Nhi1QadDdjOLJivuy'
