@@ -3,7 +3,7 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(360px, 1.1fr);
+    grid-template-columns: minmax(0, 6fr) minmax(320px, 1fr);
     gap: 1.25rem;
     align-items: start;
   }
@@ -120,7 +120,7 @@
   editor.getInputField().setAttribute('spellcheck', 'false');
   editor.getInputField().setAttribute('autocorrect', 'off');
   editor.getWrapperElement().style.marginRight = '0';
-  editor.getWrapperElement().style.minHeight = '640px';
+  editor.getWrapperElement().style.minHeight = '720px';
 
   const hintBody = document.getElementById('hint-body');
   const errorBox = document.getElementById('client-error');
