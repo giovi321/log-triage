@@ -92,45 +92,6 @@ pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy i
 pip install --upgrade --force-reinstall "bcrypt>=4.0,<4.1"
 ```
 
-Package layout (relevant parts):
-
-```text
-logtriage/
-  __init__.py
-  __main__.py
-  cli.py
-  config.py
-  models.py
-  utils.py
-  stream.py
-  engine.py
-  grouping/
-    __init__.py
-    whole_file.py
-    marker.py
-  classifiers/
-    __init__.py
-    regex_counter.py
-    rsnapshot_basic.py
-  alerts.py
-  baseline.py
-  webui/
-    __init__.py
-    __main__.py
-    app.py
-    auth.py
-    config.py
-    db.py
-    templates/
-      base.html
-      login.html
-      dashboard.html
-      config.html
-      config_edit.html
-      regex.html
-config.example.yaml
-```
-
 Run the CLI:
 
 ```bash
