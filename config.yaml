@@ -153,7 +153,7 @@ webui:
   session_cookie_name: 'logtriage_session'
   dark_mode_default: true
   csrf_enabled: true
-  allowed_ips: ['192.168.2.2']
+  allowed_ips: ['192.168.2.2','10.10.10.2']
   admin_users:
     - username: 'admin'
       password_hash: '$2a$12$38c7iQ3n8lACPHEiSO4ZQ.V7ZbhvoVNxv7x3Nhi1QadDdjOLJivuy'

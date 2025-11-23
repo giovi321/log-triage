@@ -79,7 +79,9 @@
 </style>
 <div class="card">
   <h2>Edit config.yaml</h2>
-  <p class="helper-text">Changes are validated as YAML and saved atomically. A <code>.bak</code> backup is written before replacing the file.</p>
+  <p class="helper-text">
+    Changes are validated as YAML and saved atomically. A <code>.bak</code> backup is written before replacing the file.
+  </p>
   {% if error %}
     <p style="color:#ff6b6b;">{{ error }}</p>
   {% endif %}
@@ -89,7 +91,12 @@
   <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor">
     <div class="config-editor-grid">
       <div class="editor-pane">
-        <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" aria-label="config.yaml editor">{{ config_text }}</textarea>
+        <textarea id="config-text"
+                  name="config_text"
+                  rows="28"
+                  wrap="off"
+                  spellcheck="false"
+                  aria-label="config.yaml editor">{{ config_text }}</textarea>
         <div id="client-error" class="client-error" role="alert"></div>
         <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
           <button type="submit">Save</button>
@@ -99,17 +106,20 @@
       </div>
       <div class="hint-panel" id="hint-panel">
         <h3>Context hints</h3>
-        <div class="hint-body" id="hint-body">{{ context_hints.root or "Top-level sections mirror the README. Move the cursor to a section to see details." }}</div>
+        <div class="hint-body" id="hint-body">
+          {{ context_hints.root or "Top-level sections mirror the README. Move the cursor to a section to see details." }}
+        </div>
       </div>
     </div>
   </form>
 </div>
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" integrity="sha512-mSC76njgb5Rh1yxTrntHbObr5nyK0pm3PzqzFteXe5EW8trK6GRvtvtnB1ZduGucz3Sgr7vAldqQL5cVVBcHaw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css" integrity="sha512-FIOh9pI/CeUL8wf8rr1IXYj+WognZ/dRhqEpxP9Iaw7uJLLky54La5QOKxH5YhCmnY4MnBCqYOsk6vtCYsCMwg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" integrity="sha512-fNWiaG1Yg+JZSyH3pALwtoSHrCHu6mDGcWhGAdr2X3xpJMMfovMT4MtZP3B+25IVHItlT/zdJpGZc2JkyHG4IQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js" integrity="sha512-szXHqFkPU2pPDalJYs5Jj+WZicVQfrv/1S9JQ8lbIlt1RmDE30xH6CR6VGrCvc0Njykg9DrJU0B3zGBgkDcJdA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js" integrity="sha512-CSBhVREyzHAjAFfBlIBakjoRUKp5h7VSweP0InR/pAJyptH7peuhCsqAI/snV+TwZmXZqoUklpXp6R6wMnYf5Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+{# Local assets: put the files into logtriage/webui/assets #}
+<link rel="stylesheet" href="{{ url_for('assets', path='codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('assets', path='material-darker.min.css') }}">
+<script src="{{ url_for('assets', path='codemirror.min.js') }}"></script>
+<script src="{{ url_for('assets', path='mode-yaml.min.js') }}"></script>
+<script src="{{ url_for('assets', path='js-yaml.min.js') }}"></script>
 
 <script>
   const textarea = document.getElementById('config-text');
@@ -130,6 +140,7 @@
   const hintBody = document.getElementById('hint-body');
   const errorBox = document.getElementById('client-error');
   const saveButton = document.querySelector('.config-editor button[type="submit"]');
+
   const hintTexts = {{ context_hints | tojson | safe }} || {};
   const hintsLoaded = Object.keys(hintTexts).length > 0;
   const defaultHint = hintTexts.root || 'Top-level settings for logtriage.';
@@ -245,7 +256,9 @@
       if (hint) {
         setHint(hint);
       } else {
-        setHint(hintsLoaded ? 'No hint available for this section yet.' : 'Loading context hints...');
+        setHint(hintsLoaded
+          ? 'No hint available for this section yet.'
+          : 'Loading context hints...');
       }
     } catch (err) {
       console.error('Hint update error', err);
@@ -259,14 +272,18 @@
     validateYaml();
     updateHint();
   }, 200));
-  document.querySelector('.config-editor').addEventListener('submit', (event) => {
-    const isValid = validateYaml();
-    if (!isValid) {
-      event.preventDefault();
-      return;
-    }
-    editor.save();
-  });
+
+  document
+    .querySelector('.config-editor')
+    .addEventListener('submit', (event) => {
+      const isValid = validateYaml();
+      if (!isValid) {
+        event.preventDefault();
+        return;
+      }
+      editor.save();
+    });
+
   setHint(defaultHint);
   validateYaml();
   updateHint();
