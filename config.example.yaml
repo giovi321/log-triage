@@ -1,0 +1,107 @@
+defaults:
+  llm_enabled: false
+  llm_min_severity: WARNING
+  max_chunk_lines: 500
+
+pipelines:
+  - name: rsnapshot
+    match:
+      filename_regex: "rsnapshot.*\.log"
+    grouping:
+      type: "marker"
+      start_regex: "^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\].*rsnapshot .*: started$"
+      end_regex: ""
+    classifier:
+      type: "rsnapshot_basic"
+      error_regexes:
+        - "ERROR:"
+        - "rsync error"
+      warning_regexes:
+        - "WARNING"
+      ignore_regexes: []
+    llm:
+      enabled: true
+      min_severity: ERROR
+      max_chunk_lines: 5000
+
+  - name: homeassistant
+    match:
+      filename_regex: "homeassistant.*\.log"
+    grouping:
+      type: "whole_file"
+    classifier:
+      type: "regex_counter"
+      error_regexes:
+        - "\berror\b"
+        - "Traceback"
+      warning_regexes:
+        - "\bwarning\b"
+        - "\bfailed to\b"
+      ignore_regexes:
+        - "Some noisy integration .* does not support.*"
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_chunk_lines: 1000
+
+  - name: generic_default
+    match:
+      filename_regex: ".*"
+    grouping:
+      type: "whole_file"
+    classifier:
+      type: "regex_counter"
+      error_regexes:
+        - "\berror\b"
+        - "\bfailed\b"
+        - "exception"
+      warning_regexes:
+        - "\bwarn\b"
+        - "\bdegraded\b"
+      ignore_regexes: []
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_chunk_lines: 300
+
+modules:
+  - name: rsnapshot
+    enabled: true
+    path: "/var/log/rsnapshot.log"
+    mode: "batch"              # process file or directory once
+    pipeline: "rsnapshot"
+    output_format: "json"      # "text" or "json"
+    min_print_severity: "INFO" # filter for console output
+    emit_llm_payloads_dir: "./rsnapshot_payloads"
+    llm_payload_mode: "errors_only"
+    only_last_chunk: true
+    exit_code_by_severity:
+      OK: 0
+      INFO: 0
+      WARNING: 1
+      ERROR: 2
+      CRITICAL: 3
+
+  - name: homeassistant_follow
+    enabled: true
+    path: "/var/log/fluent-bit/homeassistant.log"
+    mode: "follow"
+    pipeline: "homeassistant"
+    output_format: "text"
+    min_print_severity: "WARNING"
+    emit_llm_payloads_dir: "./ha_llm_payloads"
+    llm_payload_mode: "errors_only"
+    only_last_chunk: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: all_logs_batch
+    enabled: false
+    path: "/var/log/fluent-bit"
+    mode: "batch"
+    output_format: "json"
+    min_print_severity: "INFO"
+    emit_llm_payloads_dir: "./llm_payloads"
+    llm_payload_mode: "full"
+    only_last_chunk: false
