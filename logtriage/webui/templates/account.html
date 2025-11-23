@@ -38,7 +38,7 @@
 
   <div class="card">
     <h2>Need to add an admin?</h2>
-    <p class="helper-text">Use the <a href="{{ url_for('user_admin') }}">Users page</a> for guidance or edit <code>webui.admin_users</code> directly in the <a href="{{ url_for('edit_config') }}">config editor</a>.</p>
+    <p class="helper-text">Edit <code>webui.admin_users</code> directly in the <a href="{{ url_for('edit_config') }}">config editor</a>. Each entry needs a <code>username</code> and <code>password_hash</code> generated with bcrypt.</p>
   </div>
 </div>
 {% endblock %}
