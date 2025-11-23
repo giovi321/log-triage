@@ -478,25 +478,32 @@ def _tail_lines(path: Path, max_lines: int = 200) -> List[str]:
         return []
 
 
-def _error_lines_from_chunks(module_name: str, max_lines: int = 200) -> List[str]:
-    chunks = get_recent_chunks_for_module(module_name, limit=max_lines)
+def _error_lines_from_chunks(module_obj, max_lines: int = 200) -> List[str]:
+    chunks = get_recent_chunks_for_module(module_obj.name, limit=max_lines)
+    if not chunks:
+        return []
+
+    tail_lines = _tail_lines(Path(module_obj.path), max_lines=max_lines)
+    if not tail_lines:
+        return []
+
+    chunked_tail = _build_chunked_tail(tail_lines, chunks)
+
     lines: List[str] = []
-    for chunk in chunks:
-        sev = (chunk.severity or "").upper()
-        if sev in {"OK", "INFO"} and not (chunk.error_count or chunk.warning_count):
+    for section in chunked_tail:
+        chunk = section.get("chunk")
+        if chunk is None:
             continue
-        reason = (chunk.reason or "").strip() or "-"
+
+        chunk_lines = section.get("lines", [])
         created_at = _format_local_timestamp(getattr(chunk, "created_at", None))
-        chunk_header = (
-            f"[{chunk.severity}] chunk #{getattr(chunk, 'chunk_index', '?')} @ {created_at}"
-        )
-        counts = (
-            f"errors: {getattr(chunk, 'error_count', 0)}, warnings: {getattr(chunk, 'warning_count', 0)}, "
-            f"lines: {getattr(chunk, 'line_count', 0)}"
-        )
-        lines.append(f"{chunk_header}\n{counts}\nreason: {reason}")
-        if len(lines) >= max_lines:
-            break
+        header = f"[{getattr(chunk, 'severity', '')}] chunk #{getattr(chunk, 'chunk_index', '?')} @ {created_at}"
+        lines.append(header)
+        for entry in chunk_lines:
+            lines.append(entry.get("text", ""))
+            if len(lines) >= max_lines:
+                return lines[:max_lines]
+
     return lines[:max_lines]
 
 
@@ -508,7 +515,7 @@ def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int 
     if source == "errors":
         if not db_status.get("connected"):
             return [], "Database not connected; cannot load identified errors."
-        return _error_lines_from_chunks(module_obj.name, max_lines=max_lines), None
+        return _error_lines_from_chunks(module_obj, max_lines=max_lines), None
 
     return _tail_lines(Path(module_obj.path), max_lines=max_lines), None
 
