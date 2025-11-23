@@ -12,11 +12,11 @@ It works per *module* defined in a YAML config file. Each module describes:
 - optionally, which exit code to use for automation
 - optionally, how to send alerts (webhook / MQTT)
 - optionally, how to use a baseline to detect anomalies
-- optionally, how to expose a Web UI to edit config and monitor modules
+- optionally, how to store summaries in a database and show them in a Web UI
 
 Pipelines define how to group and classify logs; modules define how and when to run them.
 
-The actual LLM call is out of scope. `log-triage` only decides what is interesting and produces payload files you can feed to a local or remote LLM. A companion Web UI gives you a dark-mode dashboard and config editor on top.
+The actual LLM call is out of scope. `log-triage` only decides what is interesting and produces payload files you can feed to a local or remote LLM. A companion Web UI gives you a dark-mode dashboard, config editor, and regex lab on top.
 
 ## Features
 
@@ -43,9 +43,10 @@ The actual LLM call is out of scope. `log-triage` only decides what is interesti
 - Optional SQL database integration for storing chunk summaries (SQLite or Postgres)
 - Web UI (FastAPI) to:
   - log in with username/password (bcrypt)
-  - view modules and status
-  - inspect `config.yaml` (and later edit)
-  - run on dark-mode layout
+  - view modules and per-module stats (last severity, 24h error/warning counts, etc.)
+  - inspect and edit `config.yaml` (atomic writes, with backup)
+  - experiment with regexes (regex lab) and save them to classifiers
+  - run on a dark-mode layout
 
 ## Install
 
@@ -65,11 +66,11 @@ pip install pyyaml
 # optional MQTT alerts
 pip install paho-mqtt
 
-# optional Web UI + DB
+# Web UI + DB
 pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy
 ```
 
-Package layout:
+Package layout (relevant parts):
 
 ```text
 logtriage/
@@ -103,6 +104,8 @@ logtriage/
       login.html
       dashboard.html
       config.html
+      config_edit.html
+      regex.html
 config.example.yaml
 ```
 
@@ -118,6 +121,8 @@ Run the Web UI (reads the same `config.yaml`):
 export LOGTRIAGE_CONFIG=/path/to/config.yaml  # optional, default ./config.yaml
 python -m logtriage.webui
 ```
+
+Then open `http://127.0.0.1:8090/login` (or whatever host/port you configured).
 
 ## Configuration
 
@@ -215,8 +220,8 @@ modules:
     output_format: "json"
     min_print_severity: "INFO"
     emit_llm_payloads_dir: "./rsnapshot_payloads"
-    llm_payload_mode: "errors_only"
-    only_last_chunk: true
+    llm_payload_mode: "errors_only"   # "full" or "errors_only"
+    only_last_chunk: true             # only last rsnapshot run
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -292,14 +297,22 @@ webui:
   secret_key: "CHANGE_THIS_TO_A_LONG_RANDOM_STRING"
   session_cookie_name: "logtriage_session"
   dark_mode_default: true
-  csrf_enabled: true
+  csrf_enabled: true     # reserved; not fully wired yet
   allowed_ips: ["127.0.0.1"]
   admin_users:
     - username: "admin"
       password_hash: "bcrypt:$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 ```
 
-The example is intentionally conservative: Web UI only on localhost, DB as SQLite, one admin user whose password hash you generate yourself.
+Web UI notes:
+
+- Web UI reads this same `config.yaml` using `LOGTRIAGE_CONFIG` or default `./config.yaml`.
+- Editing via `/config/edit` performs YAML validation and atomic update with `.bak` backup.
+- Regex lab at `/regex` lets you:
+  - pick a module, tail its log file
+  - generate a regex from a selected line
+  - test a regex against the sample
+  - save the regex into the matching pipeline classifier.
 
 ## Usage
 

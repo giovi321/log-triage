@@ -8,6 +8,7 @@ from .classifiers import classify_chunk
 from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
 from .baseline import apply_baseline
+from .webui.db import store_chunk
 
 
 def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
@@ -137,8 +138,16 @@ def stream_file(mod: ModuleConfig, pcfg: PipelineConfig) -> None:
             print(f"  needs_llm: {chunk.needs_llm}")
             print()
 
+        # best-effort DB store; will be a no-op if DB is not configured
+        try:
+            is_anomaly = isinstance(chunk.reason, str) and chunk.reason.startswith("ANOMALY:")
+            store_chunk(mod.name, chunk, anomaly_flag=is_anomaly)
+        except Exception:
+            pass
+
         if emit_llm_dir is not None and chunk.needs_llm:
             write_llm_payloads([chunk], emit_llm_dir, mode=llm_payload_mode, default_pcfg=pcfg)
 
         if mod.alert_mqtt or mod.alert_webhook:
             send_alerts(mod, chunk)
+

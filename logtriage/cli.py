@@ -12,6 +12,7 @@ from .utils import select_pipeline
 from .stream import stream_file
 from .baseline import apply_baseline
 from .alerts import send_alerts
+from .webui.db import setup_database, cleanup_old_chunks, store_chunk
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -133,7 +134,7 @@ def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List
     if mod.only_last_chunk:
         chunks = _filter_only_last_chunk(chunks)
 
-    # Apply baseline anomaly detection and recompute LLM gating, then alerts
+    # Apply baseline anomaly detection, recompute LLM gating, alerts, and store in DB
     for ch in chunks:
         pcfg = pipeline_map.get(ch.pipeline_name)
         if pcfg is None:
@@ -143,6 +144,13 @@ def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List
         ch.needs_llm = should_send_to_llm(pcfg, ch.severity, ch.lines)
         if mod.alert_mqtt or mod.alert_webhook:
             send_alerts(mod, ch)
+        # best-effort DB store (only works if database.url was configured)
+        try:
+            is_anomaly = isinstance(ch.reason, str) and ch.reason.startswith("ANOMALY:")
+            store_chunk(mod.name, ch, anomaly_flag=is_anomaly)
+        except Exception:
+            # do not let DB errors break log processing
+            pass
 
     # Write LLM payloads if requested
     if mod.emit_llm_payloads_dir:
@@ -160,7 +168,6 @@ def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List
         print_text_summary(chunks, mod.min_print_severity)
 
     return chunks
-
 
 def run_module_follow(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> None:
     if not mod.path.is_file():
@@ -185,6 +192,21 @@ def main(argv: Optional[List[str]] = None) -> None:
     cfg = load_config(cfg_path)
     pipelines = build_pipelines(cfg)
     modules = build_modules(cfg)
+
+    # Optional database initialisation
+    db_cfg = {}
+    if isinstance(cfg, dict):
+        db_cfg = cfg.get("database") or {}
+    db_url = db_cfg.get("url")
+    retention_days = int(db_cfg.get("retention_days", 0) or 0)
+    if db_url:
+        setup_database(db_url)
+        if retention_days > 0:
+            try:
+                cleanup_old_chunks(retention_days)
+            except Exception:
+                # do not abort if cleanup fails
+                pass
 
     if args.module:
         modules_to_run = [m for m in modules if m.name == args.module]
@@ -226,3 +248,4 @@ def main(argv: Optional[List[str]] = None) -> None:
             run_module_follow(mod, pipelines)
         else:
             run_module_batch(mod, pipelines)
+
