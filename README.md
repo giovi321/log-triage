@@ -359,4 +359,46 @@ Run the Web UI:
 ```bash
 export LOGTRIAGE_CONFIG=/path/to/config.yaml
 python -m logtriage.webui
-```YAML example
+```
+
+## Writing custom LLM prompts
+
+Each pipeline can point to a prompt template file via `llm.prompt_template`. The file is read once and formatted with Python
+`str.format`, so you can reference these placeholders:
+
+- `{pipeline}` — pipeline name (from the `pipelines` list)
+- `{file_path}` — log file path for the chunk
+- `{severity}` — rule-based severity before the LLM runs
+- `{reason}` — rule-based reason text
+- `{error_count}` — number of lines matching error rules
+- `{warning_count}` — number of lines matching warning rules
+- `{line_count}` — number of lines included in the payload (full chunk or filtered errors-only, depending on `llm_payload_mode`)
+
+Guidelines for writing effective prompts:
+
+- Give the LLM concise context about the system and what to prioritize for operators.
+- Echo the numeric metadata above so the model can correlate counts with the raw log snippet.
+- Tell the model to return a single JSON object with keys like `severity`, `reason`, `key_lines`, and `action_items`; avoid
+  extra prose before/after the JSON.
+- Keep the instructions short enough to fit comfortably before the `BEGIN/END` log markers in the generated payload files.
+
+Example (`prompts/homeassistant.txt`):
+
+```text
+You are an assistant analyzing Home Assistant logs to find the most important issues for an operator.
+
+Pipeline: {pipeline}
+File: {file_path}
+Rule-based severity: {severity}
+Rule-based reason: {reason}
+Error lines: {error_count}
+Warning lines: {warning_count}
+Lines in this chunk: {line_count}
+
+Focus on integration failures, device connectivity, automations/scripts that error, configuration or dependency problems, and
+repeated warnings that may impact stability.
+Return a single JSON object with keys: severity, reason, key_lines, action_items.
+Do not include any text before or after the JSON.
+```
+
+If a template path is omitted, `log-triage` falls back to a built-in default prompt with the same output contract.
