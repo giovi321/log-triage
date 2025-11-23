@@ -5,19 +5,37 @@
     <title>log-triage Web UI</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
+      :root {
+        color-scheme: dark;
+      }
       body {
         margin: 0;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background-color: #111;
-        color: #eee;
+        background-color: #0d0d0f;
+        color: #e8ecf2;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
       }
       header {
         padding: 0.75rem 1rem;
-        background-color: #181818;
-        border-bottom: 1px solid #333;
+        background-color: #121218;
+        border-bottom: 1px solid #1f2530;
         display: flex;
         align-items: center;
         justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      .brand {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        font-weight: 700;
+      }
+      .brand span {
+        color: #8ab4f8;
       }
       a {
         color: #8ab4f8;
@@ -26,36 +44,76 @@
       a:hover {
         text-decoration: underline;
       }
-      .container {
-        padding: 1rem;
+      main.container {
+        padding: 1.25rem;
+        width: min(1480px, 98vw);
+        margin: 0 auto;
+        flex: 1;
       }
       .card {
-        background-color: #1e1e1e;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        border: 1px solid #333;
+        background-color: #141821;
+        border-radius: 0.75rem;
+        padding: 1rem 1.25rem;
+        border: 1px solid #1f2530;
         margin-bottom: 1rem;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.25);
       }
       .card h2 {
         margin-top: 0;
       }
       input, button, select, textarea {
-        background-color: #262626;
-        color: #eee;
-        border-radius: 0.25rem;
-        border: 1px solid #444;
-        padding: 0.4rem 0.6rem;
+        background-color: #1b1f29;
+        color: #e8ecf2;
+        border-radius: 0.35rem;
+        border: 1px solid #2b3242;
+        padding: 0.5rem 0.7rem;
+        font-size: 0.95rem;
+      }
+      input:focus, textarea:focus, select:focus {
+        outline: 2px solid #35528f;
       }
       button {
         cursor: pointer;
+        background: linear-gradient(120deg, #4c6ad4, #7a8fe7);
+        border: none;
+        color: #fff;
+        font-weight: 600;
+        box-shadow: 0 6px 18px rgba(76,106,212,0.35);
       }
-      .topnav-links a {
-        margin-left: 1rem;
+      button.secondary {
+        background: transparent;
+        border: 1px solid #2b3242;
+        box-shadow: none;
+      }
+      .topnav-links {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+      }
+      .topnav-links .pill {
+        padding: 0.35rem 0.6rem;
+        background: #1b1f29;
+        border-radius: 999px;
+        border: 1px solid #2b3242;
+        font-size: 0.85rem;
+        color: #cfd7e6;
+      }
+      .grid {
+        display: grid;
+        gap: 1rem;
+      }
+      .grid.two-col {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+      .grid.wide-two-col {
+        grid-template-columns: 2fr 1fr;
+        align-items: start;
       }
       .status-badge {
         display: inline-block;
-        padding: 0.1rem 0.5rem;
-        border-radius: 0.4rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 0.5rem;
         font-size: 0.8rem;
       }
       .sev-OK { background-color: #1b5e20; }
@@ -63,18 +121,70 @@
       .sev-WARNING { background-color: #ff8f00; }
       .sev-ERROR { background-color: #c62828; }
       .sev-CRITICAL { background-color: #6a1b9a; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        text-align: left;
+        padding: 0.35rem 0.25rem;
+      }
+      thead th {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        color: #9fb1d3;
+        border-bottom: 1px solid #222a38;
+      }
+      tbody tr:nth-child(even) {
+        background: #12161e;
+      }
+      tbody tr:nth-child(odd) {
+        background: #0f131b;
+      }
+      .muted { color: #8a94a7; }
+      .tag { display:inline-block; padding:0.15rem 0.5rem; border:1px solid #2b3242; border-radius:999px; font-size:0.8rem; }
+      .helper-text { font-size: 0.9rem; color: #aeb9cc; }
+      .page-center { min-height: calc(100vh - 64px); display:flex; align-items:center; justify-content:center; }
+      .status-strip { display:flex; flex-wrap:wrap; gap:0.5rem; align-items:center; }
+      .status-chip { border:1px solid #2b3242; border-radius:999px; padding:0.35rem 0.65rem; background:#1b1f29; font-size:0.85rem; }
+      .status-chip.error { border-color:#ff6b6b; color:#ffb0b0; }
+      .status-chip.ok { border-color:#4caf50; color:#b7e6c5; }
+      .status-chip.warn { border-color:#f2b705; color:#f4e3a7; }
+      .editor-layout { display:grid; grid-template-columns: minmax(0, 3.5fr) minmax(320px, 1fr); gap:1.5rem; align-items:start; }
+      @media (max-width: 960px) {
+        .editor-layout { grid-template-columns: 1fr; }
+      }
+      .hint-panel { background:#11141d; border:1px solid #222a38; border-radius:0.75rem; padding:0.75rem; }
+      .hint-panel h3 { margin-top:0; margin-bottom:0.35rem; }
+      .hint-panel .hint-body { font-size:0.9rem; color:#cdd6e5; line-height:1.4; }
+      .CodeMirror { height: auto; border:1px solid #222a38; border-radius:0.65rem; font-size:1rem; background:#0b1020; color:#e9ecf4; }
+      .CodeMirror-scroll { max-height: 640px; }
+      .CodeMirror-linenumber { color:#7f8ca8; }
+      .cm-s-default .cm-keyword { color:#89ddff; }
+      .cm-s-default .cm-atom { color:#c792ea; }
+      .cm-s-default .cm-number { color:#f78c6c; }
+      .cm-s-default .cm-string { color:#c3e88d; }
+      .cm-s-default .cm-comment { color:#676e8a; font-style:italic; }
+      .cm-s-default .cm-def { color:#82aaff; }
+      .cm-s-default .cm-property { color:#ffcb6b; }
     </style>
 </head>
 <body>
   <header>
-    <div>
-      <strong>log-triage</strong> Web UI
+    <div class="brand">
+      <span>log-triage</span>
+      <span class="muted">Web UI</span>
     </div>
     <div class="topnav-links">
       {% if username %}
-        <span>Logged in as {{ username }}</span>
+        <span class="pill">{{ username }}</span>
         <a href="{{ url_for('dashboard') }}">Dashboard</a>
-        <a href="{{ url_for('view_config') }}">Config</a>
+        <a href="{{ url_for('module_logs') }}">Logs</a>
+        <a href="{{ url_for('edit_config') }}">Edit Config</a>
+        <a href="{{ url_for('regex_lab') }}">Regex Lab</a>
+        <a href="{{ url_for('user_admin') }}">Users</a>
+        <a href="{{ url_for('account') }}">Password</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
         <a href="{{ url_for('login_form') }}">Login</a>

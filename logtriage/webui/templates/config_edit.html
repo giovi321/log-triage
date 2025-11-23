@@ -2,6 +2,7 @@
 {% block content %}
 <div class="card">
   <h2>Edit config.yaml</h2>
+  <p class="helper-text">Changes are validated as YAML and saved atomically. A <code>.bak</code> backup is written before replacing the file.</p>
   {% if error %}
     <p style="color:#ff6b6b;">{{ error }}</p>
   {% endif %}
@@ -9,11 +10,160 @@
     <p style="color:#81c784;">{{ message }}</p>
   {% endif %}
   <form method="post" action="{{ url_for('edit_config_post') }}">
-    <textarea name="config_text" rows="30" style="width:100%; font-family:monospace; font-size:0.8rem;">{{ config_text }}</textarea>
-    <div style="margin-top:0.5rem;">
-      <button type="submit">Save</button>
-      <a href="{{ url_for('view_config') }}" style="margin-left:0.5rem;">Cancel</a>
+    <div class="editor-layout">
+      <div class="editor-pane">
+        <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" style="width:100%; font-family:monospace; font-size:0.95rem; background:#0f131b; border:1px solid #222a38; border-radius:0.65rem; padding:0.75rem;">{{ config_text }}</textarea>
+        <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+          <button type="submit">Save</button>
+          <a class="muted" href="{{ url_for('dashboard') }}">Cancel</a>
+          <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
+        </div>
+      </div>
+      <div class="hint-panel" id="hint-panel">
+        <h3>Context hints</h3>
+        <div class="hint-body" id="hint-body">Place the cursor in a section to see guidance for that part of the YAML.</div>
+      </div>
     </div>
   </form>
 </div>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" integrity="sha512-mSC76njgb5Rh1yxTrntHbObr5nyK0pm3PzqzFteXe5EW8trK6GRvtvtnB1ZduGucz3Sgr7vAldqQL5cVVBcHaw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" integrity="sha512-fNWiaG1Yg+JZSyH3pALwtoSHrCHu6mDGcWhGAdr2X3xpJMMfovMT4MtZP3B+25IVHItlT/zdJpGZc2JkyHG4IQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js" integrity="sha512-szXHqFkPU2pPDalJYs5Jj+WZicVQfrv/1S9JQ8lbIlt1RmDE30xH6CR6VGrCvc0Njykg9DrJU0B3zGBgkDcJdA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<script>
+  const textarea = document.getElementById('config-text');
+  const editor = CodeMirror.fromTextArea(textarea, {
+    mode: 'yaml',
+    lineNumbers: true,
+    lineWrapping: false,
+    tabSize: 2,
+    indentUnit: 2,
+    theme: 'default',
+  });
+
+  editor.getInputField().setAttribute('spellcheck', 'false');
+  editor.getInputField().setAttribute('autocorrect', 'off');
+  editor.getWrapperElement().style.marginRight = '0.5rem';
+  editor.getWrapperElement().style.minHeight = '640px';
+
+  const hintBody = document.getElementById('hint-body');
+
+  function setHint(text) {
+    hintBody.textContent = text;
+  }
+
+  function normalizeSegment(raw) {
+    return raw.replace(/[^A-Za-z0-9_-]/g, '');
+  }
+
+  function pathForCursor(doc, lineNumber) {
+    const lines = doc.getValue().split('\n');
+    const stack = [];
+    for (let i = 0; i <= lineNumber && i < lines.length; i++) {
+      const raw = lines[i];
+      const indentMatch = raw.match(/^(\s*)/);
+      const indent = indentMatch ? indentMatch[1].length : 0;
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      let keyPart = trimmed.startsWith('- ')? trimmed.slice(2).trim() : trimmed;
+      const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
+      if (!keyMatch) continue;
+      const key = normalizeSegment(keyMatch[1]);
+      while (stack.length && stack[stack.length - 1].indent >= indent) {
+        stack.pop();
+      }
+      stack.push({ key, indent });
+    }
+    return stack.map(s => s.key);
+  }
+
+  const hintTexts = {
+    root: 'Top-level settings mirror the README: defaults, pipelines, modules, database, and webui.',
+    defaults: 'defaults: global knobs applied to every module unless overridden. Good place for llm_min_severity and max_chunk_lines.',
+    defaults_llm_enabled: 'defaults.llm_enabled: gate LLM payload generation everywhere by default.',
+    defaults_llm_min_severity: 'defaults.llm_min_severity: minimum severity to emit LLM payloads; WARNING in the README example.',
+    defaults_max_chunk_lines: 'defaults.max_chunk_lines: cap chunk size before grouping/LLM to avoid giant payloads.',
+    pipelines: 'pipelines: reusable grouping + classifier bundles referenced by modules via pipeline_name.',
+    pipelines_match: 'pipelines.match.filename_regex: regex to pick which files feed this pipeline.',
+    pipelines_grouping: 'pipelines.grouping: choose whole_file or marker to define chunk boundaries (see README grouping section).',
+    pipelines_classifier: 'pipelines.classifier: regex_counter or rsnapshot_basic; set error/warning/ignore regex lists.',
+    pipelines_llm: 'pipelines.llm: enable per-pipeline payloads, set min_severity, max_chunk_lines, and optional prompt_template paths.',
+    pipelines_ignore: 'pipelines.classifier.ignore_regexes: drop known noisy lines before counting severities.',
+    modules: 'modules: concrete tasks; each ties a path + mode to a pipeline and output options.',
+    modules_path: 'modules.path: source log file or directory (batch) pulled by logtriage. Ensure the service can read it.',
+    modules_mode: 'modules.mode: batch scans once, follow tails a file, stream tails with interval, journal reads systemd logs.',
+    modules_pipeline: 'modules.pipeline: name of a pipeline entry; controls grouping/classifier used on this module.',
+    modules_output_format: 'modules.output_format: json or text summaries written by the CLI.',
+    modules_llm_payload_mode: 'modules.llm_payload_mode: errors_only or full—matches README guidance on LLM payload size.',
+    modules_only_last_chunk: 'modules.only_last_chunk: true to only analyze most recent chunk per file (e.g., last rsnapshot run).',
+    modules_exit_code_by_severity: 'modules.exit_code_by_severity: map severity to process exit codes for automation.',
+    modules_alerts: 'modules.alerts: optional webhook/mqtt sinks; match README examples for min_severity and target.',
+    modules_baseline: 'modules.baseline: anomaly detection window and multipliers; stores state_file as in README.',
+    modules_stream: 'modules.stream: stream/tailing settings like from_beginning and interval.',
+    database: 'database: URL + retention_days. Web UI and CLI must share this to show per-module stats.',
+    database_retention_days: 'database.retention_days: how long to keep historical chunks before cleanup.',
+    webui: 'webui: host/port/base_path plus security (secret_key, allowed_ips) and admin_users with bcrypt hashes.',
+    webui_admin_users: 'webui.admin_users: usernames + password_hash fields. Update via Password page or regenerate hashes.',
+    webui_allowed_ips: 'webui.allowed_ips: IP allowlist for the UI; empty list means allow all.',
+    webui_secret_key: 'webui.secret_key: long random string used for session signing; rotate to sign everyone out.',
+    webui_session_cookie_name: 'webui.session_cookie_name: customize cookie name to avoid clashes behind reverse proxies.',
+    alerts: 'alerts: webhook + MQTT hooks; follow README examples for headers, topics, and min_severity.',
+    baseline: 'baseline: enable baseline detection, window size, and multipliers controlling anomaly severity bump.',
+  };
+
+  function hintForPath(parts) {
+    if (!parts.length) return hintTexts.root;
+    const top = parts[0];
+    const leaf = parts[parts.length - 1];
+
+    if (top === 'defaults') {
+      return hintTexts[`defaults_${leaf}`] || hintTexts.defaults;
+    }
+    if (top === 'pipelines') {
+      if (leaf === 'filename_regex' || leaf === 'match') return hintTexts.pipelines_match;
+      if (leaf === 'grouping' || leaf === 'type') return hintTexts.pipelines_grouping;
+      if (leaf === 'classifier' || leaf === 'error_regexes' || leaf === 'warning_regexes' || leaf === 'ignore_regexes') return hintTexts.pipelines_classifier;
+      if (leaf === 'llm' || leaf === 'prompt_template' || leaf === 'min_severity') return hintTexts.pipelines_llm;
+      return hintTexts.pipelines;
+    }
+    if (top === 'modules') {
+      if (leaf === 'path') return hintTexts.modules_path;
+      if (leaf === 'mode') return hintTexts.modules_mode;
+      if (leaf === 'pipeline' || leaf === 'pipeline_name') return hintTexts.modules_pipeline;
+      if (leaf === 'output_format') return hintTexts.modules_output_format;
+      if (leaf === 'llm_payload_mode') return hintTexts.modules_llm_payload_mode;
+      if (leaf === 'only_last_chunk') return hintTexts.modules_only_last_chunk;
+      if (leaf === 'exit_code_by_severity') return hintTexts.modules_exit_code_by_severity;
+      if (leaf === 'alerts' || leaf === 'webhook' || leaf === 'mqtt') return hintTexts.modules_alerts;
+      if (leaf === 'baseline') return hintTexts.modules_baseline;
+      if (leaf === 'stream') return hintTexts.modules_stream;
+      return hintTexts.modules;
+    }
+    if (top === 'database') {
+      if (leaf === 'retention_days') return hintTexts.database_retention_days;
+      return hintTexts.database;
+    }
+    if (top === 'webui') {
+      if (leaf === 'admin_users') return hintTexts.webui_admin_users;
+      if (leaf === 'allowed_ips') return hintTexts.webui_allowed_ips;
+      if (leaf === 'secret_key') return hintTexts.webui_secret_key;
+      if (leaf === 'session_cookie_name') return hintTexts.webui_session_cookie_name;
+      return hintTexts.webui;
+    }
+    if (top === 'alerts') return hintTexts.alerts;
+    if (top === 'baseline') return hintTexts.baseline;
+    return `${top}: configuration section.`;
+  }
+
+  function updateHint() {
+    const pos = editor.getCursor();
+    const path = pathForCursor(editor, pos.line);
+    setHint(hintForPath(path));
+  }
+
+  editor.on('cursorActivity', updateHint);
+  editor.on('changes', () => editor.save());
+  updateHint();
+</script>
 {% endblock %}
