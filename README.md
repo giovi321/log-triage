@@ -1,6 +1,11 @@
 <img width="635" height="110" alt="log-triage" src="https://github.com/user-attachments/assets/f6201eee-cbeb-4261-94cc-c8f42289dbaf" />
 
-`log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM.
+[![Version](https://img.shields.io/badge/version-v0.0.1-blue.svg)](https://github.com/giovi321/log-triage)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Last Commit](https://img.shields.io/github/last-commit/giovi321/log-triage)](https://github.com/giovi321/log-triage/commits/main)
+[![License](https://img.shields.io/github/license/giovi321/log-triage)](https://github.com/giovi321/log-triage/blob/main/LICENSE)
+
+`log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM. The current toolkit version is **v0.0.1**.
 
 It works per *module* defined in a YAML config file. Each module describes:
 
