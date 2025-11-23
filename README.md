@@ -129,7 +129,7 @@ Then open `http://127.0.0.1:8090/login` (or whatever host/port you configured).
 
 ## Configuration
 
-Copy the example config and edit it:
+See [config.example.yaml](config.example.yaml) for the complete template. Copy it as a starting point and edit it:
 
 ```bash
 cp config.example.yaml config.yaml
@@ -142,6 +142,14 @@ The config has five main parts:
 - `modules`: concrete tasks, one per software you want to analyze
 - `database`: DB connection and retention
 - `webui`: Web UI settings and admin users
+
+### Config at a glance
+
+- `defaults`: `llm_enabled`, `llm_min_severity`, `max_chunk_lines`
+- `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`, `llm.(enabled|min_severity|max_chunk_lines|prompt_template)`
+- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `emit_llm_payloads_dir`, `llm_payload_mode`, `only_last_chunk`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
+- `database`: `url`, `retention_days`
+- `webui`: `host`, `port`, `base_path`, `secret_key`, `admin_users`
 
 Example:
 
