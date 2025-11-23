@@ -18,6 +18,21 @@ Pipelines define how to group and classify logs; modules define how and when to 
 
 The actual LLM call is out of scope. `log-triage` only decides what is interesting and produces payload files you can feed to a local or remote LLM. A companion Web UI gives you a dark-mode dashboard, config editor, and regex lab on top.
 
+## Quick start
+
+- Python **3.10+**
+- A log source such as **Fluent Bit** forwarding to files, or direct access to the log files you want to analyze
+
+```bash
+git clone https://github.com/giovi321/log-triage.git
+cd log-triage
+
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install '.[webui,mqtt]'
+```
+
 ## Features
 
 - YAML configuration for both pipelines and modules
@@ -50,16 +65,20 @@ The actual LLM call is out of scope. `log-triage` only decides what is interesti
 
 ## Install
 
-Clone the repo and install dependencies in a virtualenv:
+Install everything (CLI, MQTT alerts, and Web UI) into a virtualenv:
 
 ```bash
-git clone https://github.com/giovi321/log-triage.git
-cd log-triage
-
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
+pip install '.[webui,mqtt]'
+```
 
+### Manual install (explicit packages)
+
+If you prefer to pin packages individually, install them in this order inside your virtualenv:
+
+```bash
 # core CLI
 pip install pyyaml
 
