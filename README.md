@@ -67,7 +67,7 @@ pip install pyyaml
 pip install paho-mqtt
 
 # Web UI + DB
-pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy
+pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous
 ```
 
 Package layout (relevant parts):
