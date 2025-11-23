@@ -1,5 +1,4 @@
-# log-triage
-<img width="635" height="110" alt="logo-rounded-bg" src="https://github.com/user-attachments/assets/f6201eee-cbeb-4261-94cc-c8f42289dbaf" />
+<img width="635" height="110" alt="log-triage" src="https://github.com/user-attachments/assets/f6201eee-cbeb-4261-94cc-c8f42289dbaf" />
 
 `log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM.
 
