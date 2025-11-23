@@ -3,7 +3,7 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 2.5fr) minmax(320px, 1fr);
+    grid-template-columns: minmax(0, 3.25fr) minmax(320px, 1fr);
     gap: 1.35rem;
     align-items: start;
   }
@@ -196,6 +196,7 @@
       .then(data => {
         hintTexts = data || {};
         hintsLoaded = true;
+        setHint(hintTexts.root || 'Top-level settings for logtriage.');
         updateHint();
       })
       .catch(() => {
