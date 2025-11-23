@@ -152,22 +152,6 @@ async def dashboard(request: Request):
     )
 
 
-@app.get("/users", name="user_admin")
-async def user_admin(request: Request):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    return templates.TemplateResponse(
-        "users.html",
-        {
-            "request": request,
-            "username": username,
-            "admin_users": settings.admin_users,
-        },
-    )
-
-
 @app.get("/config/edit", name="edit_config")
 async def edit_config(request: Request):
     username = get_current_user(request, settings)
