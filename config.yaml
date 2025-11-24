@@ -178,26 +178,6 @@ pipelines:
       max_excerpt_lines: 500
       prompt_template: './prompts/apache2.txt'
 
-  - name: generic_default
-    match:
-      filename_regex: '.*'
-    grouping:
-      type: 'whole_file'
-    classifier:
-      type: 'regex_counter'
-      error_regexes:
-        - '\berror\b'
-        - '\bfailed\b'
-        - 'exception'
-      warning_regexes:
-        - '\bwarn\b'
-        - '\bdegraded\b'
-      ignore_regexes: []
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 300
-
 modules:
   - name: rsnapshot
     enabled: true
@@ -394,17 +374,6 @@ modules:
     stream:
       from_beginning: false
       interval: 1.0
-
-  - name: all_logs_batch
-    enabled: false
-    path: '/var/log/fluent-bit'
-    mode: 'batch'
-    output_format: 'json'
-    min_print_severity: 'INFO'
-    llm:
-      emit_llm_payloads_dir: './llm_payloads'
-      llm_payload_mode: 'full'
-      only_last_chunk: false
 
 database:
   url: 'sqlite:///./logtriage.db'
