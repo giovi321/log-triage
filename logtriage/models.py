@@ -126,6 +126,7 @@ class ModuleLLMConfig:
     prompt_template_path: Optional[Path]
     provider_name: Optional[str]
     emit_llm_payloads_dir: Optional[Path]
+    context_prefix_lines: int = 0
     max_output_tokens: Optional[int] = None
 
 
