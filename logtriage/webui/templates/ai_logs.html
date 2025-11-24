@@ -273,7 +273,7 @@
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
   const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
-  const SUMMARY_PLACEHOLDER = '{{' + 'AI_OPINION' + '}}';
+  {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
   const recordedSummaries = {};
 
   function copyText(text) {
