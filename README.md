@@ -303,6 +303,18 @@ webui:
       password_hash: '$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 ```
 
+### Baseline / anomaly detection
+
+When a module has `baseline.enabled: true`, log-triage stores a rolling history of the last `baseline.window` chunks in the JSON `baseline.state_file`. Each entry records timestamp plus `error_count` and `warning_count`. For every new chunk the baseline code:
+
+- loads the state file (or starts with `{ "history": [] }` if it does not exist)
+- computes average error and warning counts across the history window
+- marks the chunk as an anomaly if its counts are greater than or equal to `error_multiplier` or `warning_multiplier` times those averages
+- prepends an `ANOMALY:` note to the chunk reason and bumps severity to `severity_on_anomaly` when triggered
+- appends the new counts, trimming the history back to `baseline.window` entries, and writes the JSON file atomically
+
+You can reset or fine-tune these state files from the Web UI via **Severity files**, which lets you pick the configured `baseline.state_file` and edit its JSON with validation and highlighting.
+
 ## Usage
 
 Run all enabled modules defined in `config.yaml`:

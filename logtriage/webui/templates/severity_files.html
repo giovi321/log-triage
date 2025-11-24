@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .config-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(320px, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  @media (max-width: 1080px) {
+    .config-editor-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .config-editor .CodeMirror {
+    height: 60vh;
+    min-height: 300px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    border-radius: 0.75rem;
+    box-shadow: inset 0 0 0 1px #222a38;
+    background: #0b1020;
+    font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.98rem;
+  }
+
+  .config-editor .CodeMirror-scroll {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .hint-panel { position: sticky; top: 1.5rem; }
+  #severity-text { width: 95%; min-height: 300px; }
+  .editor-pane { min-width: 0; width: 100%; }
+  .hint-panel .hint-body { white-space: pre-wrap; }
+  .client-error { color: #ffb4b4; background: #2d1a1d; border: 1px solid #42232a; border-radius: 0.5rem; padding: 0.65rem 0.75rem; margin-top: 0.6rem; display: none; }
+  .config-editor button[disabled] { opacity: 0.65; cursor: not-allowed; box-shadow: none; background: linear-gradient(120deg, #3a4670, #5f6e9c); }
+  .cm-error-line { background: #3a1a1a !important; }
+</style>
+<div class="card">
+  <h2>Baseline severity files</h2>
+  <p class="helper-text">
+    Baseline state files record recent error and warning counts for anomaly detection. Choose a file, review the JSON payload, and save changes atomically.
+  </p>
+  {% if error %}
+    <p style="color:#ff6b6b;">{{ error }}</p>
+  {% endif %}
+  {% if message %}
+    <p style="color:#81c784;">{{ message }}</p>
+  {% endif %}
+
+  {% if baseline_files %}
+    <form id="file-select-form" method="get" action="{{ url_for('severity_files') }}" style="margin-bottom:1rem; display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+      <label for="file-select" class="muted">State file</label>
+      <select name="path" id="file-select">
+        {% for f in baseline_files %}
+          <option value="{{ f.path_str }}" {% if f.path_str == selected_path %}selected{% endif %}>
+            {{ f.path_str }}{% if f.modules %} ({{ f.modules|join(', ') }}){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="secondary">Load</button>
+    </form>
+
+    <form method="post" action="{{ url_for('severity_files_post') }}" class="config-editor">
+      <div class="config-editor-grid">
+        <div class="editor-pane">
+          <input type="hidden" name="path" value="{{ selected_path }}">
+          <textarea id="severity-text"
+                    name="file_text"
+                    rows="28"
+                    wrap="off"
+                    spellcheck="false"
+                    aria-label="Baseline state file editor">{{ file_text }}</textarea>
+          <div id="client-error" class="client-error" role="alert"></div>
+          <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+            <button id="save-button" type="submit">Save</button>
+            <a class="muted" href="{{ url_for('severity_files', path=selected_path) }}">Reload from disk</a>
+            <a class="muted" href="{{ url_for('edit_config') }}">Config</a>
+          </div>
+        </div>
+        <div class="hint-panel" id="hint-panel">
+          <h3>File details</h3>
+          <div class="hint-body" id="hint-body">
+            <p style="margin-top:0;">Path: <code>{{ selected_path }}</code></p>
+            <p style="margin:0;">Modules using it: {% if selected_modules %}{{ selected_modules|join(', ') }}{% else %}none{% endif %}</p>
+            <p style="margin:0.5rem 0 0;">Expected shape:</p>
+            <pre style="margin:0; padding:0.5rem; background:#0f1320; border:1px solid #222a38; border-radius:0.5rem;">{
+  "history": [
+    {"ts": 1699999999.0, "error_count": 2, "warning_count": 5},
+    ...
+  ]
+}</pre>
+          </div>
+        </div>
+      </div>
+    </form>
+  {% else %}
+    <p>No baseline files were found in the current configuration.</p>
+    <a href="{{ url_for('edit_config') }}">Open config editor</a>
+  {% endif %}
+</div>
+
+<link rel="stylesheet" href="{{ url_for('assets', path='codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('assets', path='material-darker.min.css') }}">
+<script src="{{ url_for('assets', path='codemirror.min.js') }}"></script>
+<script src="{{ url_for('assets', path='mode-json.min.js') }}"></script>
+
+<script>
+  const textarea = document.getElementById('severity-text');
+  if (textarea) {
+    const editor = CodeMirror.fromTextArea(textarea, {
+      mode: {name: 'application/json', json: true},
+      lineNumbers: true,
+      lineWrapping: false,
+      tabSize: 2,
+      indentUnit: 2,
+      theme: 'material-darker',
+    });
+
+    editor.getInputField().setAttribute('spellcheck', 'false');
+    editor.getInputField().setAttribute('autocorrect', 'off');
+    editor.getWrapperElement().style.marginRight = '0';
+    editor.getWrapperElement().style.minHeight = '300px';
+
+    const errorBox = document.getElementById('client-error');
+    const saveButton = document.getElementById('save-button');
+    let errorLineHandle = null;
+
+    function showClientError(text) {
+      errorBox.textContent = text;
+      errorBox.style.display = text ? 'block' : 'none';
+    }
+
+    function clearErrorHighlight() {
+      if (errorLineHandle !== null) {
+        editor.removeLineClass(errorLineHandle, 'background', 'cm-error-line');
+        errorLineHandle = null;
+      }
+    }
+
+    function highlightErrorPosition(err) {
+      const match = /position (\d+)/i.exec(err.message || '');
+      if (!match) return;
+      const pos = Number(match[1]);
+      if (Number.isNaN(pos)) return;
+      const textUpToPos = editor.getValue().slice(0, pos);
+      const line = textUpToPos.split('\n').length - 1;
+      errorLineHandle = editor.addLineClass(line, 'background', 'cm-error-line');
+    }
+
+    const form = document.querySelector('form.config-editor');
+    form?.addEventListener('submit', (event) => {
+      clearErrorHighlight();
+      showClientError('');
+      if (saveButton) saveButton.disabled = true;
+      const value = editor.getValue();
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
+          throw new Error('Top-level JSON must be an object (e.g., {"history": []}).');
+        }
+        const normalized = JSON.stringify(parsed, null, 2);
+        textarea.value = normalized;
+      } catch (err) {
+        event.preventDefault();
+        showClientError(err.message || 'Invalid JSON.');
+        highlightErrorPosition(err);
+        if (saveButton) saveButton.disabled = false;
+      }
+    });
+  }
+
+  const fileSelect = document.getElementById('file-select');
+  fileSelect?.addEventListener('change', (event) => {
+    const value = event.target.value;
+    const url = new URL('{{ url_for('severity_files') }}', window.location.origin);
+    url.searchParams.set('path', value);
+    window.location.href = url.toString();
+  });
+</script>
+{% endblock %}

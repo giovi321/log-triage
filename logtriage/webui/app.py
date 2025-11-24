@@ -17,6 +17,7 @@ from starlette import status
 from fastapi.staticfiles import StaticFiles
 
 from ..config import build_modules, load_config
+from ..models import ModuleConfig
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
@@ -147,6 +148,48 @@ def _render_config_editor(
             "error": error,
             "message": message,
             "context_hints": context_hints,
+        },
+        status_code=status_code,
+    )
+
+
+def _collect_baseline_files(modules: List[ModuleConfig]) -> List[Dict[str, Any]]:
+    files: Dict[str, Dict[str, Any]] = {}
+    for module in modules:
+        baseline_cfg = getattr(module, "baseline", None)
+        if not baseline_cfg:
+            continue
+        path = baseline_cfg.state_file
+        path_str = str(path)
+        if path_str not in files:
+            files[path_str] = {"path": path, "path_str": path_str, "modules": []}
+        files[path_str]["modules"].append(module.name)
+    return list(files.values())
+
+
+def _render_severity_editor(
+    request: Request,
+    username: str,
+    *,
+    baseline_files: List[Dict[str, Any]],
+    selected_path: Optional[str],
+    file_text: str,
+    selected_modules: List[str],
+    error: Optional[str] = None,
+    message: Optional[str] = None,
+    status_code: int = status.HTTP_200_OK,
+):
+    return templates.TemplateResponse(
+        "severity_files.html",
+        {
+            "request": request,
+            "username": username,
+            "baseline_files": baseline_files,
+            "selected_path": selected_path,
+            "file_text": file_text,
+            "error": error,
+            "message": message,
+            "selected_modules": selected_modules,
         },
         status_code=status_code,
     )
@@ -320,6 +363,179 @@ async def reload_config(request: Request):
         username,
         text,
         message="Configuration reloaded from disk.",
+    )
+
+
+@app.get("/severity-files", name="severity_files")
+async def severity_files(request: Request, path: Optional[str] = None):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    try:
+        modules = build_modules(raw_config)
+    except Exception as exc:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=[],
+            selected_path=None,
+            file_text="",
+            selected_modules=[],
+            error=f"Failed to load modules from config: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    baseline_files = _collect_baseline_files(modules)
+    if not baseline_files:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=[],
+            selected_path=None,
+            file_text="",
+            selected_modules=[],
+            message="No modules define a baseline.state_file. Add one in the config to manage baseline severity files here.",
+        )
+
+    selected_entry = next((f for f in baseline_files if f["path_str"] == path), baseline_files[0])
+    file_path: Path = selected_entry["path"]
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+    try:
+        raw_text = file_path.read_text(encoding="utf-8")
+        try:
+            parsed = json.loads(raw_text)
+            file_text = json.dumps(parsed, indent=2)
+        except Exception:
+            file_text = raw_text
+            error = "File contains invalid JSON; fix the content before saving."
+    except FileNotFoundError:
+        file_text = json.dumps({"history": []}, indent=2)
+        message = f"{file_path} not found. Save to create it."
+    except Exception as exc:
+        file_text = ""
+        error = f"Failed to read {file_path}: {exc}"
+
+    return _render_severity_editor(
+        request,
+        username,
+        baseline_files=baseline_files,
+        selected_path=str(file_path),
+        file_text=file_text,
+        selected_modules=selected_entry.get("modules", []),
+        error=error,
+        message=message,
+    )
+
+
+@app.post("/severity-files", name="severity_files_post")
+async def severity_files_post(
+    request: Request,
+    path: str = Form(...),
+    file_text: str = Form(...),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    try:
+        modules = build_modules(raw_config)
+    except Exception as exc:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=[],
+            selected_path=None,
+            file_text=file_text,
+            selected_modules=[],
+            error=f"Failed to load modules from config: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    baseline_files = _collect_baseline_files(modules)
+    selected_entry = next((f for f in baseline_files if f["path_str"] == path), None)
+    if selected_entry is None:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=baseline_files,
+            selected_path=None,
+            file_text=file_text,
+            selected_modules=[],
+            error="Selected file is not part of configured baselines.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    target_path: Path = selected_entry["path"]
+
+    try:
+        parsed = json.loads(file_text)
+    except Exception as exc:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=baseline_files,
+            selected_path=str(target_path),
+            file_text=file_text,
+            selected_modules=selected_entry.get("modules", []),
+            error=f"JSON error: {exc}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not isinstance(parsed, dict) or parsed is None:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=baseline_files,
+            selected_path=str(target_path),
+            file_text=file_text,
+            selected_modules=selected_entry.get("modules", []),
+            error="Top-level JSON must be an object (e.g., {\"history\": []}).",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    history = parsed.get("history")
+    if history is not None and not isinstance(history, list):
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=baseline_files,
+            selected_path=str(target_path),
+            file_text=file_text,
+            selected_modules=selected_entry.get("modules", []),
+            error="The 'history' key must be a list if present.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    normalized_text = json.dumps(parsed, indent=2)
+
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+        tmp_path.write_text(normalized_text, encoding="utf-8")
+        tmp_path.replace(target_path)
+    except Exception as exc:
+        return _render_severity_editor(
+            request,
+            username,
+            baseline_files=baseline_files,
+            selected_path=str(target_path),
+            file_text=file_text,
+            selected_modules=selected_entry.get("modules", []),
+            error=f"Failed to write {target_path}: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return _render_severity_editor(
+        request,
+        username,
+        baseline_files=baseline_files,
+        selected_path=str(target_path),
+        file_text=normalized_text,
+        selected_modules=selected_entry.get("modules", []),
+        message=f"Saved {target_path}.",
     )
 
 
