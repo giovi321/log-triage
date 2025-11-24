@@ -192,16 +192,25 @@
       const indent = indentMatch ? indentMatch[1].length : 0;
       const trimmed = raw.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
-      let keyPart = trimmed.startsWith('- ')? trimmed.slice(2).trim() : trimmed;
+
+      const isListItem = trimmed.startsWith('- ');
+      const effectiveIndent = indent + (isListItem ? 1 : 0);
+      let keyPart = isListItem ? trimmed.slice(2).trim() : trimmed;
+
       const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
-      if (!keyMatch) continue;
-      const key = normalizeSegment(keyMatch[1]);
-      while (stack.length && stack[stack.length - 1].indent >= indent) {
+      const key = keyMatch ? normalizeSegment(keyMatch[1]) : null;
+
+      while (stack.length && stack[stack.length - 1].indent >= effectiveIndent) {
         stack.pop();
       }
-      stack.push({ key, indent });
+
+      // Track list items even when they don't introduce a new key so nested
+      // entries keep their parent chain. Placeholders are filtered out later.
+      if (keyMatch || isListItem) {
+        stack.push({ key, indent: effectiveIndent });
+      }
     }
-    return stack.map(s => s.key);
+    return stack.map((s) => s.key).filter(Boolean);
   }
 
   function firstWordForLine(line) {
@@ -225,6 +234,13 @@
         }
       }
       candidates.push(firstWord);
+    }
+
+    for (let i = ancestors.length - 1; i >= 0; i--) {
+      const ancestorKey = normalizeSegment(ancestors[i]);
+      if (ancestorKey) {
+        candidates.push(ancestorKey);
+      }
     }
 
     for (const key of candidates) {
