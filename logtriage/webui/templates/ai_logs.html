@@ -272,6 +272,8 @@
 <script>
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
+  const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
+  const SUMMARY_PLACEHOLDER = '{{' + 'AI_OPINION' + '}}';
   const recordedSummaries = {};
 
   function copyText(text) {
@@ -419,7 +421,12 @@
       if (status) status.textContent = 'No AI opinion to summarize yet.';
       return;
     }
-    const summaryPrompt = `Summarize the following AI opinion so it can be stored alongside a finding. Keep it concise.\n\n${responseText}`;
+    const template = typeof summaryPromptTemplate === 'string' && summaryPromptTemplate.trim()
+      ? summaryPromptTemplate
+      : `Write a short, concise summary that explains the error described in the following AI opinion and how to address it.\n\n${SUMMARY_PLACEHOLDER}`;
+    const summaryPrompt = template.includes(SUMMARY_PLACEHOLDER)
+      ? template.replace(SUMMARY_PLACEHOLDER, responseText)
+      : `${template.trim()}\n\n${responseText}`;
     const data = await callLLM(summaryPrompt);
     if (!data) return;
     if (!targetFinding) {

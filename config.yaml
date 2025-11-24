@@ -27,10 +27,6 @@ pipelines:
   - name: rsnapshot
     match:
       filename_regex: 'rsnapshot.*\.log'
-    grouping:
-      type: 'marker'
-      start_regex: '^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\].*rsnapshot .*: started$'
-      end_regex: ''
     classifier:
       type: 'rsnapshot_basic'
       error_regexes:
@@ -43,8 +39,6 @@ pipelines:
   - name: homeassistant
     match:
       filename_regex: 'homeassistant.*\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
@@ -59,8 +53,6 @@ pipelines:
   - name: nextcloud
     match:
       filename_regex: 'nextcloud.*\\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
@@ -75,8 +67,6 @@ pipelines:
   - name: authentik
     match:
       filename_regex: 'authentik.*\\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
@@ -91,8 +81,6 @@ pipelines:
   - name: rmfakecloud
     match:
       filename_regex: 'rmfakecloud.*\\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
@@ -106,8 +94,6 @@ pipelines:
   - name: jellyfin
     match:
       filename_regex: 'jellyfin.*\\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
@@ -126,8 +112,6 @@ pipelines:
   - name: apache2_access
     match:
       filename_regex: '.*access\\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
@@ -143,8 +127,6 @@ pipelines:
   - name: apache2_error
     match:
       filename_regex: '.*error\\.log'
-    grouping:
-      type: 'whole_file'
     classifier:
       type: 'regex_counter'
       error_regexes:
