@@ -101,6 +101,7 @@ def run_module_batch(
         pipelines,
         mod.llm,
         mod.llm.max_excerpt_lines,
+        context_prefix_lines=mod.llm.context_prefix_lines,
         pipeline_override=mod.pipeline_name,
     )
 
@@ -123,7 +124,6 @@ def run_module_batch(
             findings,
             mod.llm,
             mod.llm.emit_llm_payloads_dir,
-            mode=mod.llm.llm_payload_mode,
         )
 
     if mod.output_format == "json":

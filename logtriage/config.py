@@ -95,6 +95,7 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             llm_cfg.get("max_chunk_lines", defaults.get("max_excerpt_lines", 20)),
         )
     )
+    base_context_prefix_lines = int(llm_cfg.get("context_prefix_lines", 0))
     base_max_output_tokens = int(
         llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens", 512))
     )
@@ -181,14 +182,17 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         emit_dir_raw = llm_cfg.get("emit_llm_payloads_dir", item.get("emit_llm_payloads_dir"))
         emit_dir = Path(emit_dir_raw) if emit_dir_raw else None
 
-        llm_mode_raw = llm_cfg.get("llm_payload_mode", item.get("llm_payload_mode", "full"))
-        llm_mode = str(llm_mode_raw).lower()
-        if llm_mode not in ("full", "errors_only"):
+        context_prefix_lines_raw = llm_cfg.get("context_prefix_lines", base_context_prefix_lines)
+        try:
+            context_prefix_lines = int(context_prefix_lines_raw)
+        except (TypeError, ValueError):
             raise ValueError(
-                f"Module {name}: invalid llm_payload_mode {llm_mode} (expected 'full' or 'errors_only')"
+                f"Module {name}: invalid context_prefix_lines {context_prefix_lines_raw} (expected integer)"
             )
-
-        only_last_chunk = bool(llm_cfg.get("only_last_chunk", item.get("only_last_chunk", False)))
+        if context_prefix_lines < 0:
+            raise ValueError(
+                f"Module {name}: context_prefix_lines must be non-negative (got {context_prefix_lines})"
+            )
         max_output_tokens_raw = llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens"))
         max_output_tokens = int(max_output_tokens_raw) if max_output_tokens_raw else None
 
@@ -196,11 +200,10 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
             enabled=llm_enabled,
             min_severity=llm_min_sev,
             max_excerpt_lines=llm_max_excerpt,
+            context_prefix_lines=context_prefix_lines,
             prompt_template_path=prompt_template_path,
             provider_name=provider_name,
             emit_llm_payloads_dir=emit_dir,
-            llm_payload_mode=llm_mode,
-            only_last_chunk=only_last_chunk,
             max_output_tokens=max_output_tokens,
         )
 

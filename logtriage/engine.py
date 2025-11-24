@@ -1,4 +1,5 @@
 from pathlib import Path
+from pathlib import Path
 from typing import List, Optional
 
 from .models import Finding, Severity, PipelineConfig, ModuleLLMConfig
@@ -8,7 +9,11 @@ from .utils import iter_log_files, select_pipeline
 
 
 def analyze_file(
-    file_path: Path, pcfg: PipelineConfig, llm_cfg: ModuleLLMConfig, excerpt_limit: int
+    file_path: Path,
+    pcfg: PipelineConfig,
+    llm_cfg: ModuleLLMConfig,
+    excerpt_limit: int,
+    context_prefix_lines: int,
 ) -> List[Finding]:
     try:
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
@@ -29,7 +34,15 @@ def analyze_file(
             )
         ]
 
-    findings = classify_lines(pcfg, file_path, pcfg.name, lines, 1, excerpt_limit)
+    findings = classify_lines(
+        pcfg,
+        file_path,
+        pcfg.name,
+        lines,
+        1,
+        excerpt_limit,
+        context_prefix_lines,
+    )
     for f in findings:
         f.needs_llm = should_send_to_llm(llm_cfg, f.severity, f.excerpt)
     return findings
@@ -40,6 +53,7 @@ def analyze_path(
     pipelines: List[PipelineConfig],
     llm_cfg: ModuleLLMConfig,
     excerpt_limit: int,
+    context_prefix_lines: int = 0,
     pipeline_override: Optional[str] = None,
 ) -> List[Finding]:
     if root.is_file() and pipeline_override:
@@ -47,7 +61,13 @@ def analyze_path(
         if pipeline_override not in pipeline_map:
             raise ValueError(f"Unknown pipeline {pipeline_override}")
         pcfg = pipeline_map[pipeline_override]
-        return analyze_file(root, pcfg, llm_cfg, excerpt_limit)
+        return analyze_file(
+            root,
+            pcfg,
+            llm_cfg,
+            excerpt_limit,
+            context_prefix_lines,
+        )
 
     files = iter_log_files(root)
     all_findings: List[Finding] = []
@@ -60,6 +80,8 @@ def analyze_path(
                 raise ValueError(f"Unknown pipeline {pipeline_override}")
         else:
             pcfg = select_pipeline(pipelines, f)
-        findings = analyze_file(f, pcfg, llm_cfg, excerpt_limit)
+        findings = analyze_file(
+            f, pcfg, llm_cfg, excerpt_limit, context_prefix_lines
+        )
         all_findings.extend(findings)
     return all_findings

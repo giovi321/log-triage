@@ -87,7 +87,7 @@ def analyze_findings_with_llm(
         if not f.needs_llm:
             continue
 
-        payload_text = render_llm_payload(f, module_llm, mode=module_llm.llm_payload_mode)
+        payload_text = render_llm_payload(f, module_llm)
         if not payload_text:
             continue
 
