@@ -45,7 +45,7 @@ def _select_max_tokens(module_llm: ModuleLLMConfig, provider: LLMProviderConfig,
         return module_llm.max_output_tokens
     if provider.max_output_tokens:
         return provider.max_output_tokens
-    return llm_defaults.max_output_tokens
+    return 512
 
 
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:

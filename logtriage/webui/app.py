@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, List
 
 import yaml
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette import status
@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..config import build_llm_config, build_modules, load_config
 from ..models import GlobalLLMConfig, ModuleConfig
+from ..llm_client import _call_chat_completion
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
@@ -618,27 +619,9 @@ def _logs_redirect(
     return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
 
 
-@app.get("/logs", name="module_logs")
-async def module_logs(
-    request: Request,
-    module: Optional[str] = None,
-    tail_filter: str = "all",
-    issue_filter: str = "all",
-    message: Optional[str] = None,
-    error: Optional[str] = None,
+def _build_log_view_state(
+    module_obj, tail_filter: str, issue_filter: str, *, sample_lines_override: Optional[List[str]] = None
 ):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    modules = _build_modules_from_config()
-    module_obj = None
-    if modules:
-        if module:
-            module_obj = next((m for m in modules if m.name == module), None)
-        if module_obj is None:
-            module_obj = modules[0]
-
     sample_lines: List[str] = []
     recent_findings = []
     finding_tail: List[Dict[str, Any]] = []
@@ -649,7 +632,11 @@ async def module_logs(
     had_finding_tail = False
     had_recent_findings = False
     if module_obj is not None:
-        sample_lines = _tail_lines(Path(module_obj.path), max_lines=400)
+        sample_lines = (
+            list(sample_lines_override)
+            if sample_lines_override is not None
+            else _tail_lines(Path(module_obj.path), max_lines=400)
+        )
         recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
         had_recent_findings = bool(recent_findings)
         finding_tail = _build_finding_tail(sample_lines, recent_findings)
@@ -696,6 +683,43 @@ async def module_logs(
     else:
         finding_line_examples = {}
 
+    return {
+        "sample_lines": sample_lines,
+        "recent_findings": recent_findings,
+        "had_recent_findings": had_recent_findings,
+        "finding_tail": finding_tail,
+        "had_finding_tail": had_finding_tail,
+        "tail_filter": tail_filter_normalized,
+        "issue_filter": issue_filter_normalized,
+        "tail_severities": available_severities,
+        "severity_choices": severity_choices,
+        "finding_examples": finding_line_examples,
+    }
+
+
+@app.get("/logs", name="module_logs")
+async def module_logs(
+    request: Request,
+    module: Optional[str] = None,
+    tail_filter: str = "all",
+    issue_filter: str = "all",
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    modules = _build_modules_from_config()
+    module_obj = None
+    if modules:
+        if module:
+            module_obj = next((m for m in modules if m.name == module), None)
+        if module_obj is None:
+            module_obj = modules[0]
+
+    log_state = _build_log_view_state(module_obj, tail_filter, issue_filter)
+
     return templates.TemplateResponse(
         "logs.html",
         {
@@ -703,20 +727,152 @@ async def module_logs(
             "username": username,
             "modules": modules,
             "current_module": module_obj,
-            "sample_lines": sample_lines,
-            "recent_findings": recent_findings,
-            "had_recent_findings": had_recent_findings,
+            **log_state,
             "db_status": db_status,
-            "finding_tail": finding_tail,
-            "had_finding_tail": had_finding_tail,
-            "tail_filter": tail_filter_normalized,
-            "issue_filter": issue_filter_normalized,
-            "tail_severities": available_severities,
-            "severity_choices": severity_choices,
-            "finding_examples": finding_line_examples,
             "message": message,
             "error": error,
         },
+    )
+
+
+def _select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
+    if module_obj and getattr(module_obj, "llm", None):
+        if module_obj.llm.provider_name:
+            return module_obj.llm.provider_name
+    if llm_defaults.default_provider:
+        return llm_defaults.default_provider
+    if llm_defaults.providers:
+        return next(iter(llm_defaults.providers.keys()))
+    return None
+
+
+def _finding_excerpt_preview(finding, max_lines: int) -> str:
+    excerpt_lines = (getattr(finding, "excerpt", "") or "").splitlines()
+    if max_lines > 0:
+        excerpt_lines = excerpt_lines[:max_lines]
+    return "\n".join(excerpt_lines)
+
+
+@app.get("/llm", name="llm_responses")
+async def llm_responses(
+    request: Request,
+    module: Optional[str] = None,
+    tail_filter: str = "all",
+    issue_filter: str = "all",
+    sample_source: str = "tail",
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    modules = _build_modules_from_config()
+    module_obj = None
+    if modules:
+        if module:
+            module_obj = next((m for m in modules if m.name == module), None)
+        if module_obj is None:
+            module_obj = modules[0]
+
+    sample_lines, sample_error = _get_sample_lines_for_module(
+        module_obj, sample_source, max_lines=400
+    )
+    log_state = _build_log_view_state(
+        module_obj, tail_filter, issue_filter, sample_lines_override=sample_lines
+    )
+
+    provider_name = _select_provider_name(module_obj)
+    provider_cfg = llm_defaults.providers.get(provider_name) if provider_name else None
+    provider_settings = {
+        name: {
+            "temperature": p.temperature,
+            "top_p": p.top_p,
+            "max_output_tokens": p.max_output_tokens,
+            "max_excerpt_lines": p.max_excerpt_lines,
+            "model": p.model,
+        }
+        for name, p in llm_defaults.providers.items()
+    }
+
+    seed_prompt = None
+    if module_obj is not None and log_state["recent_findings"]:
+        max_lines = provider_cfg.max_excerpt_lines if provider_cfg else 20
+        seed_prompt = _finding_excerpt_preview(log_state["recent_findings"][0], max_lines)
+
+    return templates.TemplateResponse(
+        "llm.html",
+        {
+            "request": request,
+            "username": username,
+            "modules": modules,
+            "current_module": module_obj,
+            **log_state,
+            "db_status": db_status,
+            "message": message,
+            "error": error or sample_error,
+            "providers": list(llm_defaults.providers.values()),
+            "provider_settings": provider_settings,
+            "selected_provider": provider_name,
+            "seed_prompt": seed_prompt,
+            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
+        },
+    )
+
+
+@app.post("/llm/query", name="llm_query")
+async def llm_query(
+    request: Request,
+    provider: str = Form(...),
+    prompt: str = Form(...),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse(
+            {"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    provider_cfg = llm_defaults.providers.get(provider)
+    if provider_cfg is None:
+        return JSONResponse({"error": f"Unknown provider '{provider}'"}, status_code=400)
+
+    prompt_text = (prompt or "").strip()
+    if not prompt_text:
+        return JSONResponse({"error": "Prompt cannot be empty."}, status_code=400)
+
+    chat_payload = {
+        "model": provider_cfg.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a log triage assistant that summarizes log snippets succinctly and suggests follow-up actions when appropriate.",
+            },
+            {"role": "user", "content": prompt_text},
+        ],
+        "temperature": provider_cfg.temperature,
+        "top_p": provider_cfg.top_p,
+        "max_tokens": provider_cfg.max_output_tokens,
+    }
+
+    try:
+        response_data = _call_chat_completion(provider_cfg, chat_payload)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    message = response_data.get("choices", [{}])[0].get("message", {})
+    usage = response_data.get("usage", {}) or {}
+    content = message.get("content", "").strip()
+
+    return JSONResponse(
+        {
+            "provider": provider_cfg.name,
+            "model": response_data.get("model", provider_cfg.model),
+            "content": content,
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            },
+        }
     )
 
 
