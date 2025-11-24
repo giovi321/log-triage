@@ -1,7 +1,8 @@
 llm:
   enabled: true
   min_severity: WARNING
-  default_provider: openai
+  default_provider: local_vllm
+  summary_prompt_path: './prompts/ai_opinion_summary.txt'
   providers:
     openai:
       api_base: https://api.openai.com/v1
@@ -13,13 +14,13 @@ llm:
       temperature: 0.2
       top_p: 1.0
     local_vllm:
-      api_base: http://localhost:8000/v1
-      api_key_env: VLLM_API_KEY
-      model: mistral-small
+      api_base: http://GC01aiSRVR:8000/v1
+      api_key_env: API_KEY
+      model: TheBloke/Mistral-7B-Instruct-v0.1-GPTQ
       max_excerpt_lines: 400
-      max_output_tokens: 512
+      max_output_tokens: 2048
       request_timeout: 60
-      temperature: 0.0
+      temperature: 0.1
       top_p: 1.0
 
 pipelines:
