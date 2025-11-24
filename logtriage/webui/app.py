@@ -831,10 +831,13 @@ async def llm_query(
         "model": provider_cfg.model,
         "messages": [
             {
-                "role": "system",
-                "content": "You are a log triage assistant that summarizes log snippets succinctly and suggests follow-up actions when appropriate.",
-            },
-            {"role": "user", "content": prompt_text},
+                "role": "user",
+                "content": (
+                    "You are a log triage assistant that summarizes log snippets succinctly and "
+                    "suggests follow-up actions when appropriate. Respond to the following prompt:\n\n"
+                    f"{prompt_text}"
+                ),
+            }
         ],
         "temperature": provider_cfg.temperature,
         "top_p": provider_cfg.top_p,
