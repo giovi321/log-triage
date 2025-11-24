@@ -1,34 +1,35 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.1rem 0; }
+  .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
   .log-line input[type="checkbox"] { margin-top:0.15rem; }
-  .log-line.selected { background:#182233; border-radius:0.4rem; padding:0.25rem 0.2rem; }
-  .log-section { border:1px solid #222a38; border-radius:0.65rem; margin-bottom:0.75rem; overflow:hidden; }
-  .log-section-header { display:flex; gap:0.5rem; align-items:center; justify-content:space-between; padding:0.45rem 0.5rem; background:#111520; border-bottom:1px solid #1f2530; }
-  .log-section-body { padding:0.35rem 0.45rem; display:flex; flex-direction:column; gap:0.1rem; }
+  .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
+  .log-section { border-left:3px solid #2f4261; border-radius:0.35rem; margin-bottom:0.65rem; padding:0.35rem 0.5rem; background:#0e121b; }
+  .log-section-header { display:flex; gap:0.6rem; align-items:flex-start; justify-content:space-between; padding-bottom:0.25rem; }
+  .log-section-body { padding:0.1rem 0; display:flex; flex-direction:column; gap:0.05rem; }
   .log-section.collapsed .log-section-body { display:none; }
-  .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; }
+  .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
   .log-section.highlighted-finding { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
-  .finding-response { border:1px solid #222a38; border-radius:0.65rem; padding:0.6rem; background:#0f131b; display:flex; flex-direction:column; gap:0.35rem; }
+  .finding-response { border-left:3px solid #35517c; border-radius:0.35rem; padding:0.5rem 0.6rem; background:#0f131b; display:flex; flex-direction:column; gap:0.3rem; }
   .finding-response + .finding-response { margin-top:0.65rem; }
   .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
   .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
-  .synced-shell { border:1px solid #222a38; border-radius:0.75rem; padding:0.75rem; background:#0c111a; }
-  .synced-grid { display:grid; grid-template-columns: 1.2fr 1fr; gap:1rem; align-items:start; }
-  .synced-pane { border:1px solid #222a38; border-radius:0.65rem; background:#0f131b; padding:0.65rem; max-height:560px; overflow:auto; }
-  .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.5rem; flex-wrap:wrap; }
-  .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.45rem; }
+  .synced-shell { border:1px solid #1a2232; border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
+  .synced-grid { display:grid; grid-template-columns: 1.1fr 1fr; gap:0.75rem; align-items:start; }
+  .synced-pane { border:1px solid #1b2332; border-radius:0.55rem; background:#0f131b; padding:0.65rem; max-height:560px; overflow:auto; }
+  .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.35rem; flex-wrap:wrap; }
+  .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
   .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
   .finding-controls select { min-width:120px; }
-  .log-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.45rem; }
-  .llm-workbench { margin-top:1rem; border:1px solid #222a38; border-radius:0.75rem; padding:0.85rem; background:#0c111a; display:flex; flex-direction:column; gap:0.75rem; }
-  .prompt-grid { grid-template-columns: 1.1fr 0.9fr; gap:0.85rem; align-items:stretch; }
-  .prompt-grid textarea { min-height:200px; }
-  .llm-fixed-response { border:1px solid #2b3242; border-radius:0.65rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
+  .log-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.35rem; }
+  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
+  .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
+  .prompt-grid textarea { height:240px; }
+  .llm-fixed-response, .prompt-shell { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
+  .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; }
   .workbench-actions { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between; }
   .workbench-actions .left-actions, .workbench-actions .right-actions { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
-  .line-action { border:1px solid #2b3242; background:transparent; color:#e8ecf2; padding:0.15rem 0.4rem; border-radius:0.35rem; cursor:pointer; font-size:0.85rem; }
+  .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
 </style>
 <div class="card">
   <h2>AI logs explorer</h2>
@@ -80,7 +81,7 @@
       <div class="synced-grid">
         <div class="synced-pane" id="tail-pane">
           <div class="sync-title">
-            <h3 style="margin:0;">Log tail entries</h3>
+            <h3 style="margin:0;">Findings</h3>
             <div class="log-actions">
               <button type="button" class="secondary" onclick="copyAllLines()">Copy all lines</button>
               <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
@@ -101,14 +102,16 @@
                   <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
                     <div class="log-section-header">
                       {% if section.finding %}
-                        <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+                        <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap;">
                           <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
-                          <span class="muted" style="font-size:0.85rem;">Tail #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
+                          <div style="display:flex; flex-direction:column; gap:0.15rem; min-width:12rem;">
+                            <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
+                            <span class="helper-text" style="margin:0;">{{ section.finding.reason }}</span>
+                          </div>
                         </div>
-                        <div class="section-actions" style="flex:1; justify-content:flex-end;">
-                          <div class="helper-text" style="text-align:right;">{{ section.finding.reason }}</div>
+                        <div class="section-actions">
+                          <button type="button" class="secondary" onclick='loadForLLM({{ finding_examples.get(section.finding.id,section.finding.reason)|tojson }})'>Ask AI about this</button>
                           <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
-                          <button type="button" class="secondary" onclick='loadForLLM({{ finding_examples.get(section.finding.id,section.finding.reason)|tojson }})'>Append to prompt</button>
                         </div>
                       {% else %}
                         <div class="muted">Tail lines</div>
@@ -120,7 +123,6 @@
                           <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
                           <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
                           <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
-                          <button type="button" class="line-action" data-line-text="{{ line.text|replace('\n','')|e }}" onclick="appendLineToPrompt(this)">Add</button>
                         </div>
                       {% endfor %}
                       {% if section.finding %}
@@ -173,7 +175,6 @@
                   <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
                     <input type="checkbox" name="selected_line" data-line="{{ line|replace('\n','')|e }}">
                     <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
-                    <button type="button" class="line-action" data-line-text="{{ line|replace('\n','')|e }}" onclick="appendLineToPrompt(this)">Add</button>
                   </div>
                 {% endfor %}
               {% endif %}
@@ -184,13 +185,13 @@
         </div>
         <div class="synced-pane" id="ai-pane">
           <div class="sync-title">
-            <h3 style="margin:0;">Stored AI answers</h3>
-            <div class="helper-text">AI summaries and responses linked to the current tail entries.</div>
+            <h3 style="margin:0;">AI opinion</h3>
+            <div class="helper-text">Recorded perspectives linked to the current findings.</div>
           </div>
           {% if not db_status.connected %}
             <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
           {% elif not recent_findings %}
-            <p class="muted">No recorded AI responses for this module yet.</p>
+            <p class="muted">No recorded AI opinions for this module yet.</p>
           {% else %}
             {% for c in recent_findings %}
               {% set response_obj = c|attr('llm_response') %}
@@ -198,13 +199,16 @@
               <div class="finding-response" data-finding-summary="true" data-finding-id="{{ c.id }}">
                 <h4>
                   <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
-                  <span style="font-size:0.9rem; color:#9fb1d3;">Tail #{{ c.finding_index }} · {{ c.created_at|localtime }}</span>
+                  <span style="font-size:0.9rem; color:#9fb1d3;">Finding #{{ c.finding_index }} · {{ c.created_at|localtime }}</span>
                 </h4>
                 <div class="helper-text">{{ c.reason }}</div>
                 {% if response_content %}
                   <div class="llm-body">{{ response_content }}</div>
                 {% else %}
-                  <p class="muted">No stored LLM response for this entry yet.</p>
+                  <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <p class="muted" style="margin:0;">No AI opinion saved for this finding.</p>
+                    <button type="button" class="secondary" onclick='askAIForFinding({{ c.id }}, {{ finding_examples.get(c.id, c.reason)|tojson }})'>Ask AI</button>
+                  </div>
                 {% endif %}
                 <div class="recorded-summary muted" data-summary-for="{{ c.id }}" style="display:none;"></div>
               </div>
@@ -227,33 +231,25 @@
           </label>
           <div id="provider-hints" class="helper-text"></div>
         </div>
-        <div class="right-actions">
-          <label>Attach to tail entry
-            <select id="finding-selector">
-              <option value="">Select entry (optional)</option>
-              {% for c in recent_findings %}
-                <option value="{{ c.id }}">#{{ c.finding_index }} · {{ c.created_at|localtime }}</option>
-              {% endfor %}
-            </select>
-          </label>
+        <div class="right-actions" style="align-items:flex-end;">
+          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
         </div>
       </div>
       <div class="grid prompt-grid">
-        <div>
-          <label>Prompt builder
-            <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}">{{ seed_prompt or '' }}</textarea>
-          </label>
-          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.35rem;">
-            <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
-            <button type="button" class="secondary" onclick="clearPrompt()">Clear</button>
-            <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
+        <div class="prompt-shell">
+          <div class="prompt-title">
+            <span>Prompt builder</span>
             <span id="llm-status" class="muted"></span>
+          </div>
+          <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}">{{ seed_prompt or '' }}</textarea>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
+            <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
+            <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
           </div>
         </div>
         <div>
-          <label>LLM answers
-            <div id="llm-response" class="llm-fixed-response muted">No LLM response yet.</div>
-          </label>
+          <div class="prompt-title" style="margin-bottom:0.3rem;">AI opinion</div>
+          <div id="llm-response" class="llm-fixed-response muted">No AI opinion yet.</div>
           <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.35rem;">
             <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
@@ -305,11 +301,6 @@
     appendToPrompt(selected.join('\n'));
   }
 
-  function appendLineToPrompt(btn) {
-    const text = btn?.dataset?.lineText;
-    appendToPrompt(text);
-  }
-
   function appendToPrompt(text) {
     const prompt = document.getElementById('llm-prompt');
     if (!prompt || !text) return;
@@ -353,20 +344,6 @@
 
   function loadForLLM(text) {
     appendToPrompt(text);
-  }
-
-  function clearPrompt() {
-    const prompt = document.getElementById('llm-prompt');
-    if (prompt) {
-      prompt.value = '';
-      prompt.focus();
-    }
-    const status = document.getElementById('llm-status');
-    if (status) status.textContent = '';
-    const resp = document.getElementById('llm-response');
-    if (resp) resp.textContent = 'No LLM response yet.';
-    const usage = document.getElementById('llm-usage');
-    if (usage) usage.textContent = '';
   }
 
   function loadPredefinedPrompt() {
@@ -439,18 +416,17 @@
   async function summarizeAndRecord() {
     const respBox = document.getElementById('llm-response');
     const status = document.getElementById('llm-status');
-    const selector = document.getElementById('finding-selector');
-    const targetFinding = selector ? selector.value : '';
+    const targetFinding = getSelectedFindingId();
     const responseText = respBox ? respBox.textContent.trim() : '';
     if (!responseText) {
-      if (status) status.textContent = 'No LLM response to summarize yet.';
+      if (status) status.textContent = 'No AI opinion to summarize yet.';
       return;
     }
-    const summaryPrompt = `Summarize the following LLM answer so it can be stored alongside a log tail entry. Keep it concise.\n\n${responseText}`;
+    const summaryPrompt = `Summarize the following AI opinion so it can be stored alongside a finding. Keep it concise.\n\n${responseText}`;
     const data = await callLLM(summaryPrompt);
     if (!data) return;
     if (!targetFinding) {
-      if (status) status.textContent = 'Summary created. Select an entry to record it.';
+      if (status) status.textContent = 'Summary created. Select a finding line to record it.';
       return;
     }
     recordedSummaries[targetFinding] = data.content || '';
@@ -459,7 +435,46 @@
       summaryEl.textContent = `Recorded summary: ${recordedSummaries[targetFinding]}`;
       summaryEl.style.display = 'block';
     }
-    if (status) status.textContent = 'Summary recorded for tail #' + targetFinding;
+    if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
+  }
+
+  function getSelectedFindingId() {
+    const checked = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
+    for (const cb of checked) {
+      const section = cb.closest('[data-finding-section="true"]');
+      if (section && section.dataset.findingId) {
+        return section.dataset.findingId;
+      }
+    }
+    return '';
+  }
+
+  async function attachOpinionToSelectedFinding() {
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const targetFinding = getSelectedFindingId();
+    const responseText = respBox ? respBox.textContent.trim() : '';
+    if (!targetFinding) {
+      if (status) status.textContent = 'Select a finding line to attach the AI opinion.';
+      return;
+    }
+    if (!responseText || responseText === 'No AI opinion yet.') {
+      if (status) status.textContent = 'Run an AI query before attaching.';
+      return;
+    }
+    recordedSummaries[targetFinding] = responseText;
+    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
+    if (summaryEl) {
+      summaryEl.textContent = `Recorded AI opinion: ${responseText}`;
+      summaryEl.style.display = 'block';
+    }
+    if (status) status.textContent = 'AI opinion attached to finding #' + targetFinding;
+  }
+
+  function askAIForFinding(findingId, findingText) {
+    appendToPrompt(findingText);
+    const status = document.getElementById('llm-status');
+    if (status) status.textContent = `Loaded finding #${findingId} into the prompt.`;
   }
 
   function syncScrollPanes() {
