@@ -2,7 +2,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import List, Optional, Dict
+from threading import Event
+from typing import Dict, List, Optional
 
 from .models import Severity, LogChunk, ModuleConfig, PipelineConfig
 from .config import load_config, build_pipelines, build_modules
@@ -41,6 +42,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--inspect-chunks",
         action="store_true",
         help="Debug mode: for the selected module, print chunk boundaries and line counts instead of triage/LLM.",
+    )
+    p.add_argument(
+        "--reload-on-change",
+        action="store_true",
+        help="Automatically reload when the config file mtime changes (handy when saving via the Web UI).",
     )
     return p.parse_args(argv)
 
@@ -175,7 +181,9 @@ def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List
 
     return chunks
 
-def run_module_follow(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> None:
+def run_module_follow(
+    mod: ModuleConfig, pipelines: List[PipelineConfig], should_reload=None
+) -> None:
     if not mod.path.is_file():
         print(f"Module {mod.name}: follow mode requires a file path, got {mod.path}", file=sys.stderr)
         sys.exit(1)
@@ -187,71 +195,112 @@ def run_module_follow(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> Non
     else:
         pipeline = select_pipeline(pipelines, mod.path)
 
-    stream_file(mod, pipeline)
+    stream_file(mod, pipeline, should_reload=should_reload)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
 
     cfg_path = Path(args.config)
+    reload_event = Event()
+    last_cfg_mtime_ns: Optional[int] = None
 
-    cfg = load_config(cfg_path)
-    pipelines = build_pipelines(cfg)
-    modules = build_modules(cfg)
+    def _config_changed() -> bool:
+        nonlocal last_cfg_mtime_ns
+        if not args.reload_on_change:
+            return False
+        try:
+            current = cfg_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return False
+        if last_cfg_mtime_ns is None:
+            return False
+        if current != last_cfg_mtime_ns:
+            reload_event.set()
+            return True
+        return False
 
-    # Optional database initialisation
-    db_cfg = {}
-    if isinstance(cfg, dict):
-        db_cfg = cfg.get("database") or {}
-    db_url = db_cfg.get("url")
-    retention_days = int(db_cfg.get("retention_days", 0) or 0)
-    if db_url:
-        setup_database(db_url)
-        if retention_days > 0:
-            try:
-                cleanup_old_chunks(retention_days)
-            except Exception:
-                # do not abort if cleanup fails
-                pass
+    def _should_reload() -> bool:
+        return reload_event.is_set() or _config_changed()
 
-    if args.module:
-        modules_to_run = [m for m in modules if m.name == args.module]
-        if not modules_to_run:
-            print(f"No module named {args.module} found in config.", file=sys.stderr)
-            sys.exit(1)
-    else:
-        modules_to_run = [m for m in modules if m.enabled]
+    while True:
+        cfg = load_config(cfg_path)
+        pipelines = build_pipelines(cfg)
+        modules = build_modules(cfg)
 
-    if not modules_to_run:
-        print("No enabled modules found in config.", file=sys.stderr)
-        sys.exit(1)
+        try:
+            last_cfg_mtime_ns = cfg_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            last_cfg_mtime_ns = None
 
-    # In inspect mode we require exactly one module
-    if args.inspect_chunks:
-        if len(modules_to_run) != 1:
-            print("--inspect-chunks requires exactly one module (use --module).", file=sys.stderr)
-            sys.exit(1)
-        mod = modules_to_run[0]
-        inspect_chunks(mod, pipelines)
-        return
+        # Optional database initialisation
+        db_cfg = {}
+        if isinstance(cfg, dict):
+            db_cfg = cfg.get("database") or {}
+        db_url = db_cfg.get("url")
+        retention_days = int(db_cfg.get("retention_days", 0) or 0)
+        if db_url:
+            setup_database(db_url)
+            if retention_days > 0:
+                try:
+                    cleanup_old_chunks(retention_days)
+                except Exception:
+                    # do not abort if cleanup fails
+                    pass
 
-    # If a single batch module has an exit_code_by_severity mapping,
-    # run it and exit with the mapped code based on highest severity.
-    if len(modules_to_run) == 1:
-        mod = modules_to_run[0]
-        if mod.mode == "batch" and mod.exit_code_by_severity:
-            chunks = run_module_batch(mod, pipelines)
-            if chunks:
-                highest = max((c.severity for c in chunks), default=Severity.UNKNOWN)
-            else:
-                highest = Severity.UNKNOWN
-            exit_code = mod.exit_code_by_severity.get(highest, 0)
-            sys.exit(exit_code)
-        # else: fall through to normal behavior
-
-    for mod in modules_to_run:
-        if mod.mode == "follow":
-            run_module_follow(mod, pipelines)
+        if args.module:
+            modules_to_run = [m for m in modules if m.name == args.module]
+            if not modules_to_run:
+                print(f"No module named {args.module} found in config.", file=sys.stderr)
+                sys.exit(1)
         else:
-            run_module_batch(mod, pipelines)
+            modules_to_run = [m for m in modules if m.enabled]
+
+        if not modules_to_run:
+            print("No enabled modules found in config.", file=sys.stderr)
+            sys.exit(1)
+
+        # In inspect mode we require exactly one module
+        if args.inspect_chunks:
+            if len(modules_to_run) != 1:
+                print("--inspect-chunks requires exactly one module (use --module).", file=sys.stderr)
+                sys.exit(1)
+            mod = modules_to_run[0]
+            inspect_chunks(mod, pipelines)
+            return
+
+        # If a single batch module has an exit_code_by_severity mapping,
+        # run it and exit with the mapped code based on highest severity.
+        if len(modules_to_run) == 1:
+            mod = modules_to_run[0]
+            if mod.mode == "batch" and mod.exit_code_by_severity:
+                chunks = run_module_batch(mod, pipelines)
+                if chunks:
+                    highest = max((c.severity for c in chunks), default=Severity.UNKNOWN)
+                else:
+                    highest = Severity.UNKNOWN
+                exit_code = mod.exit_code_by_severity.get(highest, 0)
+                sys.exit(exit_code)
+            # else: fall through to normal behavior
+
+        has_follow_module = any(mod.mode == "follow" for mod in modules_to_run)
+
+        for mod in modules_to_run:
+            if mod.mode == "follow":
+                run_module_follow(
+                    mod,
+                    pipelines,
+                    should_reload=_should_reload if args.reload_on_change else None,
+                )
+            else:
+                run_module_batch(mod, pipelines)
+
+            if args.reload_on_change and reload_event.is_set():
+                print("Reload requested; reloading configuration...", file=sys.stderr)
+                break
+
+        if not (args.reload_on_change and reload_event.is_set() and has_follow_module):
+            break
+
+        reload_event.clear()
 
