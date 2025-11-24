@@ -123,7 +123,7 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
         model = pdata.get("model")
         if not model:
             raise ValueError(f"LLM provider {name} must define a model")
-        api_key_env_raw = pdata.get("api_key_env", "OPENAI_API_KEY")
+        api_key_env_raw = pdata.get("api_key_env")
         api_key_env = str(api_key_env_raw) if api_key_env_raw else None
         providers[name] = LLMProviderConfig(
             name=name,
