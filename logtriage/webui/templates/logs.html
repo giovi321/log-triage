@@ -9,6 +9,10 @@
   .log-section-body { padding:0.35rem 0.45rem; display:flex; flex-direction:column; gap:0.1rem; }
   .log-section.collapsed .log-section-body { display:none; }
   .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; }
+  .log-section.highlighted-chunk { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
+  .chunk-summary { padding:0.5rem 0.25rem; border-bottom:1px solid #1f2530; cursor:pointer; border-radius:0.45rem; transition:background 0.15s ease, box-shadow 0.15s ease; }
+  .chunk-summary:hover { background:#121a27; }
+  .chunk-summary.active { box-shadow:0 0 0 1px #3f5d95; background:#111827; }
 </style>
 <div class="card">
   <h2>Logs explorer</h2>
@@ -58,7 +62,7 @@
           <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% if chunked_tail %}
               {% for section in chunked_tail %}
-                <div class="log-section" {% if section.chunk %}data-chunk-section="true"{% endif %}>
+                <div class="log-section" {% if section.chunk %}data-chunk-section="true" data-chunk-id="{{ section.chunk.id }}" data-chunk-index="{{ section.chunk.chunk_index }}"{% endif %}>
                   <div class="log-section-header">
                     {% if section.chunk %}
                       <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
@@ -118,7 +122,7 @@
           </div>
           <div style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% for c in recent_chunks %}
-              <div style="padding:0.5rem 0.25rem; border-bottom:1px solid #1f2530;">
+              <div class="chunk-summary" data-chunk-summary="true" data-chunk-id="{{ c.id }}">
                 <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
                   <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                     <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
@@ -199,6 +203,53 @@
   });
 
   refreshSelectedHighlights();
+
+  function focusChunkSection(chunkId) {
+    if (!chunkId) return;
+
+    const section = document.querySelector(`.log-section[data-chunk-id="${chunkId}"]`);
+    if (!section) return;
+
+    document.querySelectorAll('.log-section.highlighted-chunk').forEach(sec => sec.classList.remove('highlighted-chunk'));
+    document.querySelectorAll('.chunk-summary.active').forEach(el => el.classList.remove('active'));
+
+    document.querySelectorAll('#log-lines input[name="selected_line"]').forEach(cb => {
+      cb.checked = false;
+    });
+
+    section.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+      cb.checked = true;
+    });
+
+    if (section.classList.contains('collapsed')) {
+      section.classList.remove('collapsed');
+      const toggleBtn = section.querySelector('button[data-section-index]');
+      if (toggleBtn) toggleBtn.textContent = 'Collapse';
+    }
+
+    refreshSelectedHighlights();
+
+    section.classList.add('highlighted-chunk');
+    const relatedSummary = document.querySelector(`.chunk-summary[data-chunk-id="${chunkId}"]`);
+    if (relatedSummary) {
+      relatedSummary.classList.add('active');
+    }
+
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  document.querySelectorAll('[data-chunk-summary]').forEach(summary => {
+    summary.addEventListener('click', (event) => {
+      const chunkId = summary.dataset.chunkId;
+      if (!chunkId) return;
+
+      const tag = event.target.tagName;
+      const interactiveTags = new Set(['BUTTON', 'SELECT', 'OPTION']);
+      if (interactiveTags.has(tag)) return;
+
+      focusChunkSection(chunkId);
+    });
+  });
 
   function copyChunk(btn) {
     const text = btn.dataset.summary || '';
