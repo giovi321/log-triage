@@ -125,7 +125,7 @@ cp config.example.yaml config.yaml
 
 The config has five main parts:
 
-- `defaults`: global pipeline defaults
+- `llm`: global LLM defaults plus named providers (OpenAI-compatible or vLLM-compatible)
 - `pipelines`: reusable rules for grouping and classification
 - `modules`: concrete tasks, one per software you want to analyze
 - `database`: DB connection and retention
@@ -133,27 +133,38 @@ The config has five main parts:
 
 ### Config at a glance
 
-- `defaults`: `llm_enabled`, `llm_min_severity`, `max_excerpt_lines`
-- `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`, `llm.(enabled|min_severity|max_excerpt_lines|prompt_template)`
-- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `llm.(emit_llm_payloads_dir|llm_payload_mode|only_last_chunk)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
+- `llm`: `enabled`, `min_severity`, `max_excerpt_lines`, `max_output_tokens`, `request_timeout`, `temperature`, `top_p`, `default_provider`, `providers.<name>.(api_base|api_key_env|model|max_output_tokens|request_timeout|temperature|top_p|organization|api_version)`
+- `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`
+- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `llm.(enabled|min_severity|max_excerpt_lines|provider|prompt_template|emit_llm_payloads_dir|llm_payload_mode|only_last_chunk|max_output_tokens)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
 - `database`: `url`, `retention_days`
 - `webui`: `host`, `port`, `base_path`, `secret_key`, `admin_users`
 
 Example:
 
 ```yaml
-defaults:
-  llm_enabled: false
-  llm_min_severity: WARNING
+llm:
+  enabled: true
+  min_severity: WARNING
   max_excerpt_lines: 500
+  max_output_tokens: 512
+  default_provider: openai
+  providers:
+    openai:
+      api_base: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      model: gpt-4o-mini
+    local_vllm:
+      api_base: http://localhost:8000/v1
+      api_key_env: VLLM_API_KEY
+      model: mistral-small
 
 pipelines:
   - name: rsnapshot
     match:
-      filename_regex: 'rsnapshot.*\.log'
+      filename_regex: 'rsnapshot.*\\.log'
     grouping:
       type: 'marker'
-      start_regex: '^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\].*rsnapshot .*: started$'
+      start_regex: '^\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\].*rsnapshot .*: started$'
       end_regex: ''
     classifier:
       type: 'rsnapshot_basic'
@@ -163,52 +174,6 @@ pipelines:
       warning_regexes:
         - 'WARNING'
       ignore_regexes: []
-    llm:
-      enabled: true
-      min_severity: ERROR
-      max_excerpt_lines: 5000
-      prompt_template: './prompts/rsnapshot.txt'  # optional custom prompt
-
-  - name: homeassistant
-    match:
-      filename_regex: 'homeassistant.*\.log'
-    grouping:
-      type: 'whole_file'
-    classifier:
-      type: 'regex_counter'
-      error_regexes:
-        - '\berror\b'
-        - 'Traceback'
-      warning_regexes:
-        - '\bwarning\b'
-        - '\bfailed to\b'
-      ignore_regexes:
-        - 'Some noisy integration .* does not support.*'
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 1000
-      prompt_template: './prompts/homeassistant.txt'
-
-  - name: generic_default
-    match:
-      filename_regex: '.*'
-    grouping:
-      type: 'whole_file'
-    classifier:
-      type: 'regex_counter'
-      error_regexes:
-        - '\berror\b'
-        - '\bfailed\b'
-        - 'exception'
-      warning_regexes:
-        - '\bwarn\b'
-        - '\bdegraded\b'
-      ignore_regexes: []
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 300
 
 modules:
   - name: rsnapshot_daily
@@ -219,37 +184,17 @@ modules:
     output_format: 'json'
     min_print_severity: 'INFO'
     llm:
+      enabled: true
+      provider: 'local_vllm'  # auto-selected if omitted and only one provider exists
+      prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
-      llm_payload_mode: 'errors_only'   # 'full' or 'errors_only'
+      llm_payload_mode: 'errors_only'
     exit_code_by_severity:
       OK: 0
       INFO: 0
       WARNING: 1
       ERROR: 2
       CRITICAL: 3
-    alerts:
-      webhook:
-        enabled: true
-        url: 'https://example/rsnapshot-hook'
-        method: 'POST'
-        min_severity: 'ERROR'
-        headers:
-          X-Source: 'logtriage'
-      mqtt:
-        enabled: false
-        host: 'localhost'
-        port: 1883
-        topic: 'logtriage/rsnapshot'
-        username: ''
-        password: ''
-        min_severity: 'WARNING'
-    baseline:
-      enabled: true
-      state_file: '/var/lib/logtriage/rsnapshot_baseline.json'
-      window: 20
-      error_multiplier: 3.0
-      warning_multiplier: 3.0
-      severity_on_anomaly: 'ERROR'
 
   - name: homeassistant_follow
     enabled: true
@@ -259,49 +204,15 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      provider: 'openai'
+      prompt_template: './prompts/homeassistant.txt'
       emit_llm_payloads_dir: './ha_llm_payloads'
       llm_payload_mode: 'errors_only'
-      only_last_chunk: false  # optional; defaults to false
-    alerts:
-      mqtt:
-        enabled: true
-        host: 'localhost'
-        port: 1883
-        topic: 'logtriage/homeassistant'
-        min_severity: 'ERROR'
-    baseline:
-      enabled: false
     stream:
       from_beginning: false
       interval: 1.0
 
-  - name: all_logs_batch
-    enabled: false
-    path: '/var/log/fluent-bit'
-    mode: 'batch'
-    output_format: 'json'
-    min_print_severity: 'INFO'
-    llm:
-      emit_llm_payloads_dir: './llm_payloads'
-      llm_payload_mode: 'full'
-      only_last_chunk: false
-
-database:
-  url: 'sqlite:////var/lib/logtriage/logtriage.db'
-  retention_days: 30
-
-webui:
-  enabled: true
-  host: '127.0.0.1'
-  port: 8090
-  base_path: '/'
-  secret_key: 'CHANGE_THIS_TO_A_LONG_RANDOM_STRING'
-  session_cookie_name: 'logtriage_session'
-  dark_mode_default: true
-  allowed_ips: ['127.0.0.1','192.168.1.1']
-  admin_users:
-    - username: 'admin'
-      password_hash: '$2b$12$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
 ```
 
 ### Baseline / anomaly detection
@@ -348,7 +259,7 @@ When browsing findings in the **Logs** page you can quickly triage each entry:
 
 ## Writing custom LLM prompts
 
-Each pipeline can point to a prompt template file via `llm.prompt_template`. The file is read once and formatted with Python
+Each module can point to a prompt template file via `modules.llm.prompt_template`. The file is read once and formatted with Python
 `str.format`, so you can reference these placeholders:
 
 - `{pipeline}` - pipeline name (from the `pipelines` list)
@@ -358,6 +269,8 @@ Each pipeline can point to a prompt template file via `llm.prompt_template`. The
 - `{error_count}` - number of lines matching error rules
 - `{warning_count}` - number of lines matching warning rules
 - `{line_count}` - number of lines included in the payload excerpt (full context or errors-only, depending on `llm_payload_mode`)
+
+Modules rely on the global `llm.providers` map for connection info. If `modules.llm.provider` is omitted, `llm.default_provider` is used or, when only one provider exists, it is auto-selected. When a provider is available and LLMs are enabled, log-triage posts each `needs_llm` finding to `/v1/chat/completions` and stores the model response next to the payload as `<pipeline>_<severity>_finding<N>_response.json`.
 
 Guidelines for writing effective prompts:
 

@@ -5,9 +5,10 @@ from pathlib import Path
 from threading import Event
 from typing import Dict, List, Optional
 
-from .models import Severity, Finding, ModuleConfig, PipelineConfig
-from .config import load_config, build_pipelines, build_modules
+from .models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig
+from .config import build_llm_config, build_modules, build_pipelines, load_config
 from .engine import analyze_path
+from .llm_client import analyze_findings_with_llm
 from .llm_payload import write_llm_payloads, should_send_to_llm
 from .utils import select_pipeline
 from .stream import stream_file
@@ -91,18 +92,23 @@ def inspect_chunks(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> None:
     sys.exit(1)
 
 
-def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List[Finding]:
+def run_module_batch(
+    mod: ModuleConfig, pipelines: List[PipelineConfig], llm_defaults: "GlobalLLMConfig"
+) -> List[Finding]:
     pipeline_map: Dict[str, PipelineConfig] = {p.name: p for p in pipelines}
-    findings = analyze_path(mod.path, pipelines, pipeline_override=mod.pipeline_name)
+    findings = analyze_path(
+        mod.path,
+        pipelines,
+        mod.llm,
+        mod.llm.max_excerpt_lines,
+        pipeline_override=mod.pipeline_name,
+    )
 
     if mod.baseline is not None:
         findings = apply_baseline(mod.baseline, findings)
 
     for f in findings:
-        pcfg = pipeline_map.get(f.pipeline_name)
-        if pcfg is None:
-            continue
-        f.needs_llm = should_send_to_llm(pcfg, f.severity, f.excerpt)
+        f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
         if mod.alert_mqtt or mod.alert_webhook:
             send_alerts(mod, f)
         try:
@@ -110,12 +116,14 @@ def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List
         except Exception:
             pass
 
-    if mod.emit_llm_payloads_dir:
+    analyze_findings_with_llm(findings, llm_defaults, mod.llm)
+
+    if mod.llm.emit_llm_payloads_dir:
         write_llm_payloads(
             findings,
-            mod.emit_llm_payloads_dir,
-            mode=mod.llm_payload_mode,
-            pipeline_map=pipeline_map,
+            mod.llm,
+            mod.llm.emit_llm_payloads_dir,
+            mode=mod.llm.llm_payload_mode,
         )
 
     if mod.output_format == "json":
@@ -126,7 +134,10 @@ def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List
     return findings
 
 def run_module_follow(
-    mod: ModuleConfig, pipelines: List[PipelineConfig], should_reload=None
+    mod: ModuleConfig,
+    pipelines: List[PipelineConfig],
+    llm_defaults: "GlobalLLMConfig",
+    should_reload=None,
 ) -> None:
     if not mod.path.is_file():
         print(f"Module {mod.name}: follow mode requires a file path, got {mod.path}", file=sys.stderr)
@@ -139,7 +150,7 @@ def run_module_follow(
     else:
         pipeline = select_pipeline(pipelines, mod.path)
 
-    stream_file(mod, pipeline, should_reload=should_reload)
+    stream_file(mod, pipeline, llm_defaults, should_reload=should_reload)
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -170,7 +181,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     while True:
         cfg = load_config(cfg_path)
         pipelines = build_pipelines(cfg)
-        modules = build_modules(cfg)
+        llm_defaults = build_llm_config(cfg)
+        modules = build_modules(cfg, llm_defaults)
 
         try:
             last_cfg_mtime_ns = cfg_path.stat().st_mtime_ns
@@ -218,7 +230,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         if len(modules_to_run) == 1:
             mod = modules_to_run[0]
             if mod.mode == "batch" and mod.exit_code_by_severity:
-                findings = run_module_batch(mod, pipelines)
+                findings = run_module_batch(mod, pipelines, llm_defaults)
                 if findings:
                     highest = max((c.severity for c in findings), default=Severity.UNKNOWN)
                 else:
@@ -234,10 +246,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                 run_module_follow(
                     mod,
                     pipelines,
+                    llm_defaults,
                     should_reload=_should_reload if args.reload_on_change else None,
                 )
             else:
-                run_module_batch(mod, pipelines)
+                run_module_batch(mod, pipelines, llm_defaults)
 
             if args.reload_on_change and reload_event.is_set():
                 print("Reload requested; reloading configuration...", file=sys.stderr)

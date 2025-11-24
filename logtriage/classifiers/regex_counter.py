@@ -10,6 +10,7 @@ def classify_regex_counter(
     pipeline_name: str,
     lines: List[str],
     start_line: int = 1,
+    excerpt_limit: int = 20,
 ) -> List[Finding]:
     """Emit one finding per matching rule line.
 
@@ -71,7 +72,7 @@ def classify_regex_counter(
                 line_start=start_line,
                 line_end=start_line + len(lines) - 1,
                 rule_id=None,
-                excerpt=lines[: pcfg.llm_cfg.max_excerpt_lines],
+                excerpt=lines[:excerpt_limit],
             )
         )
 

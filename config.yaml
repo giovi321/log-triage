@@ -1,7 +1,26 @@
-defaults:
-  llm_enabled: false
-  llm_min_severity: WARNING
+llm:
+  enabled: true
+  min_severity: WARNING
   max_excerpt_lines: 500
+  max_output_tokens: 512
+  request_timeout: 30
+  temperature: 0.0
+  top_p: 1.0
+  default_provider: openai
+  providers:
+    openai:
+      api_base: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      model: gpt-4o-mini
+      max_output_tokens: 512
+      request_timeout: 30
+      temperature: 0.2
+    local_vllm:
+      api_base: http://localhost:8000/v1
+      api_key_env: VLLM_API_KEY
+      model: mistral-small
+      max_output_tokens: 512
+      request_timeout: 60
 
 pipelines:
   - name: rsnapshot
@@ -19,11 +38,6 @@ pipelines:
       warning_regexes:
         - 'WARNING'
       ignore_regexes: []
-    llm:
-      enabled: true
-      min_severity: ERROR
-      max_excerpt_lines: 5000
-      prompt_template: './prompts/rsnapshot.txt'
 
   - name: homeassistant
     match:
@@ -33,18 +47,13 @@ pipelines:
     classifier:
       type: 'regex_counter'
       error_regexes:
-        - '\berror\b'
+        - '\\berror\\b'
         - 'Traceback'
       warning_regexes:
-        - '\bwarning\b'
-        - '\bfailed to\b'
+        - '\\bwarning\\b'
+        - '\\bfailed to\\b'
       ignore_regexes:
         - 'Some noisy integration .* does not support.*'
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 1000
-      prompt_template: './prompts/homeassistant.txt'
 
   - name: nextcloud
     match:
@@ -61,11 +70,6 @@ pipelines:
         - 'Login failed:'
       ignore_regexes:
         - '.*Trusted domain error.*'
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 1000
-      prompt_template: './prompts/nextcloud.txt'
 
   - name: authentik
     match:
@@ -82,11 +86,6 @@ pipelines:
         - '"status"\\s*:\\s*4\\d{2}'
         - 'No providers assigned to this outpost'
       ignore_regexes: []
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 500
-      prompt_template: './prompts/authentik.txt'
 
   - name: rmfakecloud
     match:
@@ -102,11 +101,6 @@ pipelines:
         - 'level=warn'
         - '\\|\\s4\\d{2}\\s\\|'
       ignore_regexes: []
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 500
-      prompt_template: './prompts/rmfakecloud.txt'
 
   - name: jellyfin
     match:
@@ -127,11 +121,6 @@ pipelines:
       ignore_regexes:
         - 'Optimizing and vacuuming jellyfin.db'
         - 'jellyfin.db optimized successfully'
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 1000
-      prompt_template: './prompts/jellyfin.txt'
 
   - name: apache2_access
     match:
@@ -149,11 +138,6 @@ pipelines:
       ignore_regexes:
         - '"\\s404\\s'
         - '(healthcheck|health-check|status|metrics)'
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 500
-      prompt_template: './prompts/apache2.txt'
 
   - name: apache2_error
     match:
@@ -172,11 +156,6 @@ pipelines:
         - 'mod_(security|evasive)'
       ignore_regexes:
         - 'AH00163: Apache/.* configured'
-    llm:
-      enabled: true
-      min_severity: WARNING
-      max_excerpt_lines: 500
-      prompt_template: './prompts/apache2.txt'
 
 modules:
   - name: rsnapshot
@@ -187,6 +166,9 @@ modules:
     output_format: 'json'
     min_print_severity: 'INFO'
     llm:
+      enabled: true
+      provider: 'local_vllm'
+      prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -228,6 +210,9 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      provider: 'openai'
+      prompt_template: './prompts/homeassistant.txt'
       emit_llm_payloads_dir: './ha_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -253,6 +238,8 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      prompt_template: './prompts/nextcloud.txt'
       emit_llm_payloads_dir: './nextcloud_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -277,6 +264,8 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -294,6 +283,8 @@ modules:
     output_format: 'text'
     min_print_severity: 'INFO'
     llm:
+      enabled: true
+      prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -311,6 +302,8 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      prompt_template: './prompts/authentik.txt'
       emit_llm_payloads_dir: './authentik_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -335,6 +328,8 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      prompt_template: './prompts/jellyfin.txt'
       emit_llm_payloads_dir: './jellyfin_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
@@ -359,6 +354,8 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      enabled: true
+      prompt_template: './prompts/rmfakecloud.txt'
       emit_llm_payloads_dir: './rmfakecloud_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false

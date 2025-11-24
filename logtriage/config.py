@@ -9,13 +9,15 @@ except ImportError:
     yaml = None
 
 from .models import (
-    Severity,
-    PipelineConfig,
-    PipelineLLMConfig,
-    ModuleConfig,
     AlertMQTTConfig,
     AlertWebhookConfig,
     BaselineConfig,
+    GlobalLLMConfig,
+    LLMProviderConfig,
+    ModuleConfig,
+    ModuleLLMConfig,
+    PipelineConfig,
+    Severity,
 )
 
 
@@ -39,13 +41,6 @@ def _compile_regex(pattern: Optional[str]) -> Optional[re.Pattern]:
 
 
 def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
-    defaults = cfg.get("defaults", {}) or {}
-    default_llm_enabled = bool(defaults.get("llm_enabled", False))
-    default_llm_min_sev = Severity.from_string(defaults.get("llm_min_severity", "WARNING"))
-    default_max_excerpt_lines = int(
-        defaults.get("max_excerpt_lines", defaults.get("max_chunk_lines", 20))
-    )
-
     pipelines_cfg = cfg.get("pipelines", []) or []
     pipelines: List[PipelineConfig] = []
 
@@ -67,26 +62,6 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
         warning_regexes = _compile_list("warning_regexes")
         ignore_regexes = _compile_list("ignore_regexes")
 
-        llm_cfg_data = item.get("llm", {}) or {}
-        llm_enabled = bool(llm_cfg_data.get("enabled", default_llm_enabled))
-        llm_min_sev = Severity.from_string(
-            llm_cfg_data.get("min_severity", default_llm_min_sev.name)
-        )
-        max_excerpt_lines = int(
-            llm_cfg_data.get(
-                "max_excerpt_lines", llm_cfg_data.get("max_chunk_lines", default_max_excerpt_lines)
-            )
-        )
-        prompt_template_raw = llm_cfg_data.get("prompt_template")
-        prompt_template_path = Path(prompt_template_raw) if prompt_template_raw else None
-
-        llm_cfg = PipelineLLMConfig(
-            enabled=llm_enabled,
-            min_severity=llm_min_sev,
-            max_excerpt_lines=max_excerpt_lines,
-            prompt_template_path=prompt_template_path,
-        )
-
         pipelines.append(
             PipelineConfig(
                 name=name,
@@ -95,7 +70,6 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
                 classifier_error_regexes=error_regexes,
                 classifier_warning_regexes=warning_regexes,
                 classifier_ignore_regexes=ignore_regexes,
-                llm_cfg=llm_cfg,
             )
         )
 
@@ -105,7 +79,66 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
     return pipelines
 
 
-def build_modules(cfg: Dict[str, Any]) -> List[ModuleConfig]:
+def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
+    llm_cfg = cfg.get("llm", {}) or {}
+    defaults = cfg.get("defaults", {}) or {}
+
+    enabled = bool(llm_cfg.get("enabled", defaults.get("llm_enabled", False)))
+    min_severity = Severity.from_string(
+        llm_cfg.get("min_severity", defaults.get("llm_min_severity", "WARNING"))
+    )
+    max_excerpt_lines = int(
+        llm_cfg.get(
+            "max_excerpt_lines",
+            llm_cfg.get("max_chunk_lines", defaults.get("max_excerpt_lines", 20)),
+        )
+    )
+    max_output_tokens = int(llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens", 512)))
+    request_timeout = float(llm_cfg.get("request_timeout", 30.0))
+    temperature = float(llm_cfg.get("temperature", 0.0))
+    top_p = float(llm_cfg.get("top_p", 1.0))
+    default_provider = llm_cfg.get("default_provider")
+
+    providers: Dict[str, LLMProviderConfig] = {}
+    providers_raw = llm_cfg.get("providers", {}) or {}
+    for name, pdata in providers_raw.items():
+        api_base = str(pdata.get("api_base") or pdata.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+        model = pdata.get("model")
+        if not model:
+            raise ValueError(f"LLM provider {name} must define a model")
+        api_key_env = str(pdata.get("api_key_env", "OPENAI_API_KEY"))
+        providers[name] = LLMProviderConfig(
+            name=name,
+            api_base=api_base,
+            api_key_env=api_key_env,
+            model=str(model),
+            organization=pdata.get("organization"),
+            api_version=pdata.get("api_version"),
+            request_timeout=float(pdata.get("request_timeout", request_timeout)),
+            temperature=float(pdata.get("temperature", temperature)),
+            top_p=float(pdata.get("top_p", top_p)),
+            max_output_tokens=int(pdata.get("max_output_tokens", max_output_tokens)),
+        )
+
+    if default_provider and default_provider not in providers:
+        raise ValueError(
+            f"Default LLM provider '{default_provider}' is not defined under llm.providers"
+        )
+
+    return GlobalLLMConfig(
+        enabled=enabled,
+        min_severity=min_severity,
+        max_excerpt_lines=max_excerpt_lines,
+        max_output_tokens=max_output_tokens,
+        request_timeout=request_timeout,
+        temperature=temperature,
+        top_p=top_p,
+        default_provider=default_provider,
+        providers=providers,
+    )
+
+
+def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[ModuleConfig]:
     modules_cfg = cfg.get("modules", []) or []
     modules: List[ModuleConfig] = []
 
@@ -124,13 +157,21 @@ def build_modules(cfg: Dict[str, Any]) -> List[ModuleConfig]:
         min_sev = Severity.from_string(item.get("min_print_severity", "INFO"))
 
         llm_cfg = item.get("llm", {}) or {}
-
+        llm_enabled = bool(llm_cfg.get("enabled", llm_defaults.enabled))
+        llm_min_sev = Severity.from_string(
+            llm_cfg.get("min_severity", llm_defaults.min_severity.name)
+        )
+        llm_max_excerpt = int(
+            llm_cfg.get(
+                "max_excerpt_lines",
+                llm_cfg.get("max_chunk_lines", llm_defaults.max_excerpt_lines),
+            )
+        )
+        prompt_template_raw = llm_cfg.get("prompt_template")
+        prompt_template_path = Path(prompt_template_raw) if prompt_template_raw else None
+        provider_name = llm_cfg.get("provider")
         emit_dir_raw = llm_cfg.get("emit_llm_payloads_dir", item.get("emit_llm_payloads_dir"))
         emit_dir = Path(emit_dir_raw) if emit_dir_raw else None
-
-        stream_cfg = item.get("stream", {}) or {}
-        stream_from_beginning = bool(stream_cfg.get("from_beginning", False))
-        stream_interval = float(stream_cfg.get("interval", 1.0))
 
         llm_mode_raw = llm_cfg.get("llm_payload_mode", item.get("llm_payload_mode", "full"))
         llm_mode = str(llm_mode_raw).lower()
@@ -140,6 +181,24 @@ def build_modules(cfg: Dict[str, Any]) -> List[ModuleConfig]:
             )
 
         only_last_chunk = bool(llm_cfg.get("only_last_chunk", item.get("only_last_chunk", False)))
+        max_output_tokens_raw = llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens"))
+        max_output_tokens = int(max_output_tokens_raw) if max_output_tokens_raw else None
+
+        module_llm_cfg = ModuleLLMConfig(
+            enabled=llm_enabled,
+            min_severity=llm_min_sev,
+            max_excerpt_lines=llm_max_excerpt,
+            prompt_template_path=prompt_template_path,
+            provider_name=provider_name,
+            emit_llm_payloads_dir=emit_dir,
+            llm_payload_mode=llm_mode,
+            only_last_chunk=only_last_chunk,
+            max_output_tokens=max_output_tokens,
+        )
+
+        stream_cfg = item.get("stream", {}) or {}
+        stream_from_beginning = bool(stream_cfg.get("from_beginning", False))
+        stream_interval = float(stream_cfg.get("interval", 1.0))
 
         exit_map_raw = item.get("exit_code_by_severity")
         exit_map = None
@@ -218,11 +277,9 @@ def build_modules(cfg: Dict[str, Any]) -> List[ModuleConfig]:
                 pipeline_name=pipeline_name,
                 output_format=output_format,
                 min_print_severity=min_sev,
-                emit_llm_payloads_dir=emit_dir,
+                llm=module_llm_cfg,
                 stream_from_beginning=stream_from_beginning,
                 stream_interval=stream_interval,
-                llm_payload_mode=llm_mode,
-                only_last_chunk=only_last_chunk,
                 exit_code_by_severity=exit_map,
                 alert_mqtt=alert_mqtt_cfg,
                 alert_webhook=alert_webhook_cfg,
