@@ -49,18 +49,17 @@ def _select_max_tokens(module_llm: ModuleLLMConfig, provider: LLMProviderConfig,
 
 
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
-    api_key = os.environ.get(provider.api_key_env)
-    if not api_key:
-        raise RuntimeError(
-            f"Environment variable {provider.api_key_env} is required to call provider {provider.name}"
-        )
+    headers = {"Content-Type": "application/json"}
+    if provider.api_key_env:
+        api_key = os.environ.get(provider.api_key_env)
+        if not api_key:
+            raise RuntimeError(
+                f"Environment variable {provider.api_key_env} is required to call provider {provider.name}"
+            )
+        headers["Authorization"] = f"Bearer {api_key}"
 
     url = f"{provider.api_base}/v1/chat/completions"
     data = json.dumps(payload).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
     if provider.organization:
         headers["OpenAI-Organization"] = provider.organization
 
