@@ -15,10 +15,10 @@
     {% else %}
       <span class="status-chip warn">Database URL not set</span>
     {% endif %}
-    {% if latest_chunk_at %}
-      <span class="status-chip">Latest chunk: {{ latest_chunk_at|localtime }}</span>
+    {% if latest_finding_at %}
+      <span class="status-chip">Latest finding: {{ latest_finding_at|localtime }}</span>
     {% else %}
-      <span class="status-chip warn">No chunks recorded yet</span>
+      <span class="status-chip warn">No findings recorded yet</span>
     {% endif %}
     {% if page_rendered_at %}
       <span class="status-chip">Page last updated: {{ page_rendered_at|localtime }}</span>
@@ -44,7 +44,7 @@
           <th>Last reason</th>
           <th style="text-align:right;">24h errors</th>
           <th style="text-align:right;">24h warnings</th>
-          <th style="text-align:right;">24h chunks</th>
+          <th style="text-align:right;">24h findings</th>
         </tr>
       </thead>
       <tbody>
@@ -72,7 +72,7 @@
           </td>
           <td style="text-align:right;">{{ st.errors_24h if st else 0 }}</td>
           <td style="text-align:right;">{{ st.warnings_24h if st else 0 }}</td>
-          <td style="text-align:right;">{{ st.chunks_24h if st else 0 }}</td>
+          <td style="text-align:right;">{{ st.findings_24h if st else 0 }}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -3,12 +3,12 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from .models import LogChunk, Severity, PipelineConfig, ModuleConfig
-from .classifiers import classify_chunk
+from .models import Finding, Severity, PipelineConfig, ModuleConfig
+from .classifiers import classify_lines
 from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
 from .baseline import apply_baseline
-from .webui.db import store_chunk
+from .webui.db import store_finding
 
 
 def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
@@ -21,7 +21,7 @@ def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
 
 
 def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=None):
-    """Yield lists of new lines appended to the file, handling rotation.
+    """Yield (start_line, lines) batches appended to the file, handling rotation.
 
     Behavior is similar to `tail -F`:
 
@@ -37,6 +37,7 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
     f = None
     inode_info: Optional[Tuple[int, int, int]] = None
     buffer: List[str] = []
+    current_line_number = 1
     first_open = True
 
     while True:
@@ -60,10 +61,12 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
         line = f.readline()
         if line:
             buffer.append(line.rstrip("\n"))
+            current_line_number += 1
             continue
 
         if buffer:
-            yield buffer
+            start = current_line_number - len(buffer)
+            yield start, buffer
             buffer = []
 
         time.sleep(interval)
@@ -79,6 +82,7 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
                 pass
             f = None
             inode_info = None
+            current_line_number = 1
             continue
 
         ino, dev, size = stat_now
@@ -98,11 +102,12 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
                 pass
             f = None
             inode_info = None
+            current_line_number = 1
             continue
 
 
 def stream_file(mod: ModuleConfig, pcfg: PipelineConfig, should_reload=None) -> None:
-    """Continuously follow a single log file and classify new chunks."""
+    """Continuously follow a single log file and classify new findings."""
     file_path = mod.path
     min_severity = mod.min_print_severity
     emit_llm_dir = mod.emit_llm_payloads_dir
@@ -110,9 +115,9 @@ def stream_file(mod: ModuleConfig, pcfg: PipelineConfig, should_reload=None) -> 
     interval = mod.stream_interval
     llm_payload_mode = mod.llm_payload_mode
 
-    chunk_index = 0
+    finding_index = 0
 
-    for lines in follow_file(
+    for start_line, lines in follow_file(
         file_path,
         from_beginning=from_beginning,
         interval=interval,
@@ -124,43 +129,34 @@ def stream_file(mod: ModuleConfig, pcfg: PipelineConfig, should_reload=None) -> 
         if should_reload is not None and should_reload():
             break
 
-        severity, reason, err_cnt, warn_cnt = classify_chunk(pcfg, lines)
-        chunk = LogChunk(
-            file_path=file_path,
-            pipeline_name=pcfg.name,
-            chunk_index=chunk_index,
-            lines=lines,
-            severity=severity,
-            reason=reason,
-            error_count=err_cnt,
-            warning_count=warn_cnt,
-            needs_llm=False,
-        )
-        chunk_index += 1
+        findings = classify_lines(pcfg, file_path, pcfg.name, lines, start_line)
+        for f in findings:
+            f.finding_index = finding_index
+            finding_index += 1
 
         if mod.baseline is not None:
-            apply_baseline(mod.baseline, chunk)
+            findings = apply_baseline(mod.baseline, findings)
 
-        chunk.needs_llm = should_send_to_llm(pcfg, chunk.severity, chunk.lines)
+        for f in findings:
+            f.needs_llm = should_send_to_llm(pcfg, f.severity, f.excerpt)
 
-        if chunk.severity >= min_severity:
-            print(f"{chunk.file_path} [{chunk.pipeline_name}] chunk={chunk.chunk_index}")
-            print(f"  severity: {chunk.severity.name}")
-            print(f"  reason:   {chunk.reason}")
-            print(f"  errors:   {chunk.error_count}  warnings: {chunk.warning_count}")
-            print(f"  needs_llm: {chunk.needs_llm}")
-            print()
+        for f in findings:
+            if f.severity >= min_severity:
+                print(f"{f.file_path} [{f.pipeline_name}] finding={f.finding_index}")
+                print(f"  severity: {f.severity.name}")
+                print(f"  reason:   {f.message}")
+                print(f"  lines:    {f.line_start}-{f.line_end}")
+                print(f"  needs_llm: {f.needs_llm}")
+                print()
 
-        # best-effort DB store; will be a no-op if DB is not configured
-        try:
-            is_anomaly = isinstance(chunk.reason, str) and chunk.reason.startswith("ANOMALY:")
-            store_chunk(mod.name, chunk, anomaly_flag=is_anomaly)
-        except Exception:
-            pass
+            try:
+                store_finding(mod.name, f)
+            except Exception:
+                pass
 
-        if emit_llm_dir is not None and chunk.needs_llm:
-            write_llm_payloads([chunk], emit_llm_dir, mode=llm_payload_mode, default_pcfg=pcfg)
+            if emit_llm_dir is not None and f.needs_llm:
+                write_llm_payloads([f], emit_llm_dir, mode=llm_payload_mode, default_pcfg=pcfg)
 
-        if mod.alert_mqtt or mod.alert_webhook:
-            send_alerts(mod, chunk)
+            if mod.alert_mqtt or mod.alert_webhook:
+                send_alerts(mod, f)
 

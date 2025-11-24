@@ -22,19 +22,20 @@ _engine = None
 _db_url: Optional[str] = None
 
 
-class Chunk(Base):
-    __tablename__ = "chunks"
+class FindingRecord(Base):
+    __tablename__ = "findings"
 
     id = Column(Integer, primary_key=True)
     module_name = Column(String(128), index=True, nullable=False)
     pipeline_name = Column(String(128), nullable=True)
     file_path = Column(Text, nullable=False)
-    chunk_index = Column(Integer, nullable=False)
+    finding_index = Column(Integer, nullable=False)
     severity = Column(String(16), index=True, nullable=False)
-    reason = Column(Text, nullable=False)
-    error_count = Column(Integer, nullable=False, default=0)
-    warning_count = Column(Integer, nullable=False, default=0)
-    line_count = Column(Integer, nullable=False, default=0)
+    message = Column(Text, nullable=False)
+    line_start = Column(Integer, nullable=False, default=0)
+    line_end = Column(Integer, nullable=False, default=0)
+    rule_id = Column(String(256), nullable=True)
+    excerpt = Column(Text, nullable=True)
     anomaly_flag = Column(Boolean, nullable=False, default=False)
     created_at = Column(
         DateTime(timezone=True),
@@ -42,6 +43,29 @@ class Chunk(Base):
         default=lambda: datetime.datetime.now(datetime.timezone.utc),
         index=True,
     )
+
+    # compatibility helpers for legacy templates
+    @property
+    def chunk_index(self):
+        return self.finding_index
+
+    @property
+    def reason(self):
+        return self.message
+
+    @property
+    def line_count(self):
+        return len((self.excerpt or "").splitlines())
+
+    @property
+    def error_count(self):
+        sev = (self.severity or "").upper()
+        return 1 if sev in ("ERROR", "CRITICAL") else 0
+
+    @property
+    def warning_count(self):
+        sev = (self.severity or "").upper()
+        return 1 if sev == "WARNING" else 0
 
 
 @dataclass
@@ -52,7 +76,12 @@ class ModuleStats:
     last_seen: Optional[datetime.datetime]
     errors_24h: int
     warnings_24h: int
-    chunks_24h: int
+    findings_24h: int
+
+    # compatibility alias for legacy templates
+    @property
+    def chunks_24h(self) -> int:
+        return self.findings_24h
 
 
 def setup_database(database_url: str):
@@ -77,28 +106,24 @@ def get_session():
     return SessionLocal()
 
 
-def store_chunk(module_name: str, chunk, anomaly_flag: bool = False):
-    """Persist a single LogChunk into the database.
-
-    `chunk` is expected to be a logtriage.models.LogChunk instance.
-    """
+def store_finding(module_name: str, finding, anomaly_flag: bool = False):
+    """Persist a single Finding into the database."""
     sess = get_session()
     if sess is None:
         return
-    from logtriage.models import LogChunk as LTChunk  # type: ignore
-
-    _ = isinstance(chunk, LTChunk)
-
-    obj = Chunk(
+    obj = FindingRecord(
         module_name=module_name,
-        pipeline_name=getattr(chunk, "pipeline_name", None),
-        file_path=str(getattr(chunk, "file_path", "")),
-        chunk_index=int(getattr(chunk, "chunk_index", 0)),
-        severity=str(getattr(getattr(chunk, "severity", None), "name", getattr(chunk, "severity", "UNKNOWN"))),
-        reason=str(getattr(chunk, "reason", "")),
-        error_count=int(getattr(chunk, "error_count", 0)),
-        warning_count=int(getattr(chunk, "warning_count", 0)),
-        line_count=len(getattr(chunk, "lines", []) or []),
+        pipeline_name=getattr(finding, "pipeline_name", None),
+        file_path=str(getattr(finding, "file_path", "")),
+        finding_index=int(getattr(finding, "finding_index", 0)),
+        severity=str(
+            getattr(getattr(finding, "severity", None), "name", getattr(finding, "severity", "UNKNOWN"))
+        ),
+        message=str(getattr(finding, "message", "")),
+        line_start=int(getattr(finding, "line_start", 0)),
+        line_end=int(getattr(finding, "line_end", 0)),
+        rule_id=getattr(finding, "rule_id", None),
+        excerpt="\n".join(getattr(finding, "excerpt", []) or []),
         anomaly_flag=bool(anomaly_flag),
     )
     try:
@@ -111,11 +136,8 @@ def store_chunk(module_name: str, chunk, anomaly_flag: bool = False):
         sess.close()
 
 
-def cleanup_old_chunks(retention_days: int):
-    """Delete chunks older than retention_days.
-
-    This is intended to be called at startup of CLI processes.
-    """
+def cleanup_old_findings(retention_days: int):
+    """Delete findings older than retention_days."""
     if retention_days <= 0:
         return
     sess = get_session()
@@ -123,7 +145,7 @@ def cleanup_old_chunks(retention_days: int):
         return
     cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)
     try:
-        sess.query(Chunk).filter(Chunk.created_at < cutoff).delete(synchronize_session=False)
+        sess.query(FindingRecord).filter(FindingRecord.created_at < cutoff).delete(synchronize_session=False)
         sess.commit()
     except Exception:
         sess.rollback()
@@ -133,10 +155,7 @@ def cleanup_old_chunks(retention_days: int):
 
 
 def get_module_stats() -> Dict[str, ModuleStats]:
-    """Return basic stats per module for the last 24h and last chunk.
-
-    Used by the dashboard. If DB is not initialised, returns {}.
-    """
+    """Return basic stats per module for the last 24h and last finding."""
     sess = get_session()
     if sess is None:
         return {}
@@ -147,9 +166,9 @@ def get_module_stats() -> Dict[str, ModuleStats]:
 
     try:
         rows = (
-            sess.query(Chunk)
-            .filter(Chunk.created_at >= window_start)
-            .order_by(Chunk.module_name, Chunk.created_at.asc())
+            sess.query(FindingRecord)
+            .filter(FindingRecord.created_at >= window_start)
+            .order_by(FindingRecord.module_name, FindingRecord.created_at.asc())
             .all()
         )
         for row in rows:
@@ -162,14 +181,17 @@ def get_module_stats() -> Dict[str, ModuleStats]:
                     last_seen=None,
                     errors_24h=0,
                     warnings_24h=0,
-                    chunks_24h=0,
+                    findings_24h=0,
                 )
                 stats[row.module_name] = s
-            s.chunks_24h += 1
-            s.errors_24h += row.error_count or 0
-            s.warnings_24h += row.warning_count or 0
+            s.findings_24h += 1
+            sev = (row.severity or "").upper()
+            if sev in ("ERROR", "CRITICAL"):
+                s.errors_24h += 1
+            elif sev == "WARNING":
+                s.warnings_24h += 1
             s.last_severity = row.severity
-            s.last_reason = row.reason
+            s.last_reason = row.message
             s.last_seen = row.created_at
     except Exception:
         return {}
@@ -179,12 +201,12 @@ def get_module_stats() -> Dict[str, ModuleStats]:
     return stats
 
 
-def get_latest_chunk_time():
+def get_latest_finding_time():
     sess = get_session()
     if sess is None:
         return None
     try:
-        row = sess.query(Chunk).order_by(Chunk.created_at.desc()).first()
+        row = sess.query(FindingRecord).order_by(FindingRecord.created_at.desc()).first()
         return row.created_at if row else None
     except Exception:
         return None
@@ -192,15 +214,15 @@ def get_latest_chunk_time():
         sess.close()
 
 
-def get_recent_chunks_for_module(module_name: str, limit: int = 50) -> List[Chunk]:
+def get_recent_findings_for_module(module_name: str, limit: int = 50) -> List[FindingRecord]:
     sess = get_session()
     if sess is None:
         return []
     try:
         return (
-            sess.query(Chunk)
-            .filter(Chunk.module_name == module_name)
-            .order_by(Chunk.created_at.desc())
+            sess.query(FindingRecord)
+            .filter(FindingRecord.module_name == module_name)
+            .order_by(FindingRecord.created_at.desc())
             .limit(limit)
             .all()
         )
@@ -210,13 +232,13 @@ def get_recent_chunks_for_module(module_name: str, limit: int = 50) -> List[Chun
         sess.close()
 
 
-def delete_all_chunks() -> int:
+def delete_all_findings() -> int:
     sess = get_session()
     if sess is None:
         return 0
 
     try:
-        deleted = sess.query(Chunk).delete(synchronize_session=False)
+        deleted = sess.query(FindingRecord).delete(synchronize_session=False)
         sess.commit()
         return deleted or 0
     except Exception:
@@ -226,15 +248,15 @@ def delete_all_chunks() -> int:
         sess.close()
 
 
-def delete_chunk_by_id(chunk_id: int) -> bool:
+def delete_finding_by_id(finding_id: int) -> bool:
     sess = get_session()
     if sess is None:
         return False
 
     try:
         deleted = (
-            sess.query(Chunk)
-            .filter(Chunk.id == chunk_id)
+            sess.query(FindingRecord)
+            .filter(FindingRecord.id == finding_id)
             .delete(synchronize_session=False)
         )
         sess.commit()
@@ -246,13 +268,13 @@ def delete_chunk_by_id(chunk_id: int) -> bool:
         sess.close()
 
 
-def get_chunk_by_id(chunk_id: int) -> Optional[Chunk]:
+def get_finding_by_id(finding_id: int) -> Optional[FindingRecord]:
     sess = get_session()
     if sess is None:
         return None
 
     try:
-        obj = sess.query(Chunk).filter(Chunk.id == chunk_id).one_or_none()
+        obj = sess.query(FindingRecord).filter(FindingRecord.id == finding_id).one_or_none()
         return obj
     except Exception:
         return None
@@ -260,15 +282,15 @@ def get_chunk_by_id(chunk_id: int) -> Optional[Chunk]:
         sess.close()
 
 
-def update_chunk_severity(chunk_id: int, severity: str) -> bool:
+def update_finding_severity(finding_id: int, severity: str) -> bool:
     sess = get_session()
     if sess is None:
         return False
 
     try:
         updated = (
-            sess.query(Chunk)
-            .filter(Chunk.id == chunk_id)
+            sess.query(FindingRecord)
+            .filter(FindingRecord.id == finding_id)
             .update({"severity": severity}, synchronize_session=False)
         )
         sess.commit()
@@ -278,3 +300,36 @@ def update_chunk_severity(chunk_id: int, severity: str) -> bool:
         raise
     finally:
         sess.close()
+
+
+# Backward compatibility wrappers for existing UI code
+def store_chunk(module_name: str, chunk, anomaly_flag: bool = False):
+    return store_finding(module_name, chunk, anomaly_flag=anomaly_flag)
+
+
+def cleanup_old_chunks(retention_days: int):
+    return cleanup_old_findings(retention_days)
+
+
+def get_latest_chunk_time():
+    return get_latest_finding_time()
+
+
+def get_recent_chunks_for_module(module_name: str, limit: int = 50):
+    return get_recent_findings_for_module(module_name, limit=limit)
+
+
+def delete_all_chunks() -> int:
+    return delete_all_findings()
+
+
+def delete_chunk_by_id(chunk_id: int) -> bool:
+    return delete_finding_by_id(chunk_id)
+
+
+def get_chunk_by_id(chunk_id: int):
+    return get_finding_by_id(chunk_id)
+
+
+def update_chunk_severity(chunk_id: int, severity: str) -> bool:
+    return update_finding_severity(chunk_id, severity)

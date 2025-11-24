@@ -42,7 +42,9 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
     defaults = cfg.get("defaults", {}) or {}
     default_llm_enabled = bool(defaults.get("llm_enabled", False))
     default_llm_min_sev = Severity.from_string(defaults.get("llm_min_severity", "WARNING"))
-    default_max_chunk_lines = int(defaults.get("max_chunk_lines", 500))
+    default_max_excerpt_lines = int(
+        defaults.get("max_excerpt_lines", defaults.get("max_chunk_lines", 20))
+    )
 
     pipelines_cfg = cfg.get("pipelines", []) or []
     pipelines: List[PipelineConfig] = []
@@ -53,11 +55,6 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
         match_cfg = item.get("match", {}) or {}
         filename_regex = match_cfg.get("filename_regex", ".*")
         match_filename_regex = re.compile(filename_regex)
-
-        grouping_cfg = item.get("grouping", {}) or {}
-        grouping_type = grouping_cfg.get("type", "whole_file")
-        start_regex = _compile_regex(grouping_cfg.get("start_regex"))
-        end_regex = _compile_regex(grouping_cfg.get("end_regex"))
 
         classifier_cfg = item.get("classifier", {}) or {}
         classifier_type = classifier_cfg.get("type", "regex_counter")
@@ -75,14 +72,18 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
         llm_min_sev = Severity.from_string(
             llm_cfg_data.get("min_severity", default_llm_min_sev.name)
         )
-        max_chunk_lines = int(llm_cfg_data.get("max_chunk_lines", default_max_chunk_lines))
+        max_excerpt_lines = int(
+            llm_cfg_data.get(
+                "max_excerpt_lines", llm_cfg_data.get("max_chunk_lines", default_max_excerpt_lines)
+            )
+        )
         prompt_template_raw = llm_cfg_data.get("prompt_template")
         prompt_template_path = Path(prompt_template_raw) if prompt_template_raw else None
 
         llm_cfg = PipelineLLMConfig(
             enabled=llm_enabled,
             min_severity=llm_min_sev,
-            max_chunk_lines=max_chunk_lines,
+            max_excerpt_lines=max_excerpt_lines,
             prompt_template_path=prompt_template_path,
         )
 
@@ -90,9 +91,6 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
             PipelineConfig(
                 name=name,
                 match_filename_regex=match_filename_regex,
-                grouping_type=grouping_type,
-                grouping_start_regex=start_regex,
-                grouping_end_regex=end_regex,
                 classifier_type=classifier_type,
                 classifier_error_regexes=error_regexes,
                 classifier_warning_regexes=warning_regexes,

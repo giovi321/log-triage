@@ -3,7 +3,7 @@ import sys
 import urllib.request
 from typing import Optional
 
-from .models import ModuleConfig, LogChunk, Severity
+from .models import ModuleConfig, Finding, Severity
 
 try:
     import paho.mqtt.client as mqtt  # type: ignore
@@ -13,22 +13,21 @@ except ImportError:  # pragma: no cover
 _mqtt_warned = False
 
 
-def _send_webhook(mod: ModuleConfig, chunk: LogChunk) -> None:
+def _send_webhook(mod: ModuleConfig, finding: Finding) -> None:
     cfg = mod.alert_webhook
     if cfg is None or not cfg.enabled:
         return
-    if chunk.severity < cfg.min_severity:
+    if finding.severity < cfg.min_severity:
         return
 
     payload = {
         "module": mod.name,
-        "file_path": str(chunk.file_path),
-        "pipeline": chunk.pipeline_name,
-        "severity": chunk.severity.name,
-        "reason": chunk.reason,
-        "error_count": chunk.error_count,
-        "warning_count": chunk.warning_count,
-        "line_count": len(chunk.lines),
+        "file_path": str(finding.file_path),
+        "pipeline": finding.pipeline_name,
+        "severity": finding.severity.name,
+        "reason": finding.message,
+        "line_start": finding.line_start,
+        "line_end": finding.line_end,
     }
     data = json.dumps(payload).encode("utf-8")
 
@@ -46,12 +45,12 @@ def _send_webhook(mod: ModuleConfig, chunk: LogChunk) -> None:
         print(f"[logtriage] webhook alert failed for module {mod.name}: {e}", file=sys.stderr)
 
 
-def _send_mqtt(mod: ModuleConfig, chunk: LogChunk) -> None:
+def _send_mqtt(mod: ModuleConfig, finding: Finding) -> None:
     global _mqtt_warned
     cfg = mod.alert_mqtt
     if cfg is None or not cfg.enabled:
         return
-    if chunk.severity < cfg.min_severity:
+    if finding.severity < cfg.min_severity:
         return
     if mqtt is None:
         if not _mqtt_warned:
@@ -65,13 +64,12 @@ def _send_mqtt(mod: ModuleConfig, chunk: LogChunk) -> None:
 
     payload = {
         "module": mod.name,
-        "file_path": str(chunk.file_path),
-        "pipeline": chunk.pipeline_name,
-        "severity": chunk.severity.name,
-        "reason": chunk.reason,
-        "error_count": chunk.error_count,
-        "warning_count": chunk.warning_count,
-        "line_count": len(chunk.lines),
+        "file_path": str(finding.file_path),
+        "pipeline": finding.pipeline_name,
+        "severity": finding.severity.name,
+        "reason": finding.message,
+        "line_start": finding.line_start,
+        "line_end": finding.line_end,
     }
     text = json.dumps(payload)
 
@@ -88,7 +86,7 @@ def _send_mqtt(mod: ModuleConfig, chunk: LogChunk) -> None:
         print(f"[logtriage] MQTT alert failed for module {mod.name}: {e}", file=sys.stderr)
 
 
-def send_alerts(mod: ModuleConfig, chunk: LogChunk) -> None:
-    """Send alerts for a classified chunk according to module settings."""
-    _send_webhook(mod, chunk)
-    _send_mqtt(mod, chunk)
+def send_alerts(mod: ModuleConfig, finding: Finding) -> None:
+    """Send alerts for a classified finding according to module settings."""
+    _send_webhook(mod, finding)
+    _send_mqtt(mod, finding)

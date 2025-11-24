@@ -1,9 +1,9 @@
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-from .models import BaselineConfig, LogChunk, Severity
+from .models import BaselineConfig, Finding, Severity
 
 
 def _load_state(path: Path) -> Dict[str, Any]:
@@ -29,10 +29,10 @@ def _save_state(path: Path, data: Dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def apply_baseline(cfg: BaselineConfig, chunk: LogChunk) -> None:
-    """Update baseline state and adjust chunk severity/reason if anomaly detected."""
+def apply_baseline(cfg: BaselineConfig, findings: List[Finding]) -> List[Finding]:
+    """Update baseline state and emit an anomaly finding when needed."""
     if not cfg.enabled:
-        return
+        return findings
 
     state = _load_state(cfg.state_file)
     history = state.get("history", [])
@@ -50,31 +50,43 @@ def apply_baseline(cfg: BaselineConfig, chunk: LogChunk) -> None:
 
     # detect anomaly
     anomaly_parts = []
-    if avg_err > 0 and chunk.error_count >= avg_err * cfg.error_multiplier:
-        factor = chunk.error_count / avg_err if avg_err > 0 else 0
+    error_count = sum(1 for f in findings if f.severity >= Severity.ERROR)
+    warning_count = sum(1 for f in findings if f.severity == Severity.WARNING)
+
+    if avg_err > 0 and error_count >= avg_err * cfg.error_multiplier:
+        factor = error_count / avg_err if avg_err > 0 else 0
         anomaly_parts.append(
-            f"errors {chunk.error_count} >= {cfg.error_multiplier}x baseline ({avg_err:.2f}, factor {factor:.2f})"
+            f"errors {error_count} >= {cfg.error_multiplier}x baseline ({avg_err:.2f}, factor {factor:.2f})"
         )
-    if avg_warn > 0 and chunk.warning_count >= avg_warn * cfg.warning_multiplier:
-        factor = chunk.warning_count / avg_warn if avg_warn > 0 else 0
+    if avg_warn > 0 and warning_count >= avg_warn * cfg.warning_multiplier:
+        factor = warning_count / avg_warn if avg_warn > 0 else 0
         anomaly_parts.append(
-            f"warnings {chunk.warning_count} >= {cfg.warning_multiplier}x baseline ({avg_warn:.2f}, factor {factor:.2f})"
+            f"warnings {warning_count} >= {cfg.warning_multiplier}x baseline ({avg_warn:.2f}, factor {factor:.2f})"
         )
 
     if anomaly_parts:
         prefix = "ANOMALY: " + "; ".join(anomaly_parts)
-        if chunk.reason:
-            chunk.reason = prefix + " | " + chunk.reason
-        else:
-            chunk.reason = prefix
-        if chunk.severity < cfg.severity_on_anomaly:
-            chunk.severity = cfg.severity_on_anomaly
+        findings = list(findings)
+        findings.append(
+            Finding(
+                file_path=findings[0].file_path if findings else Path(""),
+                pipeline_name=findings[0].pipeline_name if findings else "",
+                finding_index=len(findings),
+                severity=max(cfg.severity_on_anomaly, Severity.ERROR),
+                message=prefix,
+                line_start=findings[0].line_start if findings else 1,
+                line_end=findings[-1].line_end if findings else 1,
+                rule_id="baseline_anomaly",
+                excerpt=[prefix],
+                needs_llm=False,
+            )
+        )
 
-    # update history with this chunk
+    # update history with this batch of findings
     entry = {
         "ts": time.time(),
-        "error_count": int(chunk.error_count),
-        "warning_count": int(chunk.warning_count),
+        "error_count": int(error_count),
+        "warning_count": int(warning_count),
     }
     history.append(entry)
     max_n = max(1, cfg.window)
@@ -82,3 +94,4 @@ def apply_baseline(cfg: BaselineConfig, chunk: LogChunk) -> None:
         history = history[-max_n:]
     state["history"] = history
     _save_state(cfg.state_file, state)
+    return findings

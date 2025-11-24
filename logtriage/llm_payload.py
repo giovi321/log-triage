@@ -2,17 +2,17 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .models import LogChunk, Severity, PipelineConfig
+from .models import Finding, Severity, PipelineConfig
 
 
-def should_send_to_llm(pcfg: PipelineConfig, severity: Severity, chunk_lines: List[str]) -> bool:
+def should_send_to_llm(pcfg: PipelineConfig, severity: Severity, excerpt_lines: List[str]) -> bool:
     if not pcfg.llm_cfg.enabled:
         return False
     if severity < pcfg.llm_cfg.min_severity:
         return False
-    if len(chunk_lines) == 0:
+    if len(excerpt_lines) == 0:
         return False
-    if len(chunk_lines) > pcfg.llm_cfg.max_chunk_lines:
+    if len(excerpt_lines) > pcfg.llm_cfg.max_excerpt_lines:
         return False
     return True
 
@@ -53,7 +53,7 @@ def _load_prompt_template(path: Path) -> Optional[str]:
     return text
 
 
-def build_llm_payload(pcfg: PipelineConfig, chunk: LogChunk, payload_lines: List[str]) -> str:
+def build_llm_payload(pcfg: PipelineConfig, finding: Finding, payload_lines: List[str]) -> str:
     template_text = None
     if pcfg.llm_cfg.prompt_template_path:
         template_text = _load_prompt_template(pcfg.llm_cfg.prompt_template_path)
@@ -61,33 +61,29 @@ def build_llm_payload(pcfg: PipelineConfig, chunk: LogChunk, payload_lines: List
     if template_text:
         try:
             header = template_text.format(
-                severity=chunk.severity.name,
-                reason=chunk.reason,
-                file_path=str(chunk.file_path),
-                pipeline=chunk.pipeline_name,
-                error_count=chunk.error_count,
-                warning_count=chunk.warning_count,
+                severity=finding.severity.name,
+                reason=finding.message,
+                file_path=str(finding.file_path),
+                pipeline=finding.pipeline_name,
                 line_count=len(payload_lines),
             )
         except Exception:
             header = (
-                f"You are analyzing log output from pipeline '{chunk.pipeline_name}'.\n"
-                f"Rule-based severity: {chunk.severity.name}\n"
-                f"Reason: {chunk.reason}\n"
-                f"File: {chunk.file_path}\n"
-                f"Error lines: {chunk.error_count}\n"
-                f"Warning lines: {chunk.warning_count}\n\n"
+                f"You are analyzing log output from pipeline '{finding.pipeline_name}'.\n"
+                f"Rule-based severity: {finding.severity.name}\n"
+                f"Reason: {finding.message}\n"
+                f"File: {finding.file_path}\n"
+                f"Line span: {finding.line_start}-{finding.line_end}\n\n"
                 "Return a single JSON object with keys: severity, reason, key_lines, action_items.\n"
                 "Do not include any extra text outside the JSON.\n"
             )
     else:
         header = (
-            f"You are analyzing log output from pipeline '{chunk.pipeline_name}'.\n"
-            f"Rule-based severity: {chunk.severity.name}\n"
-            f"Reason: {chunk.reason}\n"
-            f"File: {chunk.file_path}\n"
-            f"Error lines: {chunk.error_count}\n"
-            f"Warning lines: {chunk.warning_count}\n\n"
+            f"You are analyzing log output from pipeline '{finding.pipeline_name}'.\n"
+            f"Rule-based severity: {finding.severity.name}\n"
+            f"Reason: {finding.message}\n"
+            f"File: {finding.file_path}\n"
+            f"Line span: {finding.line_start}-{finding.line_end}\n\n"
             "Return a single JSON object with the following keys:\n"
             "  severity: one of ['OK','INFO','WARNING','ERROR','CRITICAL']\n"
             "  reason: short human-readable explanation\n"
@@ -107,7 +103,7 @@ def build_llm_payload(pcfg: PipelineConfig, chunk: LogChunk, payload_lines: List
 
 
 def write_llm_payloads(
-    chunks: List[LogChunk],
+    findings: List[Finding],
     out_dir: Path,
     mode: str = "full",
     pipeline_map: Optional[Dict[str, PipelineConfig]] = None,
@@ -115,18 +111,18 @@ def write_llm_payloads(
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    for ch in chunks:
-        if not ch.needs_llm:
+    for f in findings:
+        if not f.needs_llm:
             continue
 
         if mode == "errors_only":
-            filtered = _filter_error_like_lines(ch.lines)
-            payload_lines = filtered if filtered else ch.lines
+            filtered = _filter_error_like_lines(f.excerpt)
+            payload_lines = filtered if filtered else f.excerpt
         else:
-            payload_lines = ch.lines
+            payload_lines = f.excerpt
 
-        if pipeline_map and ch.pipeline_name in pipeline_map:
-            pcfg = pipeline_map[ch.pipeline_name]
+        if pipeline_map and f.pipeline_name in pipeline_map:
+            pcfg = pipeline_map[f.pipeline_name]
         else:
             pcfg = default_pcfg
 
@@ -134,8 +130,8 @@ def write_llm_payloads(
             # No pipeline config available; skip payload
             continue
 
-        fname = f"{ch.pipeline_name}_{ch.severity.name}_chunk{ch.chunk_index}.txt"
+        fname = f"{f.pipeline_name}_{f.severity.name}_finding{f.finding_index}.txt"
         fpath = out_dir / fname
-        payload = build_llm_payload(pcfg, ch, payload_lines)
+        payload = build_llm_payload(pcfg, f, payload_lines)
         with fpath.open("w", encoding="utf-8") as f:
             f.write(payload)
