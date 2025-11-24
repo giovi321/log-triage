@@ -16,8 +16,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette import status
 from fastapi.staticfiles import StaticFiles
 
-from ..config import build_modules, load_config
-from ..models import ModuleConfig
+from ..config import build_llm_config, build_modules, load_config
+from ..models import GlobalLLMConfig, ModuleConfig
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
@@ -122,12 +122,22 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
 
 
 settings, raw_config, CONFIG_PATH = _load_settings_and_config()
+llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 context_hints = _load_context_hints()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
 
 
 def get_settings() -> WebUISettings:
     return settings
+
+
+def _refresh_llm_defaults() -> None:
+    global llm_defaults
+    llm_defaults = build_llm_config(raw_config)
+
+
+def _build_modules_from_config() -> List[ModuleConfig]:
+    return build_modules(raw_config, llm_defaults)
 
 
 def _render_config_editor(
@@ -248,7 +258,7 @@ async def dashboard(request: Request):
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = build_modules(raw_config)
+    modules = _build_modules_from_config()
     stats = get_module_stats()
     latest_finding_at = get_latest_finding_time()
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
@@ -285,7 +295,7 @@ async def edit_config_post(
     request: Request,
     config_text: str = Form(...),
 ):
-    global settings, raw_config
+    global settings, raw_config, llm_defaults
 
     username = get_current_user(request, settings)
     if not username:
@@ -321,6 +331,7 @@ async def edit_config_post(
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
     _init_database(raw_config)
+    _refresh_llm_defaults()
 
     return _render_config_editor(
         request,
@@ -332,7 +343,7 @@ async def edit_config_post(
 
 @app.post("/config/reload", name="reload_config")
 async def reload_config(request: Request):
-    global settings, raw_config
+    global settings, raw_config, llm_defaults
 
     username = get_current_user(request, settings)
     if not username:
@@ -349,6 +360,7 @@ async def reload_config(request: Request):
         raw_config = new_raw
         settings = parse_webui_settings(new_raw)
         _init_database(new_raw)
+        _refresh_llm_defaults()
     except Exception as e:
         return _render_config_editor(
             request,
@@ -373,7 +385,7 @@ async def severity_files(request: Request, path: Optional[str] = None):
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     try:
-        modules = build_modules(raw_config)
+        modules = _build_modules_from_config()
     except Exception as exc:
         return _render_severity_editor(
             request,
@@ -441,7 +453,7 @@ async def severity_files_post(
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     try:
-        modules = build_modules(raw_config)
+        modules = _build_modules_from_config()
     except Exception as exc:
         return _render_severity_editor(
             request,
@@ -549,7 +561,7 @@ async def regex_lab(
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = build_modules(raw_config)
+    modules = _build_modules_from_config()
     module_obj = None
     if modules:
         if module:
@@ -619,7 +631,7 @@ async def module_logs(
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = build_modules(raw_config)
+    modules = _build_modules_from_config()
     module_obj = None
     if modules:
         if module:
@@ -885,7 +897,7 @@ async def mark_false_positive(
     issue_filter: str = Form("all"),
     sample_line: Optional[str] = Form(None),
 ):
-    global raw_config, settings
+    global raw_config, settings, llm_defaults
 
     username = get_current_user(request, settings)
     if not username:
@@ -928,7 +940,7 @@ async def mark_false_positive(
 
     pipeline_name = getattr(finding, "pipeline_name", None)
     if not pipeline_name:
-        modules = build_modules(raw_config)
+        modules = _build_modules_from_config()
         mod_obj = next((m for m in modules if m.name == getattr(finding, "module_name", None)), None)
         pipeline_name = getattr(mod_obj, "pipeline_name", None)
 
@@ -971,6 +983,7 @@ async def mark_false_positive(
 
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
+    _refresh_llm_defaults()
 
     try:
         update_finding_severity(finding_id, "OK")
@@ -1004,7 +1017,7 @@ async def change_password(
     new_password: str = Form(...),
     confirm_password: str = Form(...),
 ):
-    global settings, raw_config
+    global settings, raw_config, llm_defaults
 
     username = get_current_user(request, settings)
     if not username:
@@ -1107,6 +1120,7 @@ async def change_password(
 
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
+    _refresh_llm_defaults()
 
     return templates.TemplateResponse(
         "account.html",
@@ -1265,7 +1279,7 @@ async def regex_test(
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = build_modules(raw_config)
+    modules = _build_modules_from_config()
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
@@ -1312,7 +1326,7 @@ async def regex_suggest(
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = build_modules(raw_config)
+    modules = _build_modules_from_config()
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
@@ -1347,7 +1361,7 @@ async def regex_save(
     regex_kind: str = Form("error"),
     sample_source: str = Form("tail"),
 ):
-    global raw_config, settings
+    global raw_config, settings, llm_defaults
 
     safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
 
@@ -1355,7 +1369,7 @@ async def regex_save(
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = build_modules(raw_config)
+    modules = _build_modules_from_config()
     module_obj = next((m for m in modules if m.name == module), None)
     if module_obj is None:
         return RedirectResponse(url=app.url_path_for("regex_lab"), status_code=status.HTTP_303_SEE_OTHER)
@@ -1468,6 +1482,7 @@ async def regex_save(
 
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
+    _refresh_llm_defaults()
 
     sample_lines = _tail_lines(Path(module_obj.path), max_lines=200)
 
