@@ -2,17 +2,17 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .models import Finding, Severity, PipelineConfig
+from .models import Finding, Severity, ModuleLLMConfig
 
 
-def should_send_to_llm(pcfg: PipelineConfig, severity: Severity, excerpt_lines: List[str]) -> bool:
-    if not pcfg.llm_cfg.enabled:
+def should_send_to_llm(llm_cfg: ModuleLLMConfig, severity: Severity, excerpt_lines: List[str]) -> bool:
+    if not llm_cfg.enabled:
         return False
-    if severity < pcfg.llm_cfg.min_severity:
+    if severity < llm_cfg.min_severity:
         return False
     if len(excerpt_lines) == 0:
         return False
-    if len(excerpt_lines) > pcfg.llm_cfg.max_excerpt_lines:
+    if len(excerpt_lines) > llm_cfg.max_excerpt_lines:
         return False
     return True
 
@@ -53,10 +53,25 @@ def _load_prompt_template(path: Path) -> Optional[str]:
     return text
 
 
-def build_llm_payload(pcfg: PipelineConfig, finding: Finding, payload_lines: List[str]) -> str:
+def render_llm_payload(
+    finding: Finding, llm_cfg: ModuleLLMConfig, mode: str = "full"
+) -> Optional[str]:
+    if not finding.needs_llm:
+        return None
+
+    if mode == "errors_only":
+        filtered = _filter_error_like_lines(finding.excerpt)
+        payload_lines = filtered if filtered else finding.excerpt
+    else:
+        payload_lines = finding.excerpt
+
+    return build_llm_payload(llm_cfg, finding, payload_lines)
+
+
+def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines: List[str]) -> str:
     template_text = None
-    if pcfg.llm_cfg.prompt_template_path:
-        template_text = _load_prompt_template(pcfg.llm_cfg.prompt_template_path)
+    if llm_cfg.prompt_template_path:
+        template_text = _load_prompt_template(llm_cfg.prompt_template_path)
 
     if template_text:
         try:
@@ -104,10 +119,9 @@ def build_llm_payload(pcfg: PipelineConfig, finding: Finding, payload_lines: Lis
 
 def write_llm_payloads(
     findings: List[Finding],
+    llm_cfg: ModuleLLMConfig,
     out_dir: Path,
     mode: str = "full",
-    pipeline_map: Optional[Dict[str, PipelineConfig]] = None,
-    default_pcfg: Optional[PipelineConfig] = None,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -115,23 +129,10 @@ def write_llm_payloads(
         if not f.needs_llm:
             continue
 
-        if mode == "errors_only":
-            filtered = _filter_error_like_lines(f.excerpt)
-            payload_lines = filtered if filtered else f.excerpt
-        else:
-            payload_lines = f.excerpt
-
-        if pipeline_map and f.pipeline_name in pipeline_map:
-            pcfg = pipeline_map[f.pipeline_name]
-        else:
-            pcfg = default_pcfg
-
-        if pcfg is None:
-            # No pipeline config available; skip payload
-            continue
-
         fname = f"{f.pipeline_name}_{f.severity.name}_finding{f.finding_index}.txt"
         fpath = out_dir / fname
-        payload = build_llm_payload(pcfg, f, payload_lines)
+        payload = render_llm_payload(f, llm_cfg, mode=mode)
+        if payload is None:
+            continue
         with fpath.open("w", encoding="utf-8") as f:
             f.write(payload)

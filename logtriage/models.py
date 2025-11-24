@@ -22,14 +22,6 @@ class Severity(enum.IntEnum):
 
 
 @dataclasses.dataclass
-class PipelineLLMConfig:
-    enabled: bool
-    min_severity: Severity
-    max_excerpt_lines: int
-    prompt_template_path: Optional[Path] = None
-
-
-@dataclasses.dataclass
 class PipelineConfig:
     name: str
     match_filename_regex: re.Pattern
@@ -37,7 +29,6 @@ class PipelineConfig:
     classifier_error_regexes: List[re.Pattern]
     classifier_warning_regexes: List[re.Pattern]
     classifier_ignore_regexes: List[re.Pattern]
-    llm_cfg: PipelineLLMConfig
 
 
 @dataclasses.dataclass
@@ -52,6 +43,7 @@ class Finding:
     rule_id: Optional[str]
     excerpt: List[str]
     needs_llm: bool = False
+    llm_response: Optional["LLMResponse"] = None
 
 
 @dataclasses.dataclass
@@ -92,13 +84,60 @@ class ModuleConfig:
     pipeline_name: Optional[str]
     output_format: str  # "text" or "json"
     min_print_severity: Severity
-    emit_llm_payloads_dir: Optional[Path]
+    llm: "ModuleLLMConfig"
     stream_from_beginning: bool
     stream_interval: float
-    llm_payload_mode: str = "full"  # "full" or "errors_only"
-    only_last_chunk: bool = False   # legacy; kept for config compatibility in findings mode
     exit_code_by_severity: Optional[Dict[Severity, int]] = None
     alert_mqtt: Optional[AlertMQTTConfig] = None
     alert_webhook: Optional[AlertWebhookConfig] = None
     baseline: Optional[BaselineConfig] = None
     enabled: bool = True
+
+
+@dataclasses.dataclass
+class LLMProviderConfig:
+    name: str
+    api_base: str
+    api_key_env: str
+    model: str
+    organization: Optional[str] = None
+    api_version: Optional[str] = None
+    request_timeout: float = 30.0
+    temperature: float = 0.0
+    top_p: float = 1.0
+    max_output_tokens: int = 512
+
+
+@dataclasses.dataclass
+class GlobalLLMConfig:
+    enabled: bool
+    min_severity: Severity
+    max_excerpt_lines: int
+    max_output_tokens: int
+    request_timeout: float
+    temperature: float
+    top_p: float
+    default_provider: Optional[str]
+    providers: Dict[str, LLMProviderConfig]
+
+
+@dataclasses.dataclass
+class ModuleLLMConfig:
+    enabled: bool
+    min_severity: Severity
+    max_excerpt_lines: int
+    prompt_template_path: Optional[Path]
+    provider_name: Optional[str]
+    emit_llm_payloads_dir: Optional[Path]
+    llm_payload_mode: str = "full"  # "full" or "errors_only"
+    only_last_chunk: bool = False   # legacy; kept for config compatibility in findings mode
+    max_output_tokens: Optional[int] = None
+
+
+@dataclasses.dataclass
+class LLMResponse:
+    provider: str
+    model: str
+    content: str
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None

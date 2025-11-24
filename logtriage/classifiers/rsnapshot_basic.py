@@ -10,6 +10,7 @@ def classify_rsnapshot_basic(
     pipeline_name: str,
     lines: List[str],
     start_line: int = 1,
+    excerpt_limit: int = 20,
 ) -> List[Finding]:
     """Heuristic classifier for rsnapshot runs that emits per-line findings."""
     joined_all = "\n".join(lines)
@@ -79,7 +80,7 @@ def classify_rsnapshot_basic(
                 line_start=start_line,
                 line_end=start_line + len(lines) - 1,
                 rule_id="exit_code",
-                excerpt=lines[: pcfg.llm_cfg.max_excerpt_lines],
+                excerpt=lines[:excerpt_limit],
             )
         )
     elif not findings and joined_all.strip():
@@ -93,7 +94,7 @@ def classify_rsnapshot_basic(
                 line_start=start_line,
                 line_end=start_line + len(lines) - 1,
                 rule_id=None,
-                excerpt=lines[: pcfg.llm_cfg.max_excerpt_lines],
+                excerpt=lines[:excerpt_limit],
             )
         )
 

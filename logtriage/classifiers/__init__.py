@@ -11,7 +11,12 @@ def classify_lines(
     pipeline_name: str,
     lines: List[str],
     start_line: int = 1,
+    excerpt_limit: int = 20,
 ) -> List[Finding]:
     if pcfg.classifier_type == "rsnapshot_basic":
-        return classify_rsnapshot_basic(pcfg, file_path, pipeline_name, lines, start_line)
-    return classify_regex_counter(pcfg, file_path, pipeline_name, lines, start_line)
+        return classify_rsnapshot_basic(
+            pcfg, file_path, pipeline_name, lines, start_line, excerpt_limit
+        )
+    return classify_regex_counter(
+        pcfg, file_path, pipeline_name, lines, start_line, excerpt_limit
+    )
