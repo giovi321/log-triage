@@ -211,7 +211,7 @@
         <span class="pill">{{ username }}</span>
         <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Dashboard</a>
         <a href="{{ module_logs_url }}" class="{% if current_path.startswith(module_logs_url) %}active{% endif %}">Logs explorer</a>
-        <a href="{{ llm_responses_url }}" class="{% if current_path.startswith(llm_responses_url) %}active{% endif %}">LLM explorer</a>
+        <a href="{{ llm_responses_url }}" class="{% if current_path.startswith(llm_responses_url) %}active{% endif %}">Ask LLM</a>
         <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Edit Config</a>
         <a href="{{ severity_files_url }}" class="{% if current_path.startswith(severity_files_url) %}active{% endif %}">Baseline editor</a>
         <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
