@@ -135,12 +135,15 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
         min_severity=min_severity,
         default_provider=default_provider,
         providers=providers,
+        context_prefix_lines=base_context_prefix_lines,
     )
 
 
 def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[ModuleConfig]:
     modules_cfg = cfg.get("modules", []) or []
     modules: List[ModuleConfig] = []
+
+    base_context_prefix_lines = llm_defaults.context_prefix_lines
 
     for item in modules_cfg:
         name = item["name"]
