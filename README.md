@@ -135,7 +135,7 @@ The config has five main parts:
 
 - `defaults`: `llm_enabled`, `llm_min_severity`, `max_excerpt_lines`
 - `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`, `llm.(enabled|min_severity|max_excerpt_lines|prompt_template)`
-- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `emit_llm_payloads_dir`, `llm_payload_mode`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
+- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `llm.(emit_llm_payloads_dir|llm_payload_mode|only_last_chunk)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
 - `database`: `url`, `retention_days`
 - `webui`: `host`, `port`, `base_path`, `secret_key`, `admin_users`
 
@@ -218,8 +218,9 @@ modules:
     pipeline: 'rsnapshot'
     output_format: 'json'
     min_print_severity: 'INFO'
-    emit_llm_payloads_dir: './rsnapshot_payloads'
-    llm_payload_mode: 'errors_only'   # 'full' or 'errors_only'
+    llm:
+      emit_llm_payloads_dir: './rsnapshot_payloads'
+      llm_payload_mode: 'errors_only'   # 'full' or 'errors_only'
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -257,8 +258,10 @@ modules:
     pipeline: 'homeassistant'
     output_format: 'text'
     min_print_severity: 'WARNING'
-    emit_llm_payloads_dir: './ha_llm_payloads'
-    llm_payload_mode: 'errors_only'
+    llm:
+      emit_llm_payloads_dir: './ha_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false  # optional; defaults to false
     alerts:
       mqtt:
         enabled: true
@@ -278,8 +281,10 @@ modules:
     mode: 'batch'
     output_format: 'json'
     min_print_severity: 'INFO'
-    emit_llm_payloads_dir: './llm_payloads'
-    llm_payload_mode: 'full'
+    llm:
+      emit_llm_payloads_dir: './llm_payloads'
+      llm_payload_mode: 'full'
+      only_last_chunk: false
 
 database:
   url: 'sqlite:////var/lib/logtriage/logtriage.db'
