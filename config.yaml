@@ -14,8 +14,8 @@ llm:
       temperature: 0.2
       top_p: 1.0
     local_vllm:
-      api_base: http://GC01aiSRVR:8000/v1
-      api_key_env: API_KEY
+      api_base: http://192.168.56.106:8000/v1
+      api_key_env: PLAVEHOLDER
       model: TheBloke/Mistral-7B-Instruct-v0.1-GPTQ
       max_excerpt_lines: 400
       max_output_tokens: 2048
