@@ -11,6 +11,7 @@ def classify_rsnapshot_basic(
     lines: List[str],
     start_line: int = 1,
     excerpt_limit: int = 20,
+    context_prefix_lines: int = 0,
 ) -> List[Finding]:
     """Heuristic classifier for rsnapshot runs that emits per-line findings."""
     joined_all = "\n".join(lines)
@@ -36,6 +37,10 @@ def classify_rsnapshot_basic(
 
         for r in error_patterns:
             for _ in r.finditer(line):
+                excerpt_start = max(0, offset - context_prefix_lines)
+                excerpt = lines[excerpt_start : offset + 1]
+                if len(excerpt) > excerpt_limit:
+                    excerpt = excerpt[-excerpt_limit:]
                 findings.append(
                     Finding(
                         file_path=file_path,
@@ -46,12 +51,16 @@ def classify_rsnapshot_basic(
                         line_start=current_line,
                         line_end=current_line,
                         rule_id=r.pattern,
-                        excerpt=[line],
+                        excerpt=excerpt,
                     )
                 )
 
         for r in warning_patterns:
             for _ in r.finditer(line):
+                excerpt_start = max(0, offset - context_prefix_lines)
+                excerpt = lines[excerpt_start : offset + 1]
+                if len(excerpt) > excerpt_limit:
+                    excerpt = excerpt[-excerpt_limit:]
                 findings.append(
                     Finding(
                         file_path=file_path,
@@ -62,7 +71,7 @@ def classify_rsnapshot_basic(
                         line_start=current_line,
                         line_end=current_line,
                         rule_id=r.pattern,
-                        excerpt=[line],
+                        excerpt=excerpt,
                     )
                 )
 

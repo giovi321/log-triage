@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import importlib.util
+
+if importlib.util.find_spec("uvicorn") is None:
+    raise SystemExit(
+        "Web UI dependencies are missing. Install with `pip install '.[webui]'` or "
+        "`pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous`"
+    )
 
 import uvicorn
 
