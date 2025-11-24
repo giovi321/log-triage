@@ -192,14 +192,19 @@
       const indent = indentMatch ? indentMatch[1].length : 0;
       const trimmed = raw.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
-      let keyPart = trimmed.startsWith('- ')? trimmed.slice(2).trim() : trimmed;
+
+      const isListItem = trimmed.startsWith('- ');
+      const effectiveIndent = indent + (isListItem ? 1 : 0);
+      let keyPart = isListItem ? trimmed.slice(2).trim() : trimmed;
+
       const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
       if (!keyMatch) continue;
       const key = normalizeSegment(keyMatch[1]);
-      while (stack.length && stack[stack.length - 1].indent >= indent) {
+
+      while (stack.length && stack[stack.length - 1].indent >= effectiveIndent) {
         stack.pop();
       }
-      stack.push({ key, indent });
+      stack.push({ key, indent: effectiveIndent });
     }
     return stack.map(s => s.key);
   }
