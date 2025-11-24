@@ -573,6 +573,16 @@
     });
   }
 
+  function bindActionButtons() {
+    document.querySelectorAll('[data-action]').forEach((el) => {
+      el.addEventListener('click', (evt) => {
+        if (el.disabled) return;
+        evt.preventDefault();
+        handleAction(el.dataset.action, el);
+      });
+    });
+  }
+
   function initPage() {
     initLogSelection();
     updateProviderHints();
