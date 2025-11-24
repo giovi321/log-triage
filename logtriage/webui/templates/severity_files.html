@@ -104,10 +104,27 @@
             <p style="margin:0.5rem 0 0;">Expected shape:</p>
             <pre class="expected-shape">{
   "history": [
-    {"ts": 1699999999.0, "error_count": 2, "warning_count": 5},
-    ...
+    {
+      "ts": 1699999999.0,
+      "error_count": 2,
+      "warning_count": 5
+    },
+    ...,
+    {
+      "ts": 1700000300.1,
+      "error_count": 0,
+      "warning_count": 1
+    }
   ]
 }</pre>
+            <ul style="margin:0.5rem 0 0 1rem; padding:0;">
+              <li><code>history</code> must be a list of objects. Each entry is a single snapshot of findings since the last write for this module.</li>
+              <li><code>ts</code> is a Unix timestamp (float or integer seconds since epoch) when the snapshot was recorded.</li>
+              <li><code>error_count</code> is how many findings in that snapshot had severity <code>ERROR</code> or higher.</li>
+              <li><code>warning_count</code> is how many findings in that snapshot had severity exactly <code>WARNING</code>.</li>
+              <li>Newest entries are appended to the end of <code>history</code>; older ones are trimmed when they exceed the module's <code>baseline.window</code> length.</li>
+              <li><strong>Example workflow:</strong> start with <code>history: []</code>, then append a new object each time the module completes a run. After five runs with counts like <code>(errors, warnings) = [(2,5), (0,1), (1,0), (0,0), (3,4)]</code>, <code>history</code> will contain five objects in that order, each with its own <code>ts</code> reflecting when the run finished.</li>
+            </ul>
           </div>
         </div>
       </div>
