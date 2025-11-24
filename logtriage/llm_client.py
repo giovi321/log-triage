@@ -48,6 +48,13 @@ def _select_max_tokens(module_llm: ModuleLLMConfig, provider: LLMProviderConfig,
     return 512
 
 
+def _chat_completion_url(api_base: str) -> str:
+    normalized_base = api_base.rstrip("/")
+    if normalized_base.endswith("/v1"):
+        return f"{normalized_base}/chat/completions"
+    return f"{normalized_base}/v1/chat/completions"
+
+
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
     headers = {"Content-Type": "application/json"}
     if provider.api_key_env:
@@ -58,7 +65,7 @@ def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
             )
         headers["Authorization"] = f"Bearer {api_key}"
 
-    url = f"{provider.api_base}/v1/chat/completions"
+    url = _chat_completion_url(provider.api_base)
     data = json.dumps(payload).encode("utf-8")
     if provider.organization:
         headers["OpenAI-Organization"] = provider.organization
