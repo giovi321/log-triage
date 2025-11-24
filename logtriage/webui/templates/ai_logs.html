@@ -1,0 +1,511 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
+  .log-line input[type="checkbox"] { margin-top:0.15rem; }
+  .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
+  .log-section { border-left:3px solid #2f4261; border-radius:0.35rem; margin-bottom:0.65rem; padding:0.35rem 0.5rem; background:#0e121b; }
+  .log-section-header { display:flex; gap:0.6rem; align-items:flex-start; justify-content:space-between; padding-bottom:0.25rem; }
+  .log-section-body { padding:0.1rem 0; display:flex; flex-direction:column; gap:0.05rem; }
+  .log-section.collapsed .log-section-body { display:none; }
+  .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .log-section.highlighted-finding { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
+  .finding-response { border-left:3px solid #35517c; border-radius:0.35rem; padding:0.5rem 0.6rem; background:#0f131b; display:flex; flex-direction:column; gap:0.3rem; }
+  .finding-response + .finding-response { margin-top:0.65rem; }
+  .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
+  .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
+  .synced-shell { border:1px solid #1a2232; border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
+  .synced-grid { display:grid; grid-template-columns: 1.1fr 1fr; gap:0.75rem; align-items:start; }
+  .synced-pane { border:1px solid #1b2332; border-radius:0.55rem; background:#0f131b; padding:0.65rem; max-height:560px; overflow:auto; }
+  .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-bottom:0.35rem; flex-wrap:wrap; }
+  .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
+  .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
+  .finding-controls select { min-width:120px; }
+  .log-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.35rem; }
+  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
+  .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
+  .prompt-grid textarea { height:240px; }
+  .llm-fixed-response, .prompt-shell { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
+  .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; }
+  .workbench-actions { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .workbench-actions .left-actions, .workbench-actions .right-actions { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
+  .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
+</style>
+<div class="card">
+  <h2>AI logs explorer</h2>
+  <p class="helper-text">Explore raw log tails, adjust issue states, and collaborate with the LLM from a single workspace.</p>
+  {% if message %}
+    <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #2e4735; background:#142018; color:#b7e6c5; border-radius:0.5rem;">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #5c2f2f; background:#1c1114; color:#ffcdd2; border-radius:0.5rem;">{{ error }}</div>
+  {% endif %}
+  <form method="get" action="{{ url_for('ai_logs') }}" style="margin-bottom:0.75rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+    <label>Module:
+      <select name="module" onchange="this.form.submit()">
+        {% for m in modules %}
+          <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tail view:
+      <select name="tail_filter" onchange="this.form.submit()">
+        <option value="all" {% if tail_filter == 'ALL' %}selected{% endif %}>All lines</option>
+        {% for sev in tail_severities %}
+          <option value="{{ sev }}" {% if tail_filter == sev %}selected{% endif %}>{{ sev }} only</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Issues:
+      <select name="issue_filter" onchange="this.form.submit()">
+        <option value="all" {% if issue_filter == 'ALL' %}selected{% endif %}>All</option>
+        <option value="active" {% if issue_filter == 'ACTIVE' %}selected{% endif %}>Active</option>
+        <option value="addressed" {% if issue_filter == 'ADDRESSED' %}selected{% endif %}>Addressed</option>
+      </select>
+    </label>
+    <label>Sample:
+      <select name="sample_source" onchange="this.form.submit()">
+        <option value="tail" {% if sample_source == 'tail' %}selected{% endif %}>Raw tail</option>
+        <option value="errors" {% if sample_source == 'errors' %}selected{% endif %}>Only issue spans</option>
+      </select>
+    </label>
+    <span class="muted">Path: {{ current_module.path if current_module else '-' }}</span>
+  </form>
+
+  {% if not modules %}
+    <p class="muted">No modules configured yet.</p>
+  {% elif not current_module %}
+    <p class="muted">Select a module to view its logs.</p>
+  {% else %}
+    <div class="synced-shell">
+      <div class="synced-grid">
+        <div class="synced-pane" id="tail-pane">
+          <div class="sync-title">
+            <h3 style="margin:0;">Findings</h3>
+            <div class="log-actions">
+              <button type="button" class="secondary" onclick="copyAllLines()">Copy all lines</button>
+              <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
+              <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Append selected to prompt</button>
+              <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse entries</button>
+              {% if tail_filter != 'ALL' %}
+                <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
+              {% endif %}
+              {% if issue_filter != 'ALL' %}
+                <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
+              {% endif %}
+            </div>
+          </div>
+          {% if sample_lines %}
+            <div id="log-lines">
+              {% if finding_tail %}
+                {% for section in finding_tail %}
+                  <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
+                    <div class="log-section-header">
+                      {% if section.finding %}
+                        <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap;">
+                          <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
+                          <div style="display:flex; flex-direction:column; gap:0.15rem; min-width:12rem;">
+                            <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
+                            <span class="helper-text" style="margin:0;">{{ section.finding.reason }}</span>
+                          </div>
+                        </div>
+                        <div class="section-actions">
+                          <button type="button" class="secondary" onclick='loadForLLM({{ finding_examples.get(section.finding.id,section.finding.reason)|tojson }})'>Ask AI about this</button>
+                          <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
+                        </div>
+                      {% else %}
+                        <div class="muted">Tail lines</div>
+                      {% endif %}
+                    </div>
+                    <div class="log-section-body">
+                      {% for line in section.lines %}
+                        <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
+                          <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
+                          <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                          <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                        </div>
+                      {% endfor %}
+                      {% if section.finding %}
+                        <div class="finding-controls">
+                          <form method="post" action="{{ url_for('mark_finding_addressed') }}">
+                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
+                            <input type="hidden" name="module" value="{{ current_module.name }}">
+                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                            <button type="submit" class="secondary">Addressed</button>
+                          </form>
+                          {% set finding_example = (finding_examples.get(section.finding.id) if finding_examples else None) %}
+                          <form method="post" action="{{ url_for('mark_false_positive') }}">
+                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
+                            <input type="hidden" name="module" value="{{ current_module.name }}">
+                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                            <input type="hidden" name="sample_line" value="{{ (finding_example or section.finding.reason)|e }}">
+                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                            <button type="submit" class="secondary">False positive</button>
+                          </form>
+                          <form method="post" action="{{ url_for('change_finding_severity') }}">
+                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
+                            <input type="hidden" name="module" value="{{ current_module.name }}">
+                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                            <label class="muted" style="font-size:0.9rem;">Severity
+                              <select name="severity">
+                                {% for sev in severity_choices %}
+                                  <option value="{{ sev }}" {% if sev == section.finding.severity or (section.finding.severity == 'OK' and loop.first) %}selected{% endif %}>{{ sev }}</option>
+                                {% endfor %}
+                                {% if section.finding.severity == 'OK' %}
+                                  <option value="{{ section.finding.severity }}" disabled>{{ section.finding.severity }} (addressed)</option>
+                                {% endif %}
+                              </select>
+                            </label>
+                            <button type="submit" class="secondary">Update</button>
+                          </form>
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              {% elif had_finding_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
+                <p class="muted">No log sections matched the current filters.</p>
+              {% else %}
+                {% for line in sample_lines %}
+                  <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
+                    <input type="checkbox" name="selected_line" data-line="{{ line|replace('\n','')|e }}">
+                    <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
+                  </div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          {% else %}
+            <p class="muted">No lines read from this log path.</p>
+          {% endif %}
+        </div>
+        <div class="synced-pane" id="ai-pane">
+          <div class="sync-title">
+            <h3 style="margin:0;">AI opinion</h3>
+            <div class="helper-text">Recorded perspectives linked to the current findings.</div>
+          </div>
+          {% if not db_status.connected %}
+            <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
+          {% elif not recent_findings %}
+            <p class="muted">No recorded AI opinions for this module yet.</p>
+          {% else %}
+            {% for c in recent_findings %}
+              {% set response_obj = c|attr('llm_response') %}
+              {% set response_content = response_obj.content if response_obj else c|attr('llm_response_content') %}
+              <div class="finding-response" data-finding-summary="true" data-finding-id="{{ c.id }}">
+                <h4>
+                  <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
+                  <span style="font-size:0.9rem; color:#9fb1d3;">Finding #{{ c.finding_index }} · {{ c.created_at|localtime }}</span>
+                </h4>
+                <div class="helper-text">{{ c.reason }}</div>
+                {% if response_content %}
+                  <div class="llm-body">{{ response_content }}</div>
+                {% else %}
+                  <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                    <p class="muted" style="margin:0;">No AI opinion saved for this finding.</p>
+                    <button type="button" class="secondary" onclick='askAIForFinding({{ c.id }}, {{ finding_examples.get(c.id, c.reason)|tojson }})'>Ask AI</button>
+                  </div>
+                {% endif %}
+                <div class="recorded-summary muted" data-summary-for="{{ c.id }}" style="display:none;"></div>
+              </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if providers %}
+    <div class="llm-workbench">
+      <div class="workbench-actions">
+        <div class="left-actions">
+          <label>Provider
+            <select id="llm-provider">
+              {% for p in providers %}
+                <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
+              {% endfor %}
+            </select>
+          </label>
+          <div id="provider-hints" class="helper-text"></div>
+        </div>
+        <div class="right-actions" style="align-items:flex-end;">
+          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
+        </div>
+      </div>
+      <div class="grid prompt-grid">
+        <div class="prompt-shell">
+          <div class="prompt-title">
+            <span>Prompt builder</span>
+            <span id="llm-status" class="muted"></span>
+          </div>
+          <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}">{{ seed_prompt or '' }}</textarea>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
+            <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
+            <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
+          </div>
+        </div>
+        <div>
+          <div class="prompt-title" style="margin-bottom:0.3rem;">AI opinion</div>
+          <div id="llm-response" class="llm-fixed-response muted">No AI opinion yet.</div>
+          <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.35rem;">
+            <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+      <p class="muted">No providers configured. Update config.yaml to add entries under llm.providers.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<script>
+  const sampleLines = {{ sample_lines|tojson }};
+  const providerSettings = {{ provider_settings|tojson }};
+  const modulePromptTemplate = {{ module_prompt_template|tojson }};
+  const recordedSummaries = {};
+
+  function copyText(text) {
+    if (!navigator.clipboard) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } else {
+      navigator.clipboard.writeText(text);
+    }
+  }
+
+  function copyAllLines() {
+    copyText(sampleLines.join('\n'));
+  }
+
+  function copySelectedLines() {
+    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
+      .map(cb => cb.dataset.line)
+      .filter(Boolean);
+    copyText(selected.join('\n'));
+  }
+
+  function appendSelectedToPrompt() {
+    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
+      .map(cb => cb.dataset.line)
+      .filter(Boolean);
+    if (!selected.length) return;
+    appendToPrompt(selected.join('\n'));
+  }
+
+  function appendToPrompt(text) {
+    const prompt = document.getElementById('llm-prompt');
+    if (!prompt || !text) return;
+    prompt.value = prompt.value ? `${prompt.value}\n${text}` : text;
+    prompt.focus();
+  }
+
+  function refreshSelectedHighlights() {
+    document.querySelectorAll('.log-line').forEach(row => {
+      const cb = row.querySelector('input[name="selected_line"]');
+      row.classList.toggle('selected', cb && cb.checked);
+    });
+  }
+
+  document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+    cb.addEventListener('change', refreshSelectedHighlights);
+  });
+  refreshSelectedHighlights();
+
+  function toggleSection(btn) {
+    const idx = btn.dataset.sectionIndex;
+    const sections = document.querySelectorAll('.log-section');
+    const section = sections[idx];
+    if (section) {
+      section.classList.toggle('collapsed');
+      btn.textContent = section.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+    }
+  }
+
+  function toggleAllFindings() {
+    const sections = document.querySelectorAll('.log-section[data-finding-section="true"]');
+    const allCollapsed = Array.from(sections).every(sec => !sec.classList.contains('collapsed'));
+    sections.forEach(sec => {
+      sec.classList.toggle('collapsed', allCollapsed);
+    });
+    const btn = document.getElementById('toggle-all-findings');
+    if (btn) {
+      btn.textContent = allCollapsed ? 'Expand entries' : 'Collapse entries';
+    }
+  }
+
+  function loadForLLM(text) {
+    appendToPrompt(text);
+  }
+
+  function loadPredefinedPrompt() {
+    if (!modulePromptTemplate) return;
+    const prompt = document.getElementById('llm-prompt');
+    if (!prompt) return;
+    prompt.value = modulePromptTemplate;
+    prompt.focus();
+  }
+
+  function updateProviderHints() {
+    const select = document.getElementById('llm-provider');
+    const hints = document.getElementById('provider-hints');
+    if (!select || !hints) return;
+    const cfg = providerSettings[select.value];
+    if (!cfg) {
+      hints.textContent = '';
+      return;
+    }
+    hints.textContent = `max_excerpt_lines ${cfg.max_excerpt_lines}, max_tokens ${cfg.max_output_tokens}, temp ${cfg.temperature}, top_p ${cfg.top_p}`;
+  }
+
+  async function callLLM(promptText) {
+    const provider = document.getElementById('llm-provider');
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const usage = document.getElementById('llm-usage');
+    if (!provider || !respBox) return null;
+
+    if (!promptText) {
+      if (status) status.textContent = 'Enter a prompt to query the LLM.';
+      return null;
+    }
+
+    if (status) status.textContent = 'Sending...';
+    respBox.textContent = '';
+    if (usage) usage.textContent = '';
+
+    const formData = new FormData();
+    formData.append('provider', provider.value);
+    formData.append('prompt', promptText);
+
+    let responseData;
+    try {
+      const resp = await fetch('{{ url_for('llm_query') }}', { method: 'POST', body: formData });
+      responseData = await resp.json();
+      if (!resp.ok) {
+        throw new Error(responseData.error || 'Request failed');
+      }
+    } catch (err) {
+      if (status) status.textContent = err.message || 'Failed to reach LLM provider';
+      respBox.textContent = '';
+      return null;
+    }
+
+    if (status) status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
+    respBox.textContent = responseData.content || '(empty response)';
+    if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
+      if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
+    }
+    return responseData;
+  }
+
+  async function sendLLMPrompt() {
+    const prompt = document.getElementById('llm-prompt');
+    if (!prompt) return;
+    await callLLM(prompt.value.trim());
+  }
+
+  async function summarizeAndRecord() {
+    const respBox = document.getElementById('llm-response');
+    const status = document.getElementById('llm-status');
+    const targetFinding = getSelectedFindingId();
+    const responseText = respBox ? respBox.textContent.trim() : '';
+    if (!responseText) {
+      if (status) status.textContent = 'No AI opinion to summarize yet.';
+      return;
+    }
+    const summaryPrompt = `Summarize the following AI opinion so it can be stored alongside a finding. Keep it concise.\n\n${responseText}`;
+    const data = await callLLM(summaryPrompt);
+    if (!data) return;
+    if (!targetFinding) {
+      if (status) status.textContent = 'Summary created. Select a finding line to record it.';
+      return;
+    }
+    recordedSummaries[targetFinding] = data.content || '';
+    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
+    if (summaryEl) {
+      summaryEl.textContent = `Recorded summary: ${recordedSummaries[targetFinding]}`;
+      summaryEl.style.display = 'block';
+    }
+    if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
+  }
+
+  function getSelectedFindingId() {
+    const checked = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
+    for (const cb of checked) {
+      const section = cb.closest('[data-finding-section="true"]');
+      if (section && section.dataset.findingId) {
+        return section.dataset.findingId;
+      }
+    }
+    return '';
+  }
+
+  async function attachOpinionToSelectedFinding() {
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const targetFinding = getSelectedFindingId();
+    const responseText = respBox ? respBox.textContent.trim() : '';
+    if (!targetFinding) {
+      if (status) status.textContent = 'Select a finding line to attach the AI opinion.';
+      return;
+    }
+    if (!responseText || responseText === 'No AI opinion yet.') {
+      if (status) status.textContent = 'Run an AI query before attaching.';
+      return;
+    }
+    recordedSummaries[targetFinding] = responseText;
+    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
+    if (summaryEl) {
+      summaryEl.textContent = `Recorded AI opinion: ${responseText}`;
+      summaryEl.style.display = 'block';
+    }
+    if (status) status.textContent = 'AI opinion attached to finding #' + targetFinding;
+  }
+
+  function askAIForFinding(findingId, findingText) {
+    appendToPrompt(findingText);
+    const status = document.getElementById('llm-status');
+    if (status) status.textContent = `Loaded finding #${findingId} into the prompt.`;
+  }
+
+  function syncScrollPanes() {
+    const left = document.getElementById('tail-pane');
+    const right = document.getElementById('ai-pane');
+    if (!left || !right) return;
+    const sync = (source, target) => {
+      const maxScroll = source.scrollHeight - source.clientHeight;
+      const ratio = maxScroll > 0 ? source.scrollTop / maxScroll : 0;
+      target.scrollTop = ratio * (target.scrollHeight - target.clientHeight);
+    };
+    let active = false;
+    left.addEventListener('scroll', () => {
+      if (active) return;
+      active = true;
+      sync(left, right);
+      active = false;
+    });
+    right.addEventListener('scroll', () => {
+      if (active) return;
+      active = true;
+      sync(right, left);
+      active = false;
+    });
+  }
+
+  updateProviderHints();
+  const providerSelect = document.getElementById('llm-provider');
+  if (providerSelect) {
+    providerSelect.addEventListener('change', updateProviderHints);
+  }
+  syncScrollPanes();
+</script>
+{% endblock %}
