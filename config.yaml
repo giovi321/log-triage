@@ -2,6 +2,7 @@ llm:
   enabled: true
   min_severity: WARNING
   default_provider: openai
+  summary_prompt_path: './prompts/ai_opinion_summary.txt'
   providers:
     openai:
       api_base: https://api.openai.com/v1
