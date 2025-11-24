@@ -246,6 +246,20 @@ def delete_chunk_by_id(chunk_id: int) -> bool:
         sess.close()
 
 
+def get_chunk_by_id(chunk_id: int) -> Optional[Chunk]:
+    sess = get_session()
+    if sess is None:
+        return None
+
+    try:
+        obj = sess.query(Chunk).filter(Chunk.id == chunk_id).one_or_none()
+        return obj
+    except Exception:
+        return None
+    finally:
+        sess.close()
+
+
 def update_chunk_severity(chunk_id: int, severity: str) -> bool:
     sess = get_session()
     if sess is None:
