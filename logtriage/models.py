@@ -122,11 +122,10 @@ class ModuleLLMConfig:
     enabled: bool
     min_severity: Severity
     max_excerpt_lines: int
-    prompt_template_path: Optional[Path]
-    provider_name: Optional[str]
-    emit_llm_payloads_dir: Optional[Path]
-    llm_payload_mode: str = "full"  # "full" or "errors_only"
-    only_last_chunk: bool = False   # legacy; kept for config compatibility in findings mode
+    provider_name: Optional[str] = None
+    prompt_template_path: Optional[Path] = None
+    emit_llm_payloads_dir: Optional[Path] = None
+    context_prefix_lines: int = 0
     max_output_tokens: Optional[int] = None
 
 

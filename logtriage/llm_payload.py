@@ -54,7 +54,7 @@ def _load_prompt_template(path: Path) -> Optional[str]:
 
 
 def render_llm_payload(
-    finding: Finding, llm_cfg: ModuleLLMConfig, mode: str = "full"
+    finding: Finding, llm_cfg: ModuleLLMConfig, mode: str = "errors_only"
 ) -> Optional[str]:
     if not finding.needs_llm:
         return None
@@ -121,7 +121,7 @@ def write_llm_payloads(
     findings: List[Finding],
     llm_cfg: ModuleLLMConfig,
     out_dir: Path,
-    mode: str = "full",
+    mode: str = "errors_only",
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 

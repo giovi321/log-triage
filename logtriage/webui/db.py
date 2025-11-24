@@ -1,71 +1,84 @@
 from __future__ import annotations
 
 import datetime
+import importlib.util
 from dataclasses import dataclass
 from typing import Optional, Dict, List
 
-from sqlalchemy import (
-    create_engine,
-    Column,
-    Integer,
-    String,
-    Boolean,
-    DateTime,
-    Text,
-)
-from sqlalchemy.orm import sessionmaker, declarative_base
+_sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
+if _sqlalchemy_spec is None:
+    _sqlalchemy_import_error = ModuleNotFoundError("No module named 'sqlalchemy'")
+    create_engine = Column = Integer = String = Boolean = DateTime = Text = None  # type: ignore
+    sessionmaker = None  # type: ignore
+    declarative_base = lambda: None  # type: ignore
+else:
+    from sqlalchemy import (
+        create_engine,
+        Column,
+        Integer,
+        String,
+        Boolean,
+        DateTime,
+        Text,
+    )
+    from sqlalchemy.orm import sessionmaker, declarative_base
+    _sqlalchemy_import_error = None
 
-Base = declarative_base()
-SessionLocal = sessionmaker(autocommit=False, autoflush=False)
+Base = declarative_base() if declarative_base else None
+SessionLocal = sessionmaker(autocommit=False, autoflush=False) if sessionmaker else None
 
 _engine = None
 _db_url: Optional[str] = None
 
 
-class FindingRecord(Base):
-    __tablename__ = "findings"
+if Base is not None:
+    class FindingRecord(Base):
+        __tablename__ = "findings"
 
-    id = Column(Integer, primary_key=True)
-    module_name = Column(String(128), index=True, nullable=False)
-    pipeline_name = Column(String(128), nullable=True)
-    file_path = Column(Text, nullable=False)
-    finding_index = Column(Integer, nullable=False)
-    severity = Column(String(16), index=True, nullable=False)
-    message = Column(Text, nullable=False)
-    line_start = Column(Integer, nullable=False, default=0)
-    line_end = Column(Integer, nullable=False, default=0)
-    rule_id = Column(String(256), nullable=True)
-    excerpt = Column(Text, nullable=True)
-    anomaly_flag = Column(Boolean, nullable=False, default=False)
-    created_at = Column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.datetime.now(datetime.timezone.utc),
-        index=True,
-    )
+        id = Column(Integer, primary_key=True)
+        module_name = Column(String(128), index=True, nullable=False)
+        pipeline_name = Column(String(128), nullable=True)
+        file_path = Column(Text, nullable=False)
+        finding_index = Column(Integer, nullable=False)
+        severity = Column(String(16), index=True, nullable=False)
+        message = Column(Text, nullable=False)
+        line_start = Column(Integer, nullable=False, default=0)
+        line_end = Column(Integer, nullable=False, default=0)
+        rule_id = Column(String(256), nullable=True)
+        excerpt = Column(Text, nullable=True)
+        anomaly_flag = Column(Boolean, nullable=False, default=False)
+        created_at = Column(
+            DateTime(timezone=True),
+            nullable=False,
+            default=lambda: datetime.datetime.now(datetime.timezone.utc),
+            index=True,
+        )
 
-    # compatibility helpers for legacy templates
-    @property
-    def chunk_index(self):
-        return self.finding_index
+        # compatibility helpers for legacy templates
+        @property
+        def chunk_index(self):
+            return self.finding_index
 
-    @property
-    def reason(self):
-        return self.message
+        @property
+        def reason(self):
+            return self.message
 
-    @property
-    def line_count(self):
-        return len((self.excerpt or "").splitlines())
+        @property
+        def line_count(self):
+            return len((self.excerpt or "").splitlines())
 
-    @property
-    def error_count(self):
-        sev = (self.severity or "").upper()
-        return 1 if sev in ("ERROR", "CRITICAL") else 0
+        @property
+        def error_count(self):
+            sev = (self.severity or "").upper()
+            return 1 if sev in ("ERROR", "CRITICAL") else 0
 
-    @property
-    def warning_count(self):
-        sev = (self.severity or "").upper()
-        return 1 if sev == "WARNING" else 0
+        @property
+        def warning_count(self):
+            sev = (self.severity or "").upper()
+            return 1 if sev == "WARNING" else 0
+else:  # pragma: no cover - used when sqlalchemy is absent
+    class FindingRecord:
+        pass
 
 
 @dataclass
@@ -93,6 +106,13 @@ def setup_database(database_url: str):
     if _engine is not None and _db_url == database_url:
         return
 
+    if _sqlalchemy_import_error is not None:
+        raise ModuleNotFoundError(
+            "sqlalchemy is required for database/Web UI features. "
+            "Install with `pip install '.[webui]'` or `pip install fastapi uvicorn jinja2 "
+            "python-multipart passlib[bcrypt] sqlalchemy itsdangerous`."
+        ) from _sqlalchemy_import_error
+
     engine = create_engine(database_url, future=True)
     Base.metadata.create_all(engine)
     SessionLocal.configure(bind=engine)
@@ -101,7 +121,7 @@ def setup_database(database_url: str):
 
 
 def get_session():
-    if _engine is None:
+    if _engine is None or SessionLocal is None:
         return None
     return SessionLocal()
 
