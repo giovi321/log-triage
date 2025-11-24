@@ -3,7 +3,7 @@
 <style>
   .config-editor-grid {
     display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(360px, 1.25fr);
+    grid-template-columns: minmax(0, 5fr) minmax(450px, 1.25fr);
     gap: 1.25rem;
     align-items: start;
   }
@@ -36,6 +36,20 @@
   #severity-text { width: 95%; min-height: 300px; }
   .editor-pane { min-width: 0; width: 100%; }
   .hint-panel .hint-body { white-space: pre-wrap; }
+  .hint-panel .expected-shape {
+    display: block;
+    margin: 0;
+    padding: 0.5rem;
+    background: #0f1320;
+    border: 1px solid #222a38;
+    border-radius: 0.5rem;
+    max-width: 100%;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: pre;
+    box-sizing: border-box;
+  }
   .client-error { color: #ffb4b4; background: #2d1a1d; border: 1px solid #42232a; border-radius: 0.5rem; padding: 0.65rem 0.75rem; margin-top: 0.6rem; display: none; }
   .config-editor button[disabled] { opacity: 0.65; cursor: not-allowed; box-shadow: none; background: linear-gradient(120deg, #3a4670, #5f6e9c); }
   .cm-error-line { background: #3a1a1a !important; }
@@ -88,7 +102,7 @@
             <p style="margin-top:0;">Path: <code>{{ selected_path }}</code></p>
             <p style="margin:0;">Modules using it: {% if selected_modules %}{{ selected_modules|join(', ') }}{% else %}none{% endif %}</p>
             <p style="margin:0.5rem 0 0;">Expected shape:</p>
-            <pre style="margin:0; padding:0.5rem; background:#0f1320; border:1px solid #222a38; border-radius:0.5rem;">{
+            <pre class="expected-shape">{
   "history": [
     {"ts": 1699999999.0, "error_count": 2, "warning_count": 5},
     ...
