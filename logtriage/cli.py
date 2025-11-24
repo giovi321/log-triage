@@ -49,6 +49,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Handle SIGHUP/SIGUSR1 to reload the config and pipelines without restarting (follow modules only).",
     )
+    p.add_argument(
+        "--reload-on-change",
+        action="store_true",
+        help="Automatically reload when the config file mtime changes (handy when saving via the Web UI).",
+    )
     return p.parse_args(argv)
 
 
@@ -204,9 +209,28 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     cfg_path = Path(args.config)
     reload_event = Event()
+    last_cfg_mtime_ns: Optional[int] = None
 
     def _request_reload(signum, frame):
         reload_event.set()
+
+    def _config_changed() -> bool:
+        nonlocal last_cfg_mtime_ns
+        if not args.reload_on_change:
+            return False
+        try:
+            current = cfg_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            return False
+        if last_cfg_mtime_ns is None:
+            return False
+        if current != last_cfg_mtime_ns:
+            reload_event.set()
+            return True
+        return False
+
+    def _should_reload() -> bool:
+        return reload_event.is_set() or _config_changed()
 
     if args.reload_on_sighup:
         signal.signal(signal.SIGHUP, _request_reload)
@@ -220,6 +244,11 @@ def main(argv: Optional[List[str]] = None) -> None:
         cfg = load_config(cfg_path)
         pipelines = build_pipelines(cfg)
         modules = build_modules(cfg)
+
+        try:
+            last_cfg_mtime_ns = cfg_path.stat().st_mtime_ns
+        except FileNotFoundError:
+            last_cfg_mtime_ns = None
 
         # Optional database initialisation
         db_cfg = {}
@@ -278,16 +307,16 @@ def main(argv: Optional[List[str]] = None) -> None:
                 run_module_follow(
                     mod,
                     pipelines,
-                    should_reload=reload_event.is_set if args.reload_on_sighup else None,
+                    should_reload=_should_reload if (args.reload_on_sighup or args.reload_on_change) else None,
                 )
             else:
                 run_module_batch(mod, pipelines)
 
-            if args.reload_on_sighup and reload_event.is_set():
+            if (args.reload_on_sighup or args.reload_on_change) and reload_event.is_set():
                 print("Reload requested; reloading configuration...", file=sys.stderr)
                 break
 
-        if not (args.reload_on_sighup and reload_event.is_set() and has_follow_module):
+        if not ((args.reload_on_sighup or args.reload_on_change) and reload_event.is_set() and has_follow_module):
             break
 
         reload_event.clear()
