@@ -49,14 +49,27 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
 
         match_cfg = item.get("match", {}) or {}
         filename_regex = match_cfg.get("filename_regex", ".*")
-        match_filename_regex = re.compile(filename_regex)
+        try:
+            match_filename_regex = re.compile(filename_regex)
+        except re.error as exc:  # pragma: no cover - simple input validation
+            raise ValueError(
+                f"Pipeline '{name}' has invalid filename_regex '{filename_regex}': {exc}"
+            ) from exc
 
         classifier_cfg = item.get("classifier", {}) or {}
         classifier_type = classifier_cfg.get("type", "regex_counter")
 
         def _compile_list(key: str) -> List[re.Pattern]:
             patterns = classifier_cfg.get(key, []) or []
-            return [re.compile(pat, re.IGNORECASE) for pat in patterns]
+            compiled: List[re.Pattern] = []
+            for pat in patterns:
+                try:
+                    compiled.append(re.compile(pat, re.IGNORECASE))
+                except re.error as exc:  # pragma: no cover - simple input validation
+                    raise ValueError(
+                        f"Pipeline '{name}' has invalid {key.rstrip('es')} regex '{pat}': {exc}"
+                    ) from exc
+            return compiled
 
         error_regexes = _compile_list("error_regexes")
         warning_regexes = _compile_list("warning_regexes")
