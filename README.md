@@ -52,6 +52,7 @@ pip install '.[webui,mqtt]'
   - UNKNOWN, OK, INFO, WARNING, ERROR, CRITICAL
 - Batch mode (scan file or directory once)
 - Follow mode (continuous tail of a single log file), rotation-aware (`tail -F` style)
+- Optional SIGHUP/SIGUSR1-triggered config reload for follow-mode modules (`--reload-on-sighup`)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Per-module options for:
   - full-chunk vs error-only LLM payloads (`llm_payload_mode`)

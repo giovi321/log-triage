@@ -20,7 +20,7 @@ def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
     return (int(st.st_ino), int(st.st_dev), int(st.st_size))
 
 
-def follow_file(path: Path, from_beginning: bool, interval: float):
+def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=None):
     """Yield lists of new lines appended to the file, handling rotation.
 
     Behavior is similar to `tail -F`:
@@ -40,6 +40,8 @@ def follow_file(path: Path, from_beginning: bool, interval: float):
     first_open = True
 
     while True:
+        if should_stop is not None and should_stop():
+            return
         if f is None:
             stat_now = _stat_inode(path)
             if stat_now is None:
@@ -65,6 +67,9 @@ def follow_file(path: Path, from_beginning: bool, interval: float):
             buffer = []
 
         time.sleep(interval)
+
+        if should_stop is not None and should_stop():
+            return
 
         stat_now = _stat_inode(path)
         if stat_now is None:
@@ -96,7 +101,7 @@ def follow_file(path: Path, from_beginning: bool, interval: float):
             continue
 
 
-def stream_file(mod: ModuleConfig, pcfg: PipelineConfig) -> None:
+def stream_file(mod: ModuleConfig, pcfg: PipelineConfig, should_reload=None) -> None:
     """Continuously follow a single log file and classify new chunks."""
     file_path = mod.path
     min_severity = mod.min_print_severity
@@ -107,9 +112,17 @@ def stream_file(mod: ModuleConfig, pcfg: PipelineConfig) -> None:
 
     chunk_index = 0
 
-    for lines in follow_file(file_path, from_beginning=from_beginning, interval=interval):
+    for lines in follow_file(
+        file_path,
+        from_beginning=from_beginning,
+        interval=interval,
+        should_stop=should_reload,
+    ):
         if not lines:
             continue
+
+        if should_reload is not None and should_reload():
+            break
 
         severity, reason, err_cnt, warn_cnt = classify_chunk(pcfg, lines)
         chunk = LogChunk(
