@@ -36,7 +36,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--module",
         "-m",
         help="Name of a single module to run (from config.yaml). "
-             "If omitted, all enabled modules are run.",
+             "If omitted, all enabled follow-mode modules are run.",
     )
     p.add_argument(
         "--inspect-chunks",
@@ -198,10 +198,10 @@ def main(argv: Optional[List[str]] = None) -> None:
                 print(f"No module named {args.module} found in config.", file=sys.stderr)
                 sys.exit(1)
         else:
-            modules_to_run = [m for m in modules if m.enabled]
+            modules_to_run = [m for m in modules if m.enabled and m.mode == "follow"]
 
         if not modules_to_run:
-            print("No enabled modules found in config.", file=sys.stderr)
+            print("No enabled follow-mode modules found in config.", file=sys.stderr)
             sys.exit(1)
 
         # In inspect mode we require exactly one module
