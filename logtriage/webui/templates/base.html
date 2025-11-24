@@ -200,18 +200,18 @@
     </div>
     <div class="topnav-links">
       {% if username %}
-        {% set current_path = request.url.path %}
-        {% set dashboard_url = url_for('dashboard') | string %}
-        {% set module_logs_url = url_for('module_logs') | string %}
-        {% set edit_config_url = url_for('edit_config') | string %}
-        {% set severity_files_url = url_for('severity_files') | string %}
-        {% set regex_lab_url = url_for('regex_lab') | string %}
-        {% set account_url = url_for('account') | string %}
+        {% set current_path = request.url.path | string %}
+        {% set dashboard_url = request.app.url_path_for('dashboard') %}
+        {% set module_logs_url = request.app.url_path_for('module_logs') %}
+        {% set edit_config_url = request.app.url_path_for('edit_config') %}
+        {% set severity_files_url = request.app.url_path_for('severity_files') %}
+        {% set regex_lab_url = request.app.url_path_for('regex_lab') %}
+        {% set account_url = request.app.url_path_for('account') %}
         <span class="pill">{{ username }}</span>
         <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Dashboard</a>
-        <a href="{{ module_logs_url }}" class="{% if current_path.startswith(module_logs_url) %}active{% endif %}">Logs</a>
+        <a href="{{ module_logs_url }}" class="{% if current_path.startswith(module_logs_url) %}active{% endif %}">Logs explorer</a>
         <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Edit Config</a>
-        <a href="{{ severity_files_url }}" class="{% if current_path.startswith(severity_files_url) %}active{% endif %}">Severity files</a>
+        <a href="{{ severity_files_url }}" class="{% if current_path.startswith(severity_files_url) %}active{% endif %}">Baseline editor</a>
         <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
         <a href="{{ account_url }}" class="{% if current_path.startswith(account_url) %}active{% endif %}">Password</a>
         <a href="{{ url_for('logout') }}">Logout</a>
