@@ -36,6 +36,8 @@ class Chunk(Base):
     warning_count = Column(Integer, nullable=False, default=0)
     line_count = Column(Integer, nullable=False, default=0)
     anomaly_flag = Column(Boolean, nullable=False, default=False)
+    false_positive = Column(Boolean, nullable=False, default=False)
+    addressed = Column(Boolean, nullable=False, default=False)
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -100,6 +102,8 @@ def store_chunk(module_name: str, chunk, anomaly_flag: bool = False):
         warning_count=int(getattr(chunk, "warning_count", 0)),
         line_count=len(getattr(chunk, "lines", []) or []),
         anomaly_flag=bool(anomaly_flag),
+        false_positive=False,
+        addressed=False,
     )
     try:
         sess.add(obj)
@@ -192,18 +196,19 @@ def get_latest_chunk_time():
         sess.close()
 
 
-def get_recent_chunks_for_module(module_name: str, limit: int = 50) -> List[Chunk]:
+def get_recent_chunks_for_module(
+    module_name: str, limit: int = 50, include_handled: bool = False
+) -> List[Chunk]:
     sess = get_session()
     if sess is None:
         return []
     try:
-        return (
-            sess.query(Chunk)
-            .filter(Chunk.module_name == module_name)
-            .order_by(Chunk.created_at.desc())
-            .limit(limit)
-            .all()
-        )
+        query = sess.query(Chunk).filter(Chunk.module_name == module_name)
+        if not include_handled:
+            query = query.filter(Chunk.false_positive.is_(False)).filter(
+                Chunk.addressed.is_(False)
+            )
+        return query.order_by(Chunk.created_at.desc()).limit(limit).all()
     except Exception:
         return []
     finally:
@@ -262,5 +267,48 @@ def update_chunk_severity(chunk_id: int, severity: str) -> bool:
     except Exception:
         sess.rollback()
         raise
+    finally:
+        sess.close()
+
+
+def update_chunk_flags(
+    chunk_id: int, *, false_positive: Optional[bool] = None, addressed: Optional[bool] = None
+) -> bool:
+    sess = get_session()
+    if sess is None:
+        return False
+
+    updates = {}
+    if false_positive is not None:
+        updates["false_positive"] = bool(false_positive)
+    if addressed is not None:
+        updates["addressed"] = bool(addressed)
+
+    if not updates:
+        return False
+
+    try:
+        updated = (
+            sess.query(Chunk)
+            .filter(Chunk.id == chunk_id)
+            .update(updates, synchronize_session=False)
+        )
+        sess.commit()
+        return bool(updated)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+def get_chunk_by_id(chunk_id: int) -> Optional[Chunk]:
+    sess = get_session()
+    if sess is None:
+        return None
+    try:
+        return sess.query(Chunk).filter(Chunk.id == chunk_id).first()
+    except Exception:
+        return None
     finally:
         sess.close()

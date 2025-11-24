@@ -27,6 +27,8 @@ from .db import (
     get_latest_chunk_time,
     get_recent_chunks_for_module,
     update_chunk_severity,
+    update_chunk_flags,
+    get_chunk_by_id,
 )
 
 
@@ -386,6 +388,52 @@ def _logs_redirect(
     return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
 
 
+def _add_ignore_rule_for_pipeline(pipeline_name: Optional[str], regex_value: str) -> tuple[bool, Optional[str]]:
+    """Append an ignore regex to the given pipeline in the persisted config."""
+    global raw_config, settings
+
+    if not pipeline_name:
+        return False, "Chunk has no pipeline associated; cannot add ignore rule."
+    if not regex_value:
+        return False, "Empty regex value provided; nothing to add."
+
+    try:
+        cfg_dict = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        return False, f"Failed to read config: {exc}"
+
+    pipelines = cfg_dict.get("pipelines", []) or []
+    pipeline_dict = next((p for p in pipelines if p.get("name") == pipeline_name), None)
+    if pipeline_dict is None:
+        return False, f"Pipeline {pipeline_name} not found in config."
+
+    classifier = pipeline_dict.setdefault("classifier", {})
+    ignore_list = classifier.get("ignore_regexes")
+    if ignore_list is None or not isinstance(ignore_list, list):
+        ignore_list = []
+        classifier["ignore_regexes"] = ignore_list
+
+    if regex_value not in ignore_list:
+        ignore_list.append(regex_value)
+
+    try:
+        new_text = yaml.safe_dump(cfg_dict, sort_keys=False)
+        tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+        backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        if CONFIG_PATH.exists():
+            CONFIG_PATH.replace(backup_path)
+        tmp_path.replace(CONFIG_PATH)
+    except Exception as exc:
+        return False, f"Failed to write config: {exc}"
+
+    from .config import parse_webui_settings  # avoid cycle
+
+    raw_config = load_config(CONFIG_PATH)
+    settings = parse_webui_settings(raw_config)
+    return True, None
+
+
 @app.get("/logs", name="module_logs")
 async def module_logs(
     request: Request,
@@ -536,6 +584,94 @@ async def change_chunk_severity(
     return _logs_redirect(
         module, message=f"Severity updated to {normalized}.", tail_filter=tail_filter
     )
+
+
+@app.post("/logs/chunk/addressed", name="mark_chunk_addressed")
+async def mark_chunk_addressed(
+    request: Request,
+    chunk_id: int = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(module, error="Database not connected.", tail_filter=tail_filter)
+
+    try:
+        updated = update_chunk_flags(chunk_id, addressed=True)
+        if updated:
+            update_chunk_severity(chunk_id, "OK")
+    except Exception as exc:
+        return _logs_redirect(
+            module, error=f"Failed to mark as addressed: {exc}", tail_filter=tail_filter
+        )
+
+    if not updated:
+        return _logs_redirect(module, error="Entry not found.", tail_filter=tail_filter)
+
+    return _logs_redirect(module, message="Chunk marked as addressed.", tail_filter=tail_filter)
+
+
+@app.post("/logs/chunk/false_positive", name="mark_chunk_false_positive")
+async def mark_chunk_false_positive(
+    request: Request,
+    chunk_id: int = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+    sample_line: str = Form(""),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(module, error="Database not connected.", tail_filter=tail_filter)
+
+    try:
+        chunk = get_chunk_by_id(chunk_id)
+    except Exception as exc:
+        return _logs_redirect(
+            module, error=f"Failed to load entry: {exc}", tail_filter=tail_filter
+        )
+
+    if chunk is None:
+        return _logs_redirect(module, error="Entry not found.", tail_filter=tail_filter)
+
+    pattern_source = sample_line or str(getattr(chunk, "reason", ""))
+    suggested_regex = _suggest_regex_from_line(pattern_source) if pattern_source else ""
+
+    try:
+        updated = update_chunk_flags(chunk_id, false_positive=True, addressed=True)
+        if updated:
+            update_chunk_severity(chunk_id, "OK")
+    except Exception as exc:
+        return _logs_redirect(
+            module, error=f"Failed to mark false positive: {exc}", tail_filter=tail_filter
+        )
+
+    if not updated:
+        return _logs_redirect(module, error="Entry not found.", tail_filter=tail_filter)
+
+    if suggested_regex:
+        ok, err = _add_ignore_rule_for_pipeline(getattr(chunk, "pipeline_name", None), suggested_regex)
+        if not ok:
+            return _logs_redirect(
+                module,
+                error=f"Marked false positive, but failed to update config: {err}",
+                tail_filter=tail_filter,
+            )
+
+        msg = (
+            "Chunk marked as false positive. Added ignore rule to pipeline "
+            f"{getattr(chunk, 'pipeline_name', '')}."
+        )
+    else:
+        msg = "Chunk marked as false positive."
+
+    return _logs_redirect(module, message=msg, tail_filter=tail_filter)
 
 
 @app.get("/account", name="account")
