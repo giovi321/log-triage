@@ -5,7 +5,7 @@
   "defaults_llm_min_severity": "defaults.llm_min_severity: minimum severity that will generate an LLM payload; INFO/WARNING/ERROR/CRITICAL.",
   "defaults_max_excerpt_lines": "defaults.max_excerpt_lines: cap lines included around each finding in an LLM payload.",
   "pipelines": "pipelines: reusable grouping + classifier bundles referenced by modules via pipeline name.",
-  "pipelines_match": "pipelines.match.filename_regex: regex that decides which files a pipeline should handle, e.g. 'rsnapshot.*\\\\.log'.",
+  "pipelines_match": "pipelines.match.filename_regex: regex that decides which files a pipeline should handle'.",
   "pipelines_grouping": "pipelines.grouping: choose 'whole_file' or 'marker' and configure start/end for marker mode.",
   "pipelines_classifier": "pipelines.classifier: classifier type plus error/warning/ignore regex lists.",
   "pipelines_llm": "pipelines.llm: enable per-pipeline LLM payloads and optional prompt_template path.",

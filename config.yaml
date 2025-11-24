@@ -48,7 +48,7 @@ pipelines:
 
   - name: apache2_access
     match:
-      filename_regex: 'apache2.*access\\.log'
+      filename_regex: '*access\\.log'
     grouping:
       type: 'whole_file'
     classifier:
@@ -70,7 +70,7 @@ pipelines:
 
   - name: apache2_error
     match:
-      filename_regex: 'apache2.*error\\.log'
+      filename_regex: '*error\\.log'
     grouping:
       type: 'whole_file'
     classifier:
@@ -177,9 +177,9 @@ modules:
       from_beginning: false
       interval: 1.0
 
-  - name: apache2_access_follow
-    enabled: false
-    path: '/var/log/apache2/access.log'
+  - name: apache2_access
+    enabled: true
+    path: '/var/log/apache2/vhosts'
     mode: 'follow'
     pipeline: 'apache2_access'
     output_format: 'text'
@@ -194,9 +194,9 @@ modules:
       from_beginning: false
       interval: 1.0
 
-  - name: apache2_error_follow
-    enabled: false
-    path: '/var/log/apache2/error.log'
+  - name: apache2_error
+    enabled: true
+    path: '/var/log/apache2/vhosts'
     mode: 'follow'
     pipeline: 'apache2_error'
     output_format: 'text'
