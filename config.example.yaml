@@ -67,6 +67,47 @@ pipelines:
       max_excerpt_lines: 1000
       prompt_template: './prompts/nextcloud.txt'
 
+  - name: authentik
+    match:
+      filename_regex: 'authentik.*\\.log'
+    grouping:
+      type: 'whole_file'
+    classifier:
+      type: 'regex_counter'
+      error_regexes:
+        - '"level"\\s*:\\s*"(error|fatal|panic)"'
+        - '"status"\\s*:\\s*5\\d{2}'
+      warning_regexes:
+        - '"level"\\s*:\\s*"warning"'
+        - '"status"\\s*:\\s*4\\d{2}'
+        - 'No providers assigned to this outpost'
+      ignore_regexes: []
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_excerpt_lines: 500
+      prompt_template: './prompts/authentik.txt'
+
+  - name: rmfakecloud
+    match:
+      filename_regex: 'rmfakecloud.*\\.log'
+    grouping:
+      type: 'whole_file'
+    classifier:
+      type: 'regex_counter'
+      error_regexes:
+        - 'level=(error|fatal|panic)'
+        - '\\|\\s5\\d{2}\\s\\|'
+      warning_regexes:
+        - 'level=warn'
+        - '\\|\\s4\\d{2}\\s\\|'
+      ignore_regexes: []
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_excerpt_lines: 500
+      prompt_template: './prompts/rmfakecloud.txt'
+
   - name: generic_default
     match:
       filename_regex: '.*'
@@ -162,6 +203,54 @@ modules:
     min_print_severity: 'WARNING'
     llm:
       emit_llm_payloads_dir: './nextcloud_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false
+    alerts:
+      webhook:
+        enabled: false
+        url: ''
+        method: 'POST'
+        min_severity: 'ERROR'
+        headers: {}
+    baseline:
+      enabled: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: rmfakecloud_follow
+    enabled: true
+    path: '/var/log/fluent-bit/rmfakecloud.log'
+    mode: 'follow'
+    pipeline: 'rmfakecloud'
+    output_format: 'text'
+    min_print_severity: 'WARNING'
+    llm:
+      emit_llm_payloads_dir: './rmfakecloud_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false
+    alerts:
+      webhook:
+        enabled: false
+        url: ''
+        method: 'POST'
+        min_severity: 'ERROR'
+        headers: {}
+    baseline:
+      enabled: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: authentik_follow
+    enabled: true
+    path: '/var/log/fluent-bit/authentik.log'
+    mode: 'follow'
+    pipeline: 'authentik'
+    output_format: 'text'
+    min_print_severity: 'WARNING'
+    llm:
+      emit_llm_payloads_dir: './authentik_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
     alerts:
