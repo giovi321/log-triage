@@ -116,6 +116,7 @@ class GlobalLLMConfig:
     default_provider: Optional[str]
     providers: Dict[str, LLMProviderConfig]
     context_prefix_lines: int = 0
+    summary_prompt_path: Optional[Path] = None
 
 
 @dataclasses.dataclass

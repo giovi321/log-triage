@@ -113,6 +113,16 @@ def _load_context_hints() -> Dict[str, str]:
     }
 
 
+def _load_summary_prompt_template() -> Optional[str]:
+    path = getattr(llm_defaults, "summary_prompt_path", None)
+    if not path:
+        return None
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
@@ -745,6 +755,7 @@ async def ai_logs(
 
     seed_prompt = None
     module_prompt_template = None
+    summary_prompt_template = _load_summary_prompt_template()
     if module_obj is not None and log_state["recent_findings"]:
         max_lines = provider_cfg.max_excerpt_lines if provider_cfg else 20
         seed_prompt = _finding_excerpt_preview(log_state["recent_findings"][0], max_lines)
@@ -772,6 +783,7 @@ async def ai_logs(
             "selected_provider": provider_name,
             "seed_prompt": seed_prompt,
             "module_prompt_template": module_prompt_template,
+            "summary_prompt_template": summary_prompt_template,
             "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
