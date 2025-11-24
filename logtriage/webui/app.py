@@ -599,6 +599,7 @@ def _logs_redirect(
     error: Optional[str] = None,
     tail_filter: Optional[str] = None,
     issue_filter: Optional[str] = None,
+    sample_source: Optional[str] = None,
 ):
     params = {}
     if module:
@@ -607,13 +608,15 @@ def _logs_redirect(
         params["tail_filter"] = tail_filter
     if issue_filter:
         params["issue_filter"] = issue_filter
+    if sample_source:
+        params["sample_source"] = sample_source
     if message:
         params["message"] = message
     if error:
         params["error"] = error
 
     query = urllib.parse.urlencode(params)
-    url = app.url_path_for("module_logs")
+    url = app.url_path_for("ai_logs")
     if query:
         url = f"{url}?{query}"
     return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
@@ -697,64 +700,8 @@ def _build_log_view_state(
     }
 
 
-@app.get("/logs", name="module_logs")
-async def module_logs(
-    request: Request,
-    module: Optional[str] = None,
-    tail_filter: str = "all",
-    issue_filter: str = "all",
-    message: Optional[str] = None,
-    error: Optional[str] = None,
-):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    modules = _build_modules_from_config()
-    module_obj = None
-    if modules:
-        if module:
-            module_obj = next((m for m in modules if m.name == module), None)
-        if module_obj is None:
-            module_obj = modules[0]
-
-    log_state = _build_log_view_state(module_obj, tail_filter, issue_filter)
-
-    return templates.TemplateResponse(
-        "logs.html",
-        {
-            "request": request,
-            "username": username,
-            "modules": modules,
-            "current_module": module_obj,
-            **log_state,
-            "db_status": db_status,
-            "message": message,
-            "error": error,
-        },
-    )
-
-
-def _select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
-    if module_obj and getattr(module_obj, "llm", None):
-        if module_obj.llm.provider_name:
-            return module_obj.llm.provider_name
-    if llm_defaults.default_provider:
-        return llm_defaults.default_provider
-    if llm_defaults.providers:
-        return next(iter(llm_defaults.providers.keys()))
-    return None
-
-
-def _finding_excerpt_preview(finding, max_lines: int) -> str:
-    excerpt_lines = (getattr(finding, "excerpt", "") or "").splitlines()
-    if max_lines > 0:
-        excerpt_lines = excerpt_lines[:max_lines]
-    return "\n".join(excerpt_lines)
-
-
-@app.get("/llm", name="llm_responses")
-async def llm_responses(
+@app.get("/ai-logs", name="ai_logs")
+async def ai_logs(
     request: Request,
     module: Optional[str] = None,
     tail_filter: str = "all",
@@ -763,6 +710,7 @@ async def llm_responses(
     message: Optional[str] = None,
     error: Optional[str] = None,
 ):
+    """Render the unified AI logs explorer that replaces the legacy logs/LLM pages."""
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
@@ -809,7 +757,7 @@ async def llm_responses(
                 module_prompt_template = None
 
     return templates.TemplateResponse(
-        "llm.html",
+        "ai_logs.html",
         {
             "request": request,
             "username": username,
@@ -827,6 +775,24 @@ async def llm_responses(
             "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
+
+
+def _select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
+    if module_obj and getattr(module_obj, "llm", None):
+        if module_obj.llm.provider_name:
+            return module_obj.llm.provider_name
+    if llm_defaults.default_provider:
+        return llm_defaults.default_provider
+    if llm_defaults.providers:
+        return next(iter(llm_defaults.providers.keys()))
+    return None
+
+
+def _finding_excerpt_preview(finding, max_lines: int) -> str:
+    excerpt_lines = (getattr(finding, "excerpt", "") or "").splitlines()
+    if max_lines > 0:
+        excerpt_lines = excerpt_lines[:max_lines]
+    return "\n".join(excerpt_lines)
 
 
 @app.post("/llm/query", name="llm_query")
@@ -891,39 +857,7 @@ async def flush_logs_db(
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
-):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    if not db_status.get("connected"):
-        return _logs_redirect(
-            module, error="Database not connected.", tail_filter=tail_filter, issue_filter=issue_filter
-        )
-
-    try:
-        deleted = delete_all_findings()
-    except Exception as exc:
-        return _logs_redirect(
-            module,
-            error=f"Failed to flush database: {exc}",
-            tail_filter=tail_filter,
-            issue_filter=issue_filter,
-        )
-
-    msg = "Database already empty." if deleted == 0 else f"Deleted {deleted} stored finding(s)."
-    return _logs_redirect(
-        module, message=msg, tail_filter=tail_filter, issue_filter=issue_filter
-    )
-
-
-@app.post("/logs/finding/delete", name="delete_finding")
-async def delete_finding(
-    request: Request,
-    finding_id: int = Form(...),
-    module: Optional[str] = Form(None),
-    tail_filter: str = Form("all"),
-    issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
 ):
     username = get_current_user(request, settings)
     if not username:
@@ -935,6 +869,50 @@ async def delete_finding(
             error="Database not connected.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    try:
+        deleted = delete_all_findings()
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Failed to flush database: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    msg = "Database already empty." if deleted == 0 else f"Deleted {deleted} stored finding(s)."
+    return _logs_redirect(
+        module,
+        message=msg,
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+        sample_source=sample_source,
+    )
+
+
+@app.post("/logs/finding/delete", name="delete_finding")
+async def delete_finding(
+    request: Request,
+    finding_id: int = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+    issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(
+            module,
+            error="Database not connected.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     try:
@@ -945,15 +923,24 @@ async def delete_finding(
             error=f"Failed to delete entry: {exc}",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     if not deleted:
         return _logs_redirect(
-            module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
+            module,
+            error="Entry not found.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     return _logs_redirect(
-        module, message="Finding removed.", tail_filter=tail_filter, issue_filter=issue_filter
+        module,
+        message="Finding removed.",
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+        sample_source=sample_source,
     )
 
 
@@ -965,6 +952,7 @@ async def change_finding_severity(
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
 ):
     username = get_current_user(request, settings)
     if not username:
@@ -976,6 +964,7 @@ async def change_finding_severity(
             error="Database not connected.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     normalized = (severity or "").upper()
@@ -985,6 +974,7 @@ async def change_finding_severity(
             error="Invalid severity provided.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     try:
@@ -995,11 +985,16 @@ async def change_finding_severity(
             error=f"Failed to update severity: {exc}",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     if not updated:
         return _logs_redirect(
-            module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
+            module,
+            error="Entry not found.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     return _logs_redirect(
@@ -1007,6 +1002,7 @@ async def change_finding_severity(
         message=f"Finding severity updated to {normalized}.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
+        sample_source=sample_source,
     )
 
 
@@ -1017,6 +1013,7 @@ async def mark_finding_addressed(
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
 ):
     username = get_current_user(request, settings)
     if not username:
@@ -1028,6 +1025,7 @@ async def mark_finding_addressed(
             error="Database not connected.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     try:
@@ -1038,11 +1036,16 @@ async def mark_finding_addressed(
             error=f"Failed to mark as addressed: {exc}",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     if not updated:
         return _logs_redirect(
-            module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
+            module,
+            error="Entry not found.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     return _logs_redirect(
@@ -1050,6 +1053,7 @@ async def mark_finding_addressed(
         message="Finding marked as addressed.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
+        sample_source=sample_source,
     )
 
 
@@ -1060,6 +1064,7 @@ async def mark_false_positive(
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
     sample_line: Optional[str] = Form(None),
 ):
     global raw_config, settings, llm_defaults
@@ -1074,12 +1079,17 @@ async def mark_false_positive(
             error="Database not connected.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     finding = get_finding_by_id(finding_id)
     if finding is None:
         return _logs_redirect(
-            module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
+            module,
+            error="Entry not found.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     regex_source = sample_line or getattr(finding, "reason", "") or ""
@@ -1091,6 +1101,7 @@ async def mark_false_positive(
             error="No sample available to build an ignore rule.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     try:
@@ -1101,6 +1112,7 @@ async def mark_false_positive(
             error=f"Failed to read config: {exc}",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     pipeline_name = getattr(finding, "pipeline_name", None)
@@ -1117,6 +1129,7 @@ async def mark_false_positive(
             error="Pipeline not found in config; cannot add ignore rule.",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     classifier = pipeline_entry.setdefault("classifier", {})
@@ -1142,6 +1155,7 @@ async def mark_false_positive(
             error=f"Failed to write config: {exc}",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
+            sample_source=sample_source,
         )
 
     from .config import parse_webui_settings  # avoid cycle
@@ -1160,6 +1174,7 @@ async def mark_false_positive(
         message="Marked as false positive and added to ignore rules.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
+        sample_source=sample_source,
     )
 
 
