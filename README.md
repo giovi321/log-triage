@@ -55,7 +55,7 @@ pip install '.[webui,mqtt]'
 - Optional config change detection for follow-mode modules to auto-reload after saving via the Web UI (`--reload-on-change`)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Per-module options for:
-  - full-context vs error-only LLM payloads (`llm_payload_mode`)
+  - context lines included ahead of each finding (`llm.context_prefix_lines`)
   - mapping highest severity to process exit code (`exit_code_by_severity`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)
   - baseline / anomaly detection (`baseline` block)
@@ -135,7 +135,7 @@ The config has five main parts:
 
 - `llm`: `enabled`, `min_severity`, `max_excerpt_lines`, `max_output_tokens`, `request_timeout`, `temperature`, `top_p`, `default_provider`, `providers.<name>.(api_base|api_key_env|model|max_output_tokens|request_timeout|temperature|top_p|organization|api_version)`
 - `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`
-- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `llm.(enabled|min_severity|max_excerpt_lines|provider|prompt_template|emit_llm_payloads_dir|llm_payload_mode|only_last_chunk|max_output_tokens)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
+- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `llm.(enabled|min_severity|max_excerpt_lines|context_prefix_lines|provider|prompt_template|emit_llm_payloads_dir|max_output_tokens)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
 - `database`: `url`, `retention_days`
 - `webui`: `host`, `port`, `base_path`, `secret_key`, `admin_users`
 
@@ -188,7 +188,7 @@ modules:
       provider: 'local_vllm'  # auto-selected if omitted and only one provider exists
       prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
-      llm_payload_mode: 'errors_only'
+      context_prefix_lines: 2
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -208,7 +208,7 @@ modules:
       provider: 'openai'
       prompt_template: './prompts/homeassistant.txt'
       emit_llm_payloads_dir: './ha_llm_payloads'
-      llm_payload_mode: 'errors_only'
+      context_prefix_lines: 2
     stream:
       from_beginning: false
       interval: 1.0
@@ -268,7 +268,7 @@ Each module can point to a prompt template file via `modules.llm.prompt_template
 - `{reason}` - rule-based reason text
 - `{error_count}` - number of lines matching error rules
 - `{warning_count}` - number of lines matching warning rules
-- `{line_count}` - number of lines included in the payload excerpt (full context or errors-only, depending on `llm_payload_mode`)
+- `{line_count}` - number of lines included in the payload excerpt
 
 Modules rely on the global `llm.providers` map for connection info. If `modules.llm.provider` is omitted, `llm.default_provider` is used or, when only one provider exists, it is auto-selected. When a provider is available and LLMs are enabled, log-triage posts each `needs_llm` finding to `/v1/chat/completions` and stores the model response next to the payload as `<pipeline>_<severity>_finding<N>_response.json`.
 
