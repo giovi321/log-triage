@@ -796,9 +796,17 @@ async def llm_responses(
     }
 
     seed_prompt = None
+    module_prompt_template = None
     if module_obj is not None and log_state["recent_findings"]:
         max_lines = provider_cfg.max_excerpt_lines if provider_cfg else 20
         seed_prompt = _finding_excerpt_preview(log_state["recent_findings"][0], max_lines)
+    if module_obj and getattr(module_obj, "llm", None):
+        template_path = getattr(module_obj.llm, "prompt_template_path", None)
+        if template_path:
+            try:
+                module_prompt_template = Path(template_path).read_text()
+            except Exception:
+                module_prompt_template = None
 
     return templates.TemplateResponse(
         "llm.html",
@@ -815,6 +823,7 @@ async def llm_responses(
             "provider_settings": provider_settings,
             "selected_provider": provider_name,
             "seed_prompt": seed_prompt,
+            "module_prompt_template": module_prompt_template,
             "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
