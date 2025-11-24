@@ -1,7 +1,7 @@
 defaults:
   llm_enabled: false
   llm_min_severity: WARNING
-  max_chunk_lines: 500
+  max_excerpt_lines: 500
 
 pipelines:
   - name: rsnapshot
@@ -22,7 +22,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: ERROR
-      max_chunk_lines: 5000
+      max_excerpt_lines: 5000
       prompt_template: './prompts/rsnapshot.txt'
 
   - name: homeassistant
@@ -43,7 +43,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: WARNING
-      max_chunk_lines: 1000
+      max_excerpt_lines: 1000
       prompt_template: './prompts/homeassistant.txt'
 
   - name: generic_default
@@ -64,7 +64,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: WARNING
-      max_chunk_lines: 300
+      max_excerpt_lines: 300
 
 modules:
   - name: rsnapshot_daily
@@ -76,7 +76,6 @@ modules:
     min_print_severity: 'INFO'
     emit_llm_payloads_dir: './rsnapshot_payloads'
     llm_payload_mode: 'errors_only'
-    only_last_chunk: true
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -116,7 +115,6 @@ modules:
     min_print_severity: 'WARNING'
     emit_llm_payloads_dir: './ha_llm_payloads'
     llm_payload_mode: 'errors_only'
-    only_last_chunk: false
     alerts:
       mqtt:
         enabled: false
@@ -138,7 +136,6 @@ modules:
     min_print_severity: 'INFO'
     emit_llm_payloads_dir: './llm_payloads'
     llm_payload_mode: 'full'
-    only_last_chunk: false
 
 database:
   url: 'sqlite:///./logtriage.db'

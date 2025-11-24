@@ -1,7 +1,7 @@
 defaults:
   llm_enabled: false
   llm_min_severity: WARNING
-  max_chunk_lines: 500
+  max_excerpt_lines: 20
 
 pipelines:
   - name: rsnapshot
@@ -22,7 +22,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: ERROR
-      max_chunk_lines: 5000
+      max_excerpt_lines: 5000
       prompt_template: "./prompts/rsnapshot.txt"
 
   - name: homeassistant
@@ -43,7 +43,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: WARNING
-      max_chunk_lines: 1000
+      max_excerpt_lines: 1000
       prompt_template: "./prompts/homeassistant.txt"
 
   - name: generic_default
@@ -64,7 +64,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: WARNING
-      max_chunk_lines: 300
+      max_excerpt_lines: 300
 
 modules:
   - name: rsnapshot_daily

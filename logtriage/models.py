@@ -25,7 +25,7 @@ class Severity(enum.IntEnum):
 class PipelineLLMConfig:
     enabled: bool
     min_severity: Severity
-    max_chunk_lines: int
+    max_excerpt_lines: int
     prompt_template_path: Optional[Path] = None
 
 
@@ -33,9 +33,6 @@ class PipelineLLMConfig:
 class PipelineConfig:
     name: str
     match_filename_regex: re.Pattern
-    grouping_type: str
-    grouping_start_regex: Optional[re.Pattern]
-    grouping_end_regex: Optional[re.Pattern]
     classifier_type: str
     classifier_error_regexes: List[re.Pattern]
     classifier_warning_regexes: List[re.Pattern]
@@ -44,16 +41,17 @@ class PipelineConfig:
 
 
 @dataclasses.dataclass
-class LogChunk:
+class Finding:
     file_path: Path
     pipeline_name: str
-    chunk_index: int
-    lines: List[str]
+    finding_index: int
     severity: Severity
-    reason: str
-    error_count: int
-    warning_count: int
-    needs_llm: bool
+    message: str
+    line_start: int
+    line_end: int
+    rule_id: Optional[str]
+    excerpt: List[str]
+    needs_llm: bool = False
 
 
 @dataclasses.dataclass
@@ -98,7 +96,7 @@ class ModuleConfig:
     stream_from_beginning: bool
     stream_interval: float
     llm_payload_mode: str = "full"  # "full" or "errors_only"
-    only_last_chunk: bool = False   # if true, only last chunk per file is considered
+    only_last_chunk: bool = False   # legacy; kept for config compatibility in findings mode
     exit_code_by_severity: Optional[Dict[Severity, int]] = None
     alert_mqtt: Optional[AlertMQTTConfig] = None
     alert_webhook: Optional[AlertWebhookConfig] = None

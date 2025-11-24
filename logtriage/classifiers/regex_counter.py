@@ -1,54 +1,78 @@
 import re
-from typing import List, Tuple
+from typing import List
 
-from ..models import PipelineConfig, Severity
-
-
-def count_matches(regexes: List[re.Pattern], text: str) -> int:
-    total = 0
-    for r in regexes:
-        if not r:
-            continue
-        total += len(r.findall(text))
-    return total
+from ..models import PipelineConfig, Severity, Finding
 
 
 def classify_regex_counter(
     pcfg: PipelineConfig,
-    chunk_lines: List[str],
-) -> Tuple[Severity, str, int, int]:
-    """Generic regex-based classifier with optional ignore rules.
+    file_path,
+    pipeline_name: str,
+    lines: List[str],
+    start_line: int = 1,
+) -> List[Finding]:
+    """Emit one finding per matching rule line.
 
-    - Lines matching any `classifier_ignore_regexes` are removed before counting.
-    - Error regexes are evaluated first, then warning regexes.
+    Ignore patterns are applied before checking error/warning patterns.
     """
+
+    findings: List[Finding] = []
     ignore_res = pcfg.classifier_ignore_regexes or []
 
-    if ignore_res:
-        filtered_lines: List[str] = []
-        for line in chunk_lines:
-            if any(r.search(line) for r in ignore_res):
+    for offset, line in enumerate(lines):
+        current_line = start_line + offset
+        if any(r.search(line) for r in ignore_res):
+            continue
+
+        for r in pcfg.classifier_error_regexes:
+            if not r:
                 continue
-            filtered_lines.append(line)
-    else:
-        filtered_lines = list(chunk_lines)
+            for _ in r.finditer(line):
+                findings.append(
+                    Finding(
+                        file_path=file_path,
+                        pipeline_name=pipeline_name,
+                        finding_index=len(findings),
+                        severity=Severity.ERROR,
+                        message=f"Matched error pattern /{r.pattern}/",
+                        line_start=current_line,
+                        line_end=current_line,
+                        rule_id=r.pattern,
+                        excerpt=[line],
+                    )
+                )
 
-    joined = "\n".join(filtered_lines)
+        for r in pcfg.classifier_warning_regexes:
+            if not r:
+                continue
+            for _ in r.finditer(line):
+                findings.append(
+                    Finding(
+                        file_path=file_path,
+                        pipeline_name=pipeline_name,
+                        finding_index=len(findings),
+                        severity=Severity.WARNING,
+                        message=f"Matched warning pattern /{r.pattern}/",
+                        line_start=current_line,
+                        line_end=current_line,
+                        rule_id=r.pattern,
+                        excerpt=[line],
+                    )
+                )
 
-    error_count = count_matches(pcfg.classifier_error_regexes, joined)
-    warning_count = count_matches(pcfg.classifier_warning_regexes, joined)
+    if not findings and any(ln.strip() for ln in lines):
+        findings.append(
+            Finding(
+                file_path=file_path,
+                pipeline_name=pipeline_name,
+                finding_index=0,
+                severity=Severity.OK,
+                message="No error/warning matches",
+                line_start=start_line,
+                line_end=start_line + len(lines) - 1,
+                rule_id=None,
+                excerpt=lines[: pcfg.llm_cfg.max_excerpt_lines],
+            )
+        )
 
-    if error_count > 0:
-        severity = Severity.ERROR
-        reason = f"{error_count} error match(es) found"
-    elif warning_count > 0:
-        severity = Severity.WARNING
-        reason = f"{warning_count} warning match(es) found"
-    elif joined.strip():
-        severity = Severity.OK
-        reason = "no error/warning matches"
-    else:
-        severity = Severity.UNKNOWN
-        reason = "empty chunk or only ignored lines"
-
-    return severity, reason, error_count, warning_count
+    return findings

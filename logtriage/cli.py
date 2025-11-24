@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Event
 from typing import Dict, List, Optional
 
-from .models import Severity, LogChunk, ModuleConfig, PipelineConfig
+from .models import Severity, Finding, ModuleConfig, PipelineConfig
 from .config import load_config, build_pipelines, build_modules
 from .engine import analyze_path
 from .llm_payload import write_llm_payloads, should_send_to_llm
@@ -13,7 +13,7 @@ from .utils import select_pipeline
 from .stream import stream_file
 from .baseline import apply_baseline
 from .alerts import send_alerts
-from .webui.db import setup_database, cleanup_old_chunks, store_chunk
+from .webui.db import setup_database, cleanup_old_findings, store_finding
 from .version import __version__
 
 
@@ -41,7 +41,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument(
         "--inspect-chunks",
         action="store_true",
-        help="Debug mode: for the selected module, print chunk boundaries and line counts instead of triage/LLM.",
+        help="Deprecated: chunk inspection is disabled in findings-only mode.",
     )
     p.add_argument(
         "--reload-on-change",
@@ -51,135 +51,79 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def print_text_summary(chunks: List[LogChunk], min_sev: Severity) -> None:
-    for ch in chunks:
-        if ch.severity < min_sev:
+def print_text_summary(findings: List[Finding], min_sev: Severity) -> None:
+    for f in findings:
+        if f.severity < min_sev:
             continue
-        print(f"{ch.file_path} [{ch.pipeline_name}] chunk={ch.chunk_index}")
-        print(f"  severity: {ch.severity.name}")
-        print(f"  reason:   {ch.reason}")
-        print(f"  errors:   {ch.error_count}  warnings: {ch.warning_count}")
-        print(f"  needs_llm: {ch.needs_llm}")
+        print(f"{f.file_path} [{f.pipeline_name}] finding={f.finding_index}")
+        print(f"  severity: {f.severity.name}")
+        print(f"  reason:   {f.message}")
+        print(f"  lines:    {f.line_start}-{f.line_end}")
+        print(f"  needs_llm: {f.needs_llm}")
         print()
 
 
-def print_json_summary(chunks: List[LogChunk]) -> None:
+def print_json_summary(findings: List[Finding]) -> None:
     out = []
-    for ch in chunks:
+    for f in findings:
         out.append(
             {
-                "file_path": str(ch.file_path),
-                "pipeline": ch.pipeline_name,
-                "chunk_index": ch.chunk_index,
-                "severity": ch.severity.name,
-                "reason": ch.reason,
-                "error_count": ch.error_count,
-                "warning_count": ch.warning_count,
-                "needs_llm": ch.needs_llm,
-                "line_count": len(ch.lines),
+                "file_path": str(f.file_path),
+                "pipeline": f.pipeline_name,
+                "finding_index": f.finding_index,
+                "severity": f.severity.name,
+                "reason": f.message,
+                "needs_llm": f.needs_llm,
+                "line_start": f.line_start,
+                "line_end": f.line_end,
             }
         )
     json.dump(out, sys.stdout, indent=2)
     print()
 
 
-def _filter_only_last_chunk(chunks: List[LogChunk]) -> List[LogChunk]:
-    """Return only the last chunk per file_path."""
-    if not chunks:
-        return chunks
-
-    by_file_last = {}
-    for ch in chunks:
-        key = ch.file_path
-        prev = by_file_last.get(key)
-        if prev is None or ch.chunk_index > prev.chunk_index:
-            by_file_last[key] = ch
-
-    result = [by_file_last[k] for k in sorted(by_file_last.keys())]
-    return result
+def _filter_only_last_finding(findings: List[Finding]) -> List[Finding]:
+    return findings
 
 
 def inspect_chunks(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> None:
-    """Debug helper: show how the selected module's pipeline splits files into chunks."""
-    if mod.mode != "batch":
-        print(f"Module {mod.name}: --inspect-chunks is only supported for batch modules.", file=sys.stderr)
-        sys.exit(1)
+    print("Chunk inspection deprecated in findings-only mode.", file=sys.stderr)
+    sys.exit(1)
 
+
+def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List[Finding]:
     pipeline_map: Dict[str, PipelineConfig] = {p.name: p for p in pipelines}
-    if mod.pipeline_name:
-        pcfg = pipeline_map.get(mod.pipeline_name)
-        if pcfg is None:
-            raise ValueError(f"Module {mod.name}: unknown pipeline {mod.pipeline_name}")
-    else:
-        pcfg = None
+    findings = analyze_path(mod.path, pipelines, pipeline_override=mod.pipeline_name)
 
-    chunks = analyze_path(mod.path, pipelines, pipeline_override=mod.pipeline_name)
+    if mod.baseline is not None:
+        findings = apply_baseline(mod.baseline, findings)
 
-    if not chunks:
-        print(f"Module {mod.name}: no chunks produced.")
-        return
-
-    print(f"Module: {mod.name}")
-    print(f"Path:   {mod.path}")
-    print(f"Chunks: {len(chunks)}")
-    print()
-
-    for ch in chunks:
-        line_count = len(ch.lines)
-        first_line = ch.lines[0] if ch.lines else ""
-        last_line = ch.lines[-1] if ch.lines else ""
-        print(f"file={ch.file_path}")
-        print(f"  chunk_index: {ch.chunk_index}")
-        print(f"  line_count:  {line_count}")
-        if first_line:
-            print(f"  first: {first_line[:200]}")
-        if last_line and last_line != first_line:
-            print(f"  last:  {last_line[:200]}")
-        print()
-
-
-def run_module_batch(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> List[LogChunk]:
-    pipeline_map: Dict[str, PipelineConfig] = {p.name: p for p in pipelines}
-    chunks = analyze_path(mod.path, pipelines, pipeline_override=mod.pipeline_name)
-
-    # Apply only_last_chunk filtering
-    if mod.only_last_chunk:
-        chunks = _filter_only_last_chunk(chunks)
-
-    # Apply baseline anomaly detection, recompute LLM gating, alerts, and store in DB
-    for ch in chunks:
-        pcfg = pipeline_map.get(ch.pipeline_name)
+    for f in findings:
+        pcfg = pipeline_map.get(f.pipeline_name)
         if pcfg is None:
             continue
-        if mod.baseline is not None:
-            apply_baseline(mod.baseline, ch)
-        ch.needs_llm = should_send_to_llm(pcfg, ch.severity, ch.lines)
+        f.needs_llm = should_send_to_llm(pcfg, f.severity, f.excerpt)
         if mod.alert_mqtt or mod.alert_webhook:
-            send_alerts(mod, ch)
-        # best-effort DB store (only works if database.url was configured)
+            send_alerts(mod, f)
         try:
-            is_anomaly = isinstance(ch.reason, str) and ch.reason.startswith("ANOMALY:")
-            store_chunk(mod.name, ch, anomaly_flag=is_anomaly)
+            store_finding(mod.name, f, anomaly_flag=f.rule_id == "baseline_anomaly")
         except Exception:
-            # do not let DB errors break log processing
             pass
 
-    # Write LLM payloads if requested
     if mod.emit_llm_payloads_dir:
         write_llm_payloads(
-            chunks,
+            findings,
             mod.emit_llm_payloads_dir,
             mode=mod.llm_payload_mode,
             pipeline_map=pipeline_map,
         )
 
-    # Print summary
     if mod.output_format == "json":
-        print_json_summary(chunks)
+        print_json_summary(findings)
     else:
-        print_text_summary(chunks, mod.min_print_severity)
+        print_text_summary(findings, mod.min_print_severity)
 
-    return chunks
+    return findings
 
 def run_module_follow(
     mod: ModuleConfig, pipelines: List[PipelineConfig], should_reload=None
@@ -243,7 +187,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             setup_database(db_url)
             if retention_days > 0:
                 try:
-                    cleanup_old_chunks(retention_days)
+                    cleanup_old_findings(retention_days)
                 except Exception:
                     # do not abort if cleanup fails
                     pass
@@ -274,9 +218,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         if len(modules_to_run) == 1:
             mod = modules_to_run[0]
             if mod.mode == "batch" and mod.exit_code_by_severity:
-                chunks = run_module_batch(mod, pipelines)
-                if chunks:
-                    highest = max((c.severity for c in chunks), default=Severity.UNKNOWN)
+                findings = run_module_batch(mod, pipelines)
+                if findings:
+                    highest = max((c.severity for c in findings), default=Severity.UNKNOWN)
                 else:
                     highest = Severity.UNKNOWN
                 exit_code = mod.exit_code_by_severity.get(highest, 0)

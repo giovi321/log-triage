@@ -1,82 +1,100 @@
 import re
-from typing import List, Tuple
+from typing import List
 
-from ..models import PipelineConfig, Severity
-from .regex_counter import count_matches
+from ..models import PipelineConfig, Severity, Finding
 
 
 def classify_rsnapshot_basic(
     pcfg: PipelineConfig,
-    chunk_lines: List[str],
-) -> Tuple[Severity, str, int, int]:
-    """Heuristic classifier for rsnapshot runs.
+    file_path,
+    pipeline_name: str,
+    lines: List[str],
+    start_line: int = 1,
+) -> List[Finding]:
+    """Heuristic classifier for rsnapshot runs that emits per-line findings."""
+    joined_all = "\n".join(lines)
 
-    - Applies ignore_regexes for counting error/warning-like patterns.
-    - Still scans the full chunk for explicit exit codes and rsnapshot messages.
-    """
-    joined_all = "\n".join(chunk_lines)
-
-    extra_error_patterns = [
+    error_patterns = [
         re.compile(r"rsync error", re.IGNORECASE),
         re.compile(r"\bERROR:", re.IGNORECASE),
         re.compile(r"FATAL", re.IGNORECASE),
         re.compile(r"Backup FAILED", re.IGNORECASE),
         re.compile(r"partial transfer", re.IGNORECASE),
-    ]
-    extra_warning_patterns = [
-        re.compile(r"WARNING", re.IGNORECASE),
-    ]
+    ] + list(pcfg.classifier_error_regexes)
+    warning_patterns = [re.compile(r"WARNING", re.IGNORECASE)] + list(
+        pcfg.classifier_warning_regexes
+    )
 
-    # Apply ignore filters for counting only
     ignore_res = pcfg.classifier_ignore_regexes or []
-    if ignore_res:
-        filtered_lines: List[str] = []
-        for line in chunk_lines:
-            if any(r.search(line) for r in ignore_res):
-                continue
-            filtered_lines.append(line)
-    else:
-        filtered_lines = list(chunk_lines)
+    findings: List[Finding] = []
 
-    joined = "\n".join(filtered_lines)
+    for offset, line in enumerate(lines):
+        current_line = start_line + offset
+        if any(r.search(line) for r in ignore_res):
+            continue
 
-    error_count = count_matches(pcfg.classifier_error_regexes, joined)
-    warning_count = count_matches(pcfg.classifier_warning_regexes, joined)
+        for r in error_patterns:
+            for _ in r.finditer(line):
+                findings.append(
+                    Finding(
+                        file_path=file_path,
+                        pipeline_name=pipeline_name,
+                        finding_index=len(findings),
+                        severity=Severity.ERROR,
+                        message=f"rsnapshot error pattern /{r.pattern}/",
+                        line_start=current_line,
+                        line_end=current_line,
+                        rule_id=r.pattern,
+                        excerpt=[line],
+                    )
+                )
 
-    error_count += count_matches(extra_error_patterns, joined)
-    warning_count += count_matches(extra_warning_patterns, joined)
+        for r in warning_patterns:
+            for _ in r.finditer(line):
+                findings.append(
+                    Finding(
+                        file_path=file_path,
+                        pipeline_name=pipeline_name,
+                        finding_index=len(findings),
+                        severity=Severity.WARNING,
+                        message=f"rsnapshot warning pattern /{r.pattern}/",
+                        line_start=current_line,
+                        line_end=current_line,
+                        rule_id=r.pattern,
+                        excerpt=[line],
+                    )
+                )
 
-    # Try to extract exit code from the full, unfiltered chunk.
-    exit_code = None
     m = re.search(r"exit\s+code\s*=\s*(\d+)", joined_all)
     if m:
         exit_code = int(m.group(1))
+        severity = Severity.ERROR if exit_code != 0 else Severity.OK
+        findings.append(
+            Finding(
+                file_path=file_path,
+                pipeline_name=pipeline_name,
+                finding_index=len(findings),
+                severity=severity,
+                message=f"rsnapshot exit code {exit_code}",
+                line_start=start_line,
+                line_end=start_line + len(lines) - 1,
+                rule_id="exit_code",
+                excerpt=lines[: pcfg.llm_cfg.max_excerpt_lines],
+            )
+        )
+    elif not findings and joined_all.strip():
+        findings.append(
+            Finding(
+                file_path=file_path,
+                pipeline_name=pipeline_name,
+                finding_index=0,
+                severity=Severity.OK,
+                message="rsnapshot run looks normal",
+                line_start=start_line,
+                line_end=start_line + len(lines) - 1,
+                rule_id=None,
+                excerpt=lines[: pcfg.llm_cfg.max_excerpt_lines],
+            )
+        )
 
-    if exit_code is not None and exit_code != 0:
-        severity = Severity.ERROR
-        reason = f"rsnapshot exit code {exit_code}"
-    elif "completed successfully" in joined_all:
-        # Completed successfully but maybe with warnings
-        if error_count > 0:
-            severity = Severity.ERROR
-            reason = f"{error_count} error-like pattern(s) in rsnapshot chunk"
-        elif warning_count > 0:
-            severity = Severity.WARNING
-            reason = f"{warning_count} warning-like pattern(s) in rsnapshot chunk"
-        else:
-            severity = Severity.OK
-            reason = "rsnapshot completed successfully"
-    elif error_count > 0:
-        severity = Severity.ERROR
-        reason = f"{error_count} error-like pattern(s) in rsnapshot chunk"
-    elif warning_count > 0:
-        severity = Severity.WARNING
-        reason = f"{warning_count} warning-like pattern(s) in rsnapshot chunk"
-    elif "".join(chunk_lines).strip():
-        severity = Severity.OK
-        reason = "rsnapshot chunk looks normal"
-    else:
-        severity = Severity.UNKNOWN
-        reason = "empty rsnapshot chunk or only ignored lines"
-
-    return severity, reason, error_count, warning_count
+    return findings

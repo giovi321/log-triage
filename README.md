@@ -55,12 +55,11 @@ pip install '.[webui,mqtt]'
 - Optional config change detection for follow-mode modules to auto-reload after saving via the Web UI (`--reload-on-change`)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Per-module options for:
-  - full-chunk vs error-only LLM payloads (`llm_payload_mode`)
-  - analyze whole history vs only last chunk per file (`only_last_chunk`)
+  - full-context vs error-only LLM payloads (`llm_payload_mode`)
   - mapping highest severity to process exit code (`exit_code_by_severity`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)
   - baseline / anomaly detection (`baseline` block)
-- Optional SQL database integration for storing chunk summaries (SQLite or Postgres)
+- Optional SQL database integration for storing per-finding records (SQLite or Postgres)
 - Web UI (FastAPI) to:
   - log in with username/password (bcrypt)
   - view modules and per-module stats (last severity, 24h error/warning counts, etc.)
@@ -134,9 +133,9 @@ The config has five main parts:
 
 ### Config at a glance
 
-- `defaults`: `llm_enabled`, `llm_min_severity`, `max_chunk_lines`
-- `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`, `llm.(enabled|min_severity|max_chunk_lines|prompt_template)`
-- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `emit_llm_payloads_dir`, `llm_payload_mode`, `only_last_chunk`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
+- `defaults`: `llm_enabled`, `llm_min_severity`, `max_excerpt_lines`
+- `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`, `llm.(enabled|min_severity|max_excerpt_lines|prompt_template)`
+- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `emit_llm_payloads_dir`, `llm_payload_mode`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
 - `database`: `url`, `retention_days`
 - `webui`: `host`, `port`, `base_path`, `secret_key`, `admin_users`
 
@@ -146,7 +145,7 @@ Example:
 defaults:
   llm_enabled: false
   llm_min_severity: WARNING
-  max_chunk_lines: 500
+  max_excerpt_lines: 500
 
 pipelines:
   - name: rsnapshot
@@ -167,7 +166,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: ERROR
-      max_chunk_lines: 5000
+      max_excerpt_lines: 5000
       prompt_template: './prompts/rsnapshot.txt'  # optional custom prompt
 
   - name: homeassistant
@@ -188,7 +187,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: WARNING
-      max_chunk_lines: 1000
+      max_excerpt_lines: 1000
       prompt_template: './prompts/homeassistant.txt'
 
   - name: generic_default
@@ -209,7 +208,7 @@ pipelines:
     llm:
       enabled: true
       min_severity: WARNING
-      max_chunk_lines: 300
+      max_excerpt_lines: 300
 
 modules:
   - name: rsnapshot_daily
@@ -221,7 +220,6 @@ modules:
     min_print_severity: 'INFO'
     emit_llm_payloads_dir: './rsnapshot_payloads'
     llm_payload_mode: 'errors_only'   # 'full' or 'errors_only'
-    only_last_chunk: true             # only last rsnapshot run
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -261,7 +259,6 @@ modules:
     min_print_severity: 'WARNING'
     emit_llm_payloads_dir: './ha_llm_payloads'
     llm_payload_mode: 'errors_only'
-    only_last_chunk: false
     alerts:
       mqtt:
         enabled: true
@@ -283,7 +280,6 @@ modules:
     min_print_severity: 'INFO'
     emit_llm_payloads_dir: './llm_payloads'
     llm_payload_mode: 'full'
-    only_last_chunk: false
 
 database:
   url: 'sqlite:////var/lib/logtriage/logtriage.db'
@@ -305,12 +301,12 @@ webui:
 
 ### Baseline / anomaly detection
 
-When a module has `baseline.enabled: true`, log-triage stores a rolling history of the last `baseline.window` chunks in the JSON `baseline.state_file`. Each entry records timestamp plus `error_count` and `warning_count`. For every new chunk the baseline code:
+When a module has `baseline.enabled: true`, log-triage stores a rolling history of the last `baseline.window` runs in the JSON `baseline.state_file`. Each entry records timestamp plus `error_count` and `warning_count`. For every new batch of findings the baseline code:
 
 - loads the state file (or starts with `{ "history": [] }` if it does not exist)
 - computes average error and warning counts across the history window
-- marks the chunk as an anomaly if its counts are greater than or equal to `error_multiplier` or `warning_multiplier` times those averages
-- prepends an `ANOMALY:` note to the chunk reason and bumps severity to `severity_on_anomaly` when triggered
+- marks the run as an anomaly if its counts are greater than or equal to `error_multiplier` or `warning_multiplier` times those averages
+- prepends an `ANOMALY:` note to the finding list and bumps severity to `severity_on_anomaly` when triggered
 - appends the new counts, trimming the history back to `baseline.window` entries, and writes the JSON file atomically
 
 You can reset or fine-tune these state files from the Web UI via **Severity files**, which lets you pick the configured `baseline.state_file` and edit its JSON with validation and highlighting.
@@ -329,11 +325,7 @@ Run a single module (useful for one systemd service per module):
 python -m logtriage --config config.yaml --module homeassistant_follow
 ```
 
-Inspect chunk boundaries for a batch module:
-
-```bash
-python -m logtriage --config config.yaml --module rsnapshot_daily --inspect-chunks
-```
+Inspect mode is deprecated in findings-only mode (`--inspect-chunks` is ignored).
 
 Run the Web UI:
 
@@ -348,12 +340,12 @@ Each pipeline can point to a prompt template file via `llm.prompt_template`. The
 `str.format`, so you can reference these placeholders:
 
 - `{pipeline}` - pipeline name (from the `pipelines` list)
-- `{file_path}` - log file path for the chunk
+- `{file_path}` - log file path for the finding
 - `{severity}` - rule-based severity before the LLM runs
 - `{reason}` - rule-based reason text
 - `{error_count}` - number of lines matching error rules
 - `{warning_count}` - number of lines matching warning rules
-- `{line_count}` - number of lines included in the payload (full chunk or filtered errors-only, depending on `llm_payload_mode`)
+- `{line_count}` - number of lines included in the payload excerpt (full context or errors-only, depending on `llm_payload_mode`)
 
 Guidelines for writing effective prompts:
 
@@ -374,7 +366,7 @@ Rule-based severity: {severity}
 Rule-based reason: {reason}
 Error lines: {error_count}
 Warning lines: {warning_count}
-Lines in this chunk: {line_count}
+Lines in this excerpt: {line_count}
 
 Focus on integration failures, device connectivity, automations/scripts that error, configuration or dependency problems, and
 repeated warnings that may impact stability.

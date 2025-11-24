@@ -21,14 +21,14 @@ from ..models import ModuleConfig
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
-    delete_all_chunks,
-    delete_chunk_by_id,
-    get_chunk_by_id,
+    delete_all_findings,
+    delete_finding_by_id,
+    get_finding_by_id,
     get_module_stats,
     setup_database,
-    get_latest_chunk_time,
-    get_recent_chunks_for_module,
-    update_chunk_severity,
+    get_latest_finding_time,
+    get_recent_findings_for_module,
+    update_finding_severity,
 )
 
 
@@ -250,7 +250,7 @@ async def dashboard(request: Request):
 
     modules = build_modules(raw_config)
     stats = get_module_stats()
-    latest_chunk_at = get_latest_chunk_time()
+    latest_finding_at = get_latest_finding_time()
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
     return templates.TemplateResponse(
         "dashboard.html",
@@ -260,7 +260,7 @@ async def dashboard(request: Request):
             "modules": modules,
             "stats": stats,
             "db_status": db_status,
-            "latest_chunk_at": latest_chunk_at,
+            "latest_finding_at": latest_finding_at,
             "page_rendered_at": page_rendered_at,
         },
     )
@@ -628,61 +628,61 @@ async def module_logs(
             module_obj = modules[0]
 
     sample_lines: List[str] = []
-    recent_chunks = []
-    chunked_tail: List[Dict[str, Any]] = []
+    recent_findings = []
+    finding_tail: List[Dict[str, Any]] = []
     available_severities: List[str] = []
     tail_filter_normalized = (tail_filter or "all").upper()
     issue_filter_normalized = (issue_filter or "all").upper()
     severity_choices = [sev for sev in SEVERITY_CHOICES if sev != "OK"]
-    had_chunked_tail = False
-    had_recent_chunks = False
+    had_finding_tail = False
+    had_recent_findings = False
     if module_obj is not None:
         sample_lines = _tail_lines(Path(module_obj.path), max_lines=400)
-        recent_chunks = get_recent_chunks_for_module(module_obj.name, limit=50)
-        had_recent_chunks = bool(recent_chunks)
-        chunked_tail = _build_chunked_tail(sample_lines, recent_chunks)
-        chunk_line_examples = _chunk_line_examples(chunked_tail)
-        had_chunked_tail = bool(chunked_tail)
+        recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
+        had_recent_findings = bool(recent_findings)
+        finding_tail = _build_finding_tail(sample_lines, recent_findings)
+        finding_line_examples = _finding_line_examples(finding_tail)
+        had_finding_tail = bool(finding_tail)
         if issue_filter_normalized == "ADDRESSED":
-            recent_chunks = [
-                c for c in recent_chunks if str(getattr(c, "severity", "")).upper() == "OK"
+            recent_findings = [
+                c for c in recent_findings if str(getattr(c, "severity", "")).upper() == "OK"
             ]
-            chunked_tail = _filter_chunked_tail(
-                chunked_tail,
+            finding_tail = _filter_finding_tail(
+                finding_tail,
                 tail_filter="ALL",
                 extra_predicate=lambda section: str(
-                    getattr(section.get("chunk"), "severity", "")
+                    getattr(section.get("finding"), "severity", "")
                 ).upper()
                 == "OK",
             )
         elif issue_filter_normalized == "ACTIVE":
-            recent_chunks = [
-                c for c in recent_chunks if str(getattr(c, "severity", "")).upper() != "OK"
+            recent_findings = [
+                c for c in recent_findings if str(getattr(c, "severity", "")).upper() != "OK"
             ]
-            chunked_tail = _filter_chunked_tail(
-                chunked_tail,
+            finding_tail = _filter_finding_tail(
+                finding_tail,
                 tail_filter="ALL",
                 extra_predicate=lambda section: str(
-                    getattr(section.get("chunk"), "severity", "")
+                    getattr(section.get("finding"), "severity", "")
                 ).upper()
                 != "OK",
             )
-        for section in chunked_tail:
-            chunk = section.get("chunk")
-            if not chunk:
+        for section in finding_tail:
+            finding = section.get("finding")
+            if not finding:
                 continue
-            sev = str(getattr(chunk, "severity", "")).upper()
+            sev = str(getattr(finding, "severity", "")).upper()
             if sev and sev not in available_severities:
                 available_severities.append(sev)
             if sev and sev != "OK" and sev not in severity_choices:
                 severity_choices.append(sev)
 
-        chunked_tail = _filter_chunked_tail(
-            chunked_tail, tail_filter_normalized, extra_predicate=None
+        finding_tail = _filter_finding_tail(
+            finding_tail, tail_filter_normalized, extra_predicate=None
         )
 
     else:
-        chunk_line_examples = {}
+        finding_line_examples = {}
 
     return templates.TemplateResponse(
         "logs.html",
@@ -692,16 +692,16 @@ async def module_logs(
             "modules": modules,
             "current_module": module_obj,
             "sample_lines": sample_lines,
-            "recent_chunks": recent_chunks,
-            "had_recent_chunks": had_recent_chunks,
+            "recent_findings": recent_findings,
+            "had_recent_findings": had_recent_findings,
             "db_status": db_status,
-            "chunked_tail": chunked_tail,
-            "had_chunked_tail": had_chunked_tail,
+            "finding_tail": finding_tail,
+            "had_finding_tail": had_finding_tail,
             "tail_filter": tail_filter_normalized,
             "issue_filter": issue_filter_normalized,
             "tail_severities": available_severities,
             "severity_choices": severity_choices,
-            "chunk_examples": chunk_line_examples,
+            "finding_examples": finding_line_examples,
             "message": message,
             "error": error,
         },
@@ -725,7 +725,7 @@ async def flush_logs_db(
         )
 
     try:
-        deleted = delete_all_chunks()
+        deleted = delete_all_findings()
     except Exception as exc:
         return _logs_redirect(
             module,
@@ -734,16 +734,16 @@ async def flush_logs_db(
             issue_filter=issue_filter,
         )
 
-    msg = "Database already empty." if deleted == 0 else f"Deleted {deleted} stored chunk(s)."
+    msg = "Database already empty." if deleted == 0 else f"Deleted {deleted} stored finding(s)."
     return _logs_redirect(
         module, message=msg, tail_filter=tail_filter, issue_filter=issue_filter
     )
 
 
-@app.post("/logs/chunk/delete", name="delete_chunk")
-async def delete_chunk(
+@app.post("/logs/finding/delete", name="delete_finding")
+async def delete_finding(
     request: Request,
-    chunk_id: int = Form(...),
+    finding_id: int = Form(...),
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
@@ -761,7 +761,7 @@ async def delete_chunk(
         )
 
     try:
-        deleted = delete_chunk_by_id(chunk_id)
+        deleted = delete_finding_by_id(finding_id)
     except Exception as exc:
         return _logs_redirect(
             module,
@@ -776,14 +776,14 @@ async def delete_chunk(
         )
 
     return _logs_redirect(
-        module, message="Log entry removed.", tail_filter=tail_filter, issue_filter=issue_filter
+        module, message="Finding removed.", tail_filter=tail_filter, issue_filter=issue_filter
     )
 
 
-@app.post("/logs/chunk/severity", name="change_chunk_severity")
-async def change_chunk_severity(
+@app.post("/logs/finding/severity", name="change_finding_severity")
+async def change_finding_severity(
     request: Request,
-    chunk_id: int = Form(...),
+    finding_id: int = Form(...),
     severity: str = Form(...),
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
@@ -811,7 +811,7 @@ async def change_chunk_severity(
         )
 
     try:
-        updated = update_chunk_severity(chunk_id, normalized)
+        updated = update_finding_severity(finding_id, normalized)
     except Exception as exc:
         return _logs_redirect(
             module,
@@ -827,16 +827,16 @@ async def change_chunk_severity(
 
     return _logs_redirect(
         module,
-        message=f"Severity updated to {normalized}.",
+        message=f"Finding severity updated to {normalized}.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
     )
 
 
-@app.post("/logs/chunk/address", name="mark_chunk_addressed")
-async def mark_chunk_addressed(
+@app.post("/logs/finding/address", name="mark_finding_addressed")
+async def mark_finding_addressed(
     request: Request,
-    chunk_id: int = Form(...),
+    finding_id: int = Form(...),
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
@@ -854,7 +854,7 @@ async def mark_chunk_addressed(
         )
 
     try:
-        updated = update_chunk_severity(chunk_id, "OK")
+        updated = update_finding_severity(finding_id, "OK")
     except Exception as exc:
         return _logs_redirect(
             module,
@@ -870,16 +870,16 @@ async def mark_chunk_addressed(
 
     return _logs_redirect(
         module,
-        message="Chunk marked as addressed.",
+        message="Finding marked as addressed.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
     )
 
 
-@app.post("/logs/chunk/false_positive", name="mark_false_positive")
+@app.post("/logs/finding/false_positive", name="mark_false_positive")
 async def mark_false_positive(
     request: Request,
-    chunk_id: int = Form(...),
+    finding_id: int = Form(...),
     module: Optional[str] = Form(None),
     tail_filter: str = Form("all"),
     issue_filter: str = Form("all"),
@@ -899,13 +899,13 @@ async def mark_false_positive(
             issue_filter=issue_filter,
         )
 
-    chunk = get_chunk_by_id(chunk_id)
-    if chunk is None:
+    finding = get_finding_by_id(finding_id)
+    if finding is None:
         return _logs_redirect(
             module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
         )
 
-    regex_source = sample_line or getattr(chunk, "reason", "") or ""
+    regex_source = sample_line or getattr(finding, "reason", "") or ""
     regex_value = _suggest_regex_from_line(regex_source) if regex_source else None
 
     if not regex_value:
@@ -926,10 +926,10 @@ async def mark_false_positive(
             issue_filter=issue_filter,
         )
 
-    pipeline_name = getattr(chunk, "pipeline_name", None)
+    pipeline_name = getattr(finding, "pipeline_name", None)
     if not pipeline_name:
         modules = build_modules(raw_config)
-        mod_obj = next((m for m in modules if m.name == getattr(chunk, "module_name", None)), None)
+        mod_obj = next((m for m in modules if m.name == getattr(finding, "module_name", None)), None)
         pipeline_name = getattr(mod_obj, "pipeline_name", None)
 
     pipelines = cfg_dict.get("pipelines", []) or []
@@ -973,7 +973,7 @@ async def mark_false_positive(
     settings = parse_webui_settings(raw_config)
 
     try:
-        update_chunk_severity(chunk_id, "OK")
+        update_finding_severity(finding_id, "OK")
     except Exception:
         pass
 
@@ -1130,28 +1130,28 @@ def _tail_lines(path: Path, max_lines: int = 200) -> List[str]:
         return []
 
 
-def _error_lines_from_chunks(module_obj, max_lines: int = 200) -> List[str]:
-    chunks = get_recent_chunks_for_module(module_obj.name, limit=max_lines)
-    if not chunks:
+def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
+    findings = get_recent_findings_for_module(module_obj.name, limit=max_lines)
+    if not findings:
         return []
 
     tail_lines = _tail_lines(Path(module_obj.path), max_lines=max_lines)
     if not tail_lines:
         return []
 
-    chunked_tail = _build_chunked_tail(tail_lines, chunks)
+    finding_tail = _build_finding_tail(tail_lines, findings)
 
     lines: List[str] = []
-    for section in chunked_tail:
-        chunk = section.get("chunk")
-        if chunk is None:
+    for section in finding_tail:
+        finding = section.get("finding")
+        if finding is None:
             continue
 
-        chunk_lines = section.get("lines", [])
-        created_at = _format_local_timestamp(getattr(chunk, "created_at", None))
-        header = f"[{getattr(chunk, 'severity', '')}] chunk #{getattr(chunk, 'chunk_index', '?')} @ {created_at}"
+        finding_lines = section.get("lines", [])
+        created_at = _format_local_timestamp(getattr(finding, "created_at", None))
+        header = f"[{getattr(finding, 'severity', '')}] finding #{getattr(finding, 'finding_index', '?')} @ {created_at}"
         lines.append(header)
-        for entry in chunk_lines:
+        for entry in finding_lines:
             lines.append(entry.get("text", ""))
             if len(lines) >= max_lines:
                 return lines[:max_lines]
@@ -1167,12 +1167,12 @@ def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int 
     if source == "errors":
         if not db_status.get("connected"):
             return [], "Database not connected; cannot load identified errors."
-        return _error_lines_from_chunks(module_obj, max_lines=max_lines), None
+        return _error_lines_from_findings(module_obj, max_lines=max_lines), None
 
     return _tail_lines(Path(module_obj.path), max_lines=max_lines), None
 
 
-def _build_chunked_tail(sample_lines: List[str], recent_chunks: List) -> List[Dict[str, Any]]:
+def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[Dict[str, Any]]:
     if not sample_lines:
         return []
 
@@ -1180,48 +1180,48 @@ def _build_chunked_tail(sample_lines: List[str], recent_chunks: List) -> List[Di
     remaining = list(indexed_lines)
     sections: List[Dict[str, Any]] = []
 
-    sorted_chunks = sorted(
-        recent_chunks,
+    sorted_findings = sorted(
+        recent_findings,
         key=lambda c: getattr(c, "created_at", datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)),
         reverse=True,
     )
 
-    for chunk in sorted_chunks:
+    for finding in sorted_findings:
         if not remaining:
             break
-        count = int(getattr(chunk, "line_count", 0) or 0)
+        count = int(getattr(finding, "line_count", 0) or 0)
         if count <= 0:
             continue
         take = min(count, len(remaining))
-        chunk_lines = remaining[-take:]
+        finding_lines = remaining[-take:]
         remaining = remaining[:-take]
-        sections.append({"chunk": chunk, "lines": chunk_lines})
+        sections.append({"finding": finding, "lines": finding_lines})
 
     if remaining:
-        sections.append({"chunk": None, "lines": remaining})
+        sections.append({"finding": None, "lines": remaining})
 
     return sections
 
 
-def _chunk_line_examples(sections: List[Dict[str, Any]]) -> Dict[int, str]:
+def _finding_line_examples(sections: List[Dict[str, Any]]) -> Dict[int, str]:
     examples: Dict[int, str] = {}
     for section in sections:
-        chunk = section.get("chunk")
-        if not chunk:
+        finding = section.get("finding")
+        if not finding:
             continue
-        chunk_id = getattr(chunk, "id", None)
-        if chunk_id is None or chunk_id in examples:
+        finding_id = getattr(finding, "id", None)
+        if finding_id is None or finding_id in examples:
             continue
         lines = section.get("lines") or []
         for entry in lines:
             text = entry.get("text") if isinstance(entry, dict) else None
             if text:
-                examples[int(chunk_id)] = text
+                examples[int(finding_id)] = text
                 break
     return examples
 
 
-def _filter_chunked_tail(
+def _filter_finding_tail(
     sections: List[Dict[str, Any]],
     tail_filter: str,
     extra_predicate=None,
@@ -1235,8 +1235,8 @@ def _filter_chunked_tail(
 
     filtered: List[Dict[str, Any]] = []
     for section in sections:
-        chunk = section.get("chunk")
-        severity = str(getattr(chunk, "severity", "")).upper() if chunk else ""
+        finding = section.get("finding")
+        severity = str(getattr(finding, "severity", "")).upper() if finding else ""
         severity_match = normalized in {"", "ALL"} or severity == normalized
         extra_match = extra_predicate(section) if extra_predicate else True
         if severity_match and extra_match:

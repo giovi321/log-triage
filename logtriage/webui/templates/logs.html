@@ -9,18 +9,18 @@
   .log-section-body { padding:0.35rem 0.45rem; display:flex; flex-direction:column; gap:0.1rem; }
   .log-section.collapsed .log-section-body { display:none; }
   .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; }
-  .log-section.highlighted-chunk { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
-  .chunk-summary { padding:0.5rem 0.25rem; border-bottom:1px solid #1f2530; cursor:pointer; border-radius:0.45rem; transition:background 0.15s ease, box-shadow 0.15s ease; }
-  .chunk-summary:hover { background:#121a27; }
-  .chunk-summary.active { box-shadow:0 0 0 1px #3f5d95; background:#111827; }
-  .chunk-summary-header { display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap; }
-  .chunk-summary-actions { display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; margin:0.35rem 0 0.1rem; }
-  .chunk-summary-stats { display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap; font-size:0.9rem; }
-  .chunk-summary-reason { font-family:monospace; font-size:0.95rem; white-space:pre-wrap; margin-top:0.25rem; }
+  .log-section.highlighted-finding { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
+  .finding-summary { padding:0.5rem 0.25rem; border-bottom:1px solid #1f2530; cursor:pointer; border-radius:0.45rem; transition:background 0.15s ease, box-shadow 0.15s ease; }
+  .finding-summary:hover { background:#121a27; }
+  .finding-summary.active { box-shadow:0 0 0 1px #3f5d95; background:#111827; }
+  .finding-summary-header { display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+  .finding-summary-actions { display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; margin:0.35rem 0 0.1rem; }
+  .finding-summary-stats { display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap; font-size:0.9rem; }
+  .finding-summary-reason { font-family:monospace; font-size:0.95rem; white-space:pre-wrap; margin-top:0.25rem; }
 </style>
 <div class="card">
   <h2>Logs explorer</h2>
-  <p class="helper-text">Pick a module to browse its log tail and recent chunk summaries. Use the copy helpers to share errors or snippets quickly.</p>
+  <p class="helper-text">Pick a module to browse its log tail and recent finding summaries. Use the copy helpers to share errors or snippets quickly.</p>
   {% if message %}
     <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #2e4735; background:#142018; color:#b7e6c5; border-radius:0.5rem;">{{ message }}</div>
   {% endif %}
@@ -65,7 +65,7 @@
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
             <button type="button" class="secondary" onclick="copyAllLines()">Copy all lines</button>
             <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
-            <button type="button" class="secondary" onclick="toggleAllChunks()" id="toggle-all-chunks">Collapse chunks</button>
+            <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse findings</button>
             {% if tail_filter != 'ALL' %}
               <a href="{{ url_for('module_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
             {% endif %}
@@ -74,17 +74,17 @@
             {% endif %}
           </div>
           <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
-            {% if chunked_tail %}
-              {% for section in chunked_tail %}
-                <div class="log-section" {% if section.chunk %}data-chunk-section="true" data-chunk-id="{{ section.chunk.id }}" data-chunk-index="{{ section.chunk.chunk_index }}"{% endif %}>
+            {% if finding_tail %}
+              {% for section in finding_tail %}
+                <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
                   <div class="log-section-header">
-                    {% if section.chunk %}
+                    {% if section.finding %}
                       <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
-                        <span class="status-badge sev-{{ section.chunk.severity }}">{{ section.chunk.severity }}</span>
-                        <span class="muted" style="font-size:0.85rem;">Chunk #{{ section.chunk.chunk_index }} · {{ section.chunk.created_at|localtime }}</span>
+                        <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
+                        <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
                       </div>
                       <div class="section-actions" style="flex:1; justify-content:flex-end;">
-                        <div class="helper-text" style="text-align:right;">{{ section.chunk.reason }}</div>
+                        <div class="helper-text" style="text-align:right;">{{ section.finding.reason }}</div>
                         <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
                       </div>
                     {% else %}
@@ -102,7 +102,7 @@
                   </div>
                 </div>
               {% endfor %}
-            {% elif had_chunked_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
+            {% elif had_finding_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
               <p class="muted" style="margin:0.5rem 0;">
                 {% if tail_filter != 'ALL' and issue_filter != 'ALL' %}
                   No log sections matched the {{ tail_filter }} tail filter with the {{ issue_filter|lower }} issue filter.
@@ -128,48 +128,48 @@
       </div>
 
       <div>
-        <h3>Recent chunk summaries</h3>
+        <h3>Recent finding summaries</h3>
         {% if not db_status.connected %}
-          <p class="muted">Database not connected; start the log-triage process with database.url configured to see chunk history.</p>
-        {% elif not recent_chunks %}
-          {% if had_recent_chunks %}
-            <p class="muted">No chunks matched the {{ issue_filter|lower }} issue filter.</p>
+          <p class="muted">Database not connected; start the log-triage process with database.url configured to see finding history.</p>
+        {% elif not recent_findings %}
+          {% if had_recent_findings %}
+            <p class="muted">No findings matched the {{ issue_filter|lower }} issue filter.</p>
           {% else %}
-            <p class="muted">No chunks recorded yet for this module.</p>
+            <p class="muted">No findings recorded yet for this module.</p>
           {% endif %}
         {% else %}
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
-            <button type="button" class="secondary" onclick="copyAllChunks()">Copy all summaries</button>
+            <button type="button" class="secondary" onclick="copyAllFindings()">Copy all summaries</button>
           </div>
           <div style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
-            {% for c in recent_chunks %}
-              <div class="chunk-summary" data-chunk-summary="true" data-chunk-id="{{ c.id }}">
-                <div class="chunk-summary-header">
+            {% for c in recent_findings %}
+              <div class="finding-summary" data-finding-summary="true" data-finding-id="{{ c.id }}">
+                <div class="finding-summary-header">
                   <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
                     <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
                     <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at|localtime }}</span>
                   </div>
-                  <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
+                  <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyFinding(this)">Copy</button>
                 </div>
-                <div class="chunk-summary-actions">
-                  <form method="post" action="{{ url_for('mark_chunk_addressed') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
-                    <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                <div class="finding-summary-actions">
+                  <form method="post" action="{{ url_for('mark_finding_addressed') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                    <input type="hidden" name="finding_id" value="{{ c.id }}">
                     <input type="hidden" name="module" value="{{ current_module.name }}">
                     <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
                     <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
                     <button type="submit" class="secondary">Addressed</button>
                   </form>
-                  {% set chunk_example = (chunk_examples.get(c.id) if chunk_examples else None) %}
+                  {% set finding_example = (finding_examples.get(c.id) if finding_examples else None) %}
                   <form method="post" action="{{ url_for('mark_false_positive') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
-                    <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                    <input type="hidden" name="finding_id" value="{{ c.id }}">
                     <input type="hidden" name="module" value="{{ current_module.name }}">
                     <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
                     <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                    <input type="hidden" name="sample_line" value="{{ (chunk_example or c.reason)|e }}">
+                    <input type="hidden" name="sample_line" value="{{ (finding_example or c.reason)|e }}">
                     <button type="submit" class="secondary">False positive</button>
                   </form>
-                  <form method="post" action="{{ url_for('change_chunk_severity') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
-                    <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                  <form method="post" action="{{ url_for('change_finding_severity') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                    <input type="hidden" name="finding_id" value="{{ c.id }}">
                     <input type="hidden" name="module" value="{{ current_module.name }}">
                     <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
                     <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
@@ -186,10 +186,10 @@
                     <button type="submit" class="secondary">Update</button>
                   </form>
                 </div>
-                <div class="chunk-summary-stats helper-text">
+                <div class="finding-summary-stats helper-text">
                   <span>errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</span>
                 </div>
-                <div class="chunk-summary-reason">{{ c.reason }}</div>
+                <div class="finding-summary-reason">{{ c.reason }}</div>
               </div>
             {% endfor %}
           </div>
@@ -239,14 +239,14 @@
 
   refreshSelectedHighlights();
 
-  function focusChunkSection(chunkId) {
-    if (!chunkId) return;
+  function focusFindingSection(findingId) {
+    if (!findingId) return;
 
-    const section = document.querySelector(`.log-section[data-chunk-id="${chunkId}"]`);
+    const section = document.querySelector(`.log-section[data-finding-id="${findingId}"]`);
     if (!section) return;
 
-    document.querySelectorAll('.log-section.highlighted-chunk').forEach(sec => sec.classList.remove('highlighted-chunk'));
-    document.querySelectorAll('.chunk-summary.active').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.log-section.highlighted-finding').forEach(sec => sec.classList.remove('highlighted-finding'));
+    document.querySelectorAll('.finding-summary.active').forEach(el => el.classList.remove('active'));
 
     document.querySelectorAll('#log-lines input[name="selected_line"]').forEach(cb => {
       cb.checked = false;
@@ -264,8 +264,8 @@
 
     refreshSelectedHighlights();
 
-    section.classList.add('highlighted-chunk');
-    const relatedSummary = document.querySelector(`.chunk-summary[data-chunk-id="${chunkId}"]`);
+    section.classList.add('highlighted-finding');
+    const relatedSummary = document.querySelector(`.finding-summary[data-finding-id="${findingId}"]`);
     if (relatedSummary) {
       relatedSummary.classList.add('active');
     }
@@ -273,25 +273,25 @@
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  document.querySelectorAll('[data-chunk-summary]').forEach(summary => {
+  document.querySelectorAll('[data-finding-summary]').forEach(summary => {
     summary.addEventListener('click', (event) => {
-      const chunkId = summary.dataset.chunkId;
-      if (!chunkId) return;
+      const findingId = summary.dataset.findingId;
+      if (!findingId) return;
 
       const tag = event.target.tagName;
       const interactiveTags = new Set(['BUTTON', 'SELECT', 'OPTION']);
       if (interactiveTags.has(tag)) return;
 
-      focusChunkSection(chunkId);
+      focusFindingSection(findingId);
     });
   });
 
-  function copyChunk(btn) {
+  function copyFinding(btn) {
     const text = btn.dataset.summary || '';
     copyText(text);
   }
 
-  function copyAllChunks() {
+  function copyAllFindings() {
     const summaries = Array.from(document.querySelectorAll('button[data-summary]')).map(btn => btn.dataset.summary);
     copyText(summaries.join('\n'));
   }
@@ -303,8 +303,8 @@
     btn.textContent = collapsed ? 'Expand' : 'Collapse';
   }
 
-  function toggleAllChunks() {
-    const sections = Array.from(document.querySelectorAll('#log-lines .log-section[data-chunk-section="true"]'));
+  function toggleAllFindings() {
+    const sections = Array.from(document.querySelectorAll('#log-lines .log-section[data-finding-section="true"]'));
     const allCollapsed = sections.every(sec => sec.classList.contains('collapsed'));
     sections.forEach(sec => {
       const shouldCollapse = !allCollapsed;
@@ -312,9 +312,9 @@
       const btn = sec.querySelector('button[data-section-index]');
       if (btn) btn.textContent = shouldCollapse ? 'Expand' : 'Collapse';
     });
-    const masterBtn = document.getElementById('toggle-all-chunks');
+    const masterBtn = document.getElementById('toggle-all-findings');
     if (masterBtn) {
-      masterBtn.textContent = allCollapsed ? 'Collapse chunks' : 'Expand chunks';
+      masterBtn.textContent = allCollapsed ? 'Collapse findings' : 'Expand findings';
     }
   }
 </script>
