@@ -46,6 +46,51 @@ pipelines:
       max_excerpt_lines: 1000
       prompt_template: './prompts/homeassistant.txt'
 
+  - name: apache2_access
+    match:
+      filename_regex: 'apache2.*access\\.log'
+    grouping:
+      type: 'whole_file'
+    classifier:
+      type: 'regex_counter'
+      error_regexes:
+        - '"\\s5\\d{2}\\s'
+        - 'upstream .* (error|timeout)'
+      warning_regexes:
+        - '"\\s4\\d{2}\\s'
+        - 'connection (timed out|reset by peer)'
+      ignore_regexes:
+        - '"\\s404\\s'
+        - '(healthcheck|health-check|status|metrics)'
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_excerpt_lines: 500
+      prompt_template: './prompts/apache2.txt'
+
+  - name: apache2_error
+    match:
+      filename_regex: 'apache2.*error\\.log'
+    grouping:
+      type: 'whole_file'
+    classifier:
+      type: 'regex_counter'
+      error_regexes:
+        - '\\[error\\]'
+        - '\\[(crit|alert|emerg)\\]'
+        - 'client denied by server configuration'
+        - 'Failed to (start|open|bind|connect|initialize)'
+      warning_regexes:
+        - '\\[warn\\]'
+        - 'mod_(security|evasive)'
+      ignore_regexes:
+        - 'AH00163: Apache/.* configured'
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_excerpt_lines: 500
+      prompt_template: './prompts/apache2.txt'
+
   - name: generic_default
     match:
       filename_regex: '.*'
@@ -67,7 +112,7 @@ pipelines:
       max_excerpt_lines: 300
 
 modules:
-  - name: rsnapshot_daily
+  - name: rsnapshot
     enabled: true
     path: '/var/log/rsnapshot.log'
     mode: 'batch'
@@ -108,7 +153,7 @@ modules:
       warning_multiplier: 3.0
       severity_on_anomaly: 'ERROR'
 
-  - name: homeassistant_follow
+  - name: homeassistant
     enabled: true
     path: '/var/log/fluent-bit/homeassistant.log'
     mode: 'follow'
@@ -126,6 +171,40 @@ modules:
         port: 1883
         topic: 'logtriage/homeassistant'
         min_severity: 'ERROR'
+    baseline:
+      enabled: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: apache2_access_follow
+    enabled: false
+    path: '/var/log/apache2/access.log'
+    mode: 'follow'
+    pipeline: 'apache2_access'
+    output_format: 'text'
+    min_print_severity: 'WARNING'
+    llm:
+      emit_llm_payloads_dir: './apache_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false
+    baseline:
+      enabled: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: apache2_error_follow
+    enabled: false
+    path: '/var/log/apache2/error.log'
+    mode: 'follow'
+    pipeline: 'apache2_error'
+    output_format: 'text'
+    min_print_severity: 'INFO'
+    llm:
+      emit_llm_payloads_dir: './apache_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false
     baseline:
       enabled: false
     stream:
@@ -155,7 +234,7 @@ webui:
   secret_key: 'CHANGE_THIS_TO_A_LONG_RANDOM_STRING'
   session_cookie_name: 'logtriage_session'
   dark_mode_default: true
-  allowed_ips: ['192.168.1.1','127.0.0.1']
+  allowed_ips: ['192.168.2.2','127.0.0.1']
   admin_users:
     - username: 'admin'
       password_hash: '$2a$12$38c7iQ3n8lACPHEiSO4ZQ.V7ZbhvoVNxv7x3Nhi1QadDdjOLJivuy' # this password is: admin
