@@ -198,9 +198,10 @@ modules:
       from_beginning: false
       interval: 1.0
 
+
   - name: nextcloud
     enabled: true
-    path: '/var/log/nextcloud/nextcloud.log'
+    path: '/var/log/fluent-bit/nextcloud.log'
     mode: 'follow'
     pipeline: 'nextcloud'
     output_format: 'text'
