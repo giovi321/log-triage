@@ -283,15 +283,21 @@
   }
 
   function copyText(text) {
-    if (!navigator.clipboard) {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    } else {
-      navigator.clipboard.writeText(text);
+    const status = document.getElementById('llm-status');
+    try {
+      if (!navigator.clipboard) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } else {
+        navigator.clipboard.writeText(text);
+      }
+      if (status) status.textContent = 'Copied to clipboard.';
+    } catch (err) {
+      if (status) status.textContent = 'Copy failed: ' + (err && err.message ? err.message : 'unknown error');
     }
   }
 
@@ -311,6 +317,7 @@
       return;
     }
     appendToPrompt(selected.join('\n'));
+    setStatus(`Appended ${selected.length} line${selected.length === 1 ? '' : 's'} to the prompt.`);
   }
 
   function appendToPrompt(text) {
@@ -347,6 +354,7 @@
     if (btn) {
       btn.textContent = allCollapsed ? 'Expand entries' : 'Collapse entries';
     }
+    setStatus(allCollapsed ? 'Collapsed all findings.' : 'Expanded all findings.');
   }
 
   function loadPredefinedPrompt() {
@@ -541,35 +549,28 @@
     refreshSelectedHighlights();
   }
 
-  function handleAction(action, actionEl) {
-    switch (action) {
-      case 'copy-selected':
-        copySelectedLines();
-        break;
-      case 'append-selected':
-        appendSelectedToPrompt();
-        break;
-      case 'toggle-all':
-        toggleAllFindings();
-        break;
-      case 'load-predefined':
-        loadPredefinedPrompt();
-        break;
-      case 'attach-opinion':
-        attachOpinionToSelectedFinding();
-        break;
-      case 'summarize-record':
-        summarizeAndRecord();
-        break;
-      case 'send-llm':
-        sendLLMPrompt();
-        break;
-      case 'toggle-section':
-        toggleSection(actionEl);
-        break;
-      default:
-        break;
-    }
+  const ACTION_HANDLERS = {
+    'copy-selected': copySelectedLines,
+    'append-selected': appendSelectedToPrompt,
+    'toggle-all': toggleAllFindings,
+    'load-predefined': loadPredefinedPrompt,
+    'attach-opinion': attachOpinionToSelectedFinding,
+    'summarize-record': summarizeAndRecord,
+    'send-llm': sendLLMPrompt,
+    'toggle-section': toggleSection,
+  };
+
+  function bindActionButtons() {
+    document.querySelectorAll('[data-action]').forEach((el) => {
+      const action = el.dataset.action;
+      const handler = ACTION_HANDLERS[action];
+      if (!handler) return;
+      el.addEventListener('click', (evt) => {
+        if (el.disabled) return;
+        evt.preventDefault();
+        handler(el);
+      });
+    });
   }
 
   function bindActionButtons() {
