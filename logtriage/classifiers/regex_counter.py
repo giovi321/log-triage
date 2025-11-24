@@ -11,6 +11,7 @@ def classify_regex_counter(
     lines: List[str],
     start_line: int = 1,
     excerpt_limit: int = 20,
+    context_prefix_lines: int = 0,
 ) -> List[Finding]:
     """Emit one finding per matching rule line.
 
@@ -29,6 +30,10 @@ def classify_regex_counter(
             if not r:
                 continue
             for _ in r.finditer(line):
+                excerpt_start = max(0, offset - context_prefix_lines)
+                excerpt = lines[excerpt_start : offset + 1]
+                if len(excerpt) > excerpt_limit:
+                    excerpt = excerpt[-excerpt_limit:]
                 findings.append(
                     Finding(
                         file_path=file_path,
@@ -39,7 +44,7 @@ def classify_regex_counter(
                         line_start=current_line,
                         line_end=current_line,
                         rule_id=r.pattern,
-                        excerpt=[line],
+                        excerpt=excerpt,
                     )
                 )
 
@@ -47,6 +52,10 @@ def classify_regex_counter(
             if not r:
                 continue
             for _ in r.finditer(line):
+                excerpt_start = max(0, offset - context_prefix_lines)
+                excerpt = lines[excerpt_start : offset + 1]
+                if len(excerpt) > excerpt_limit:
+                    excerpt = excerpt[-excerpt_limit:]
                 findings.append(
                     Finding(
                         file_path=file_path,
@@ -57,7 +66,7 @@ def classify_regex_counter(
                         line_start=current_line,
                         line_end=current_line,
                         rule_id=r.pattern,
-                        excerpt=[line],
+                        excerpt=excerpt,
                     )
                 )
 
