@@ -102,6 +102,7 @@ class LLMProviderConfig:
     model: str
     organization: Optional[str] = None
     api_version: Optional[str] = None
+    max_excerpt_lines: int = 20
     request_timeout: float = 30.0
     temperature: float = 0.0
     top_p: float = 1.0
@@ -112,11 +113,6 @@ class LLMProviderConfig:
 class GlobalLLMConfig:
     enabled: bool
     min_severity: Severity
-    max_excerpt_lines: int
-    max_output_tokens: int
-    request_timeout: float
-    temperature: float
-    top_p: float
     default_provider: Optional[str]
     providers: Dict[str, LLMProviderConfig]
 
