@@ -98,7 +98,7 @@ class ModuleConfig:
 class LLMProviderConfig:
     name: str
     api_base: str
-    api_key_env: str
+    api_key_env: Optional[str]
     model: str
     organization: Optional[str] = None
     api_version: Optional[str] = None
