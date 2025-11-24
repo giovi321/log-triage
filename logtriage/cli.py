@@ -1,6 +1,5 @@
 import argparse
 import json
-import signal
 import sys
 from pathlib import Path
 from threading import Event
@@ -43,11 +42,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--inspect-chunks",
         action="store_true",
         help="Debug mode: for the selected module, print chunk boundaries and line counts instead of triage/LLM.",
-    )
-    p.add_argument(
-        "--reload-on-sighup",
-        action="store_true",
-        help="Handle SIGHUP/SIGUSR1 to reload the config and pipelines without restarting (follow modules only).",
     )
     p.add_argument(
         "--reload-on-change",
@@ -211,9 +205,6 @@ def main(argv: Optional[List[str]] = None) -> None:
     reload_event = Event()
     last_cfg_mtime_ns: Optional[int] = None
 
-    def _request_reload(signum, frame):
-        reload_event.set()
-
     def _config_changed() -> bool:
         nonlocal last_cfg_mtime_ns
         if not args.reload_on_change:
@@ -231,14 +222,6 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     def _should_reload() -> bool:
         return reload_event.is_set() or _config_changed()
-
-    if args.reload_on_sighup:
-        signal.signal(signal.SIGHUP, _request_reload)
-        try:
-            signal.signal(signal.SIGUSR1, _request_reload)
-        except AttributeError:
-            # Some platforms (e.g. Windows) may not provide SIGUSR1.
-            pass
 
     while True:
         cfg = load_config(cfg_path)
@@ -307,16 +290,16 @@ def main(argv: Optional[List[str]] = None) -> None:
                 run_module_follow(
                     mod,
                     pipelines,
-                    should_reload=_should_reload if (args.reload_on_sighup or args.reload_on_change) else None,
+                    should_reload=_should_reload if args.reload_on_change else None,
                 )
             else:
                 run_module_batch(mod, pipelines)
 
-            if (args.reload_on_sighup or args.reload_on_change) and reload_event.is_set():
+            if args.reload_on_change and reload_event.is_set():
                 print("Reload requested; reloading configuration...", file=sys.stderr)
                 break
 
-        if not ((args.reload_on_sighup or args.reload_on_change) and reload_event.is_set() and has_follow_module):
+        if not (args.reload_on_change and reload_event.is_set() and has_follow_module):
             break
 
         reload_event.clear()

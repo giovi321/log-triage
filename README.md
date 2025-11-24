@@ -52,7 +52,6 @@ pip install '.[webui,mqtt]'
   - UNKNOWN, OK, INFO, WARNING, ERROR, CRITICAL
 - Batch mode (scan file or directory once)
 - Follow mode (continuous tail of a single log file), rotation-aware (`tail -F` style)
-- Optional SIGHUP/SIGUSR1-triggered config reload for follow-mode modules (`--reload-on-sighup`)
 - Optional config change detection for follow-mode modules to auto-reload after saving via the Web UI (`--reload-on-change`)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Per-module options for:
@@ -68,6 +67,10 @@ pip install '.[webui,mqtt]'
   - inspect and edit `config.yaml` (atomic writes, with backup)
   - experiment with regexes (regex lab) and save them to classifiers
   - run on a dark-mode layout
+
+### Config reload on change
+
+When `--reload-on-change` is enabled, the CLI tracks the last modified time of `config.yaml` after loading it. During follow-mode streaming it periodically compares the current mtime to that saved value. If the file changed (for example after saving from the Web UI), the follower stops, the CLI re-reads the config, rebuilds pipelines and modules, and then restarts follow-mode modules with the updated rules. Batch modules still run once per invocation; the reload loop only keeps follow-mode sessions up to date.
 
 ## Install
 
