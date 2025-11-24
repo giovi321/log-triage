@@ -22,6 +22,7 @@ from .auth import authenticate_user, create_session_token, get_current_user, pwd
 from .db import (
     delete_all_chunks,
     delete_chunk_by_id,
+    get_chunk_by_id,
     get_module_stats,
     setup_database,
     get_latest_chunk_time,
@@ -416,7 +417,7 @@ async def module_logs(
     available_severities: List[str] = []
     tail_filter_normalized = (tail_filter or "all").upper()
     issue_filter_normalized = (issue_filter or "all").upper()
-    severity_choices = list(SEVERITY_CHOICES)
+    severity_choices = [sev for sev in SEVERITY_CHOICES if sev != "OK"]
     had_chunked_tail = False
     had_recent_chunks = False
     if module_obj is not None:
@@ -424,6 +425,7 @@ async def module_logs(
         recent_chunks = get_recent_chunks_for_module(module_obj.name, limit=50)
         had_recent_chunks = bool(recent_chunks)
         chunked_tail = _build_chunked_tail(sample_lines, recent_chunks)
+        chunk_line_examples = _chunk_line_examples(chunked_tail)
         had_chunked_tail = bool(chunked_tail)
         if issue_filter_normalized == "ADDRESSED":
             recent_chunks = [
@@ -456,12 +458,15 @@ async def module_logs(
             sev = str(getattr(chunk, "severity", "")).upper()
             if sev and sev not in available_severities:
                 available_severities.append(sev)
-            if sev and sev not in severity_choices:
+            if sev and sev != "OK" and sev not in severity_choices:
                 severity_choices.append(sev)
 
         chunked_tail = _filter_chunked_tail(
             chunked_tail, tail_filter_normalized, extra_predicate=None
         )
+
+    else:
+        chunk_line_examples = {}
 
     return templates.TemplateResponse(
         "logs.html",
@@ -480,6 +485,7 @@ async def module_logs(
             "issue_filter": issue_filter_normalized,
             "tail_severities": available_severities,
             "severity_choices": severity_choices,
+            "chunk_examples": chunk_line_examples,
             "message": message,
             "error": error,
         },
@@ -606,6 +612,158 @@ async def change_chunk_severity(
     return _logs_redirect(
         module,
         message=f"Severity updated to {normalized}.",
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+    )
+
+
+@app.post("/logs/chunk/address", name="mark_chunk_addressed")
+async def mark_chunk_addressed(
+    request: Request,
+    chunk_id: int = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+    issue_filter: str = Form("all"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(
+            module,
+            error="Database not connected.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    try:
+        updated = update_chunk_severity(chunk_id, "OK")
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Failed to mark as addressed: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    if not updated:
+        return _logs_redirect(
+            module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
+        )
+
+    return _logs_redirect(
+        module,
+        message="Chunk marked as addressed.",
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+    )
+
+
+@app.post("/logs/chunk/false_positive", name="mark_false_positive")
+async def mark_false_positive(
+    request: Request,
+    chunk_id: int = Form(...),
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+    issue_filter: str = Form("all"),
+    sample_line: Optional[str] = Form(None),
+):
+    global raw_config, settings
+
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(
+            module,
+            error="Database not connected.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    chunk = get_chunk_by_id(chunk_id)
+    if chunk is None:
+        return _logs_redirect(
+            module, error="Entry not found.", tail_filter=tail_filter, issue_filter=issue_filter
+        )
+
+    regex_source = sample_line or getattr(chunk, "reason", "") or ""
+    regex_value = _suggest_regex_from_line(regex_source) if regex_source else None
+
+    if not regex_value:
+        return _logs_redirect(
+            module,
+            error="No sample available to build an ignore rule.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    try:
+        cfg_dict = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Failed to read config: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    pipeline_name = getattr(chunk, "pipeline_name", None)
+    if not pipeline_name:
+        modules = build_modules(raw_config)
+        mod_obj = next((m for m in modules if m.name == getattr(chunk, "module_name", None)), None)
+        pipeline_name = getattr(mod_obj, "pipeline_name", None)
+
+    pipelines = cfg_dict.get("pipelines", []) or []
+    pipeline_entry = next((p for p in pipelines if p.get("name") == pipeline_name), None)
+    if pipeline_entry is None:
+        return _logs_redirect(
+            module,
+            error="Pipeline not found in config; cannot add ignore rule.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    classifier = pipeline_entry.setdefault("classifier", {})
+    ignore_list = classifier.get("ignore_regexes")
+    if ignore_list is None or not isinstance(ignore_list, list):
+        ignore_list = []
+        classifier["ignore_regexes"] = ignore_list
+
+    if regex_value and regex_value not in ignore_list:
+        ignore_list.append(regex_value)
+
+    try:
+        new_text = yaml.safe_dump(cfg_dict, sort_keys=False)
+        tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+        backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        if CONFIG_PATH.exists():
+            CONFIG_PATH.replace(backup_path)
+        tmp_path.replace(CONFIG_PATH)
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Failed to write config: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+        )
+
+    from .config import parse_webui_settings  # avoid cycle
+
+    raw_config = load_config(CONFIG_PATH)
+    settings = parse_webui_settings(raw_config)
+
+    try:
+        update_chunk_severity(chunk_id, "OK")
+    except Exception:
+        pass
+
+    return _logs_redirect(
+        module,
+        message="Marked as false positive and added to ignore rules.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
     )
@@ -827,6 +985,24 @@ def _build_chunked_tail(sample_lines: List[str], recent_chunks: List) -> List[Di
         sections.append({"chunk": None, "lines": remaining})
 
     return sections
+
+
+def _chunk_line_examples(sections: List[Dict[str, Any]]) -> Dict[int, str]:
+    examples: Dict[int, str] = {}
+    for section in sections:
+        chunk = section.get("chunk")
+        if not chunk:
+            continue
+        chunk_id = getattr(chunk, "id", None)
+        if chunk_id is None or chunk_id in examples:
+            continue
+        lines = section.get("lines") or []
+        for entry in lines:
+            text = entry.get("text") if isinstance(entry, dict) else None
+            if text:
+                examples[int(chunk_id)] = text
+                break
+    return examples
 
 
 def _filter_chunked_tail(
