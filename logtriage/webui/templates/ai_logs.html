@@ -266,10 +266,21 @@
 </div>
 
 <script>
-  const providerSettings = {{ provider_settings|tojson }};
+  const providerSettings = {{ provider_settings|tojson }} || {};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
   const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
   const recordedSummaries = {};
+
+  function getSelectedLines() {
+    return Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
+      .map((cb) => cb.dataset.line || cb.value || '')
+      .filter((val) => val !== undefined && val !== null && String(val).length > 0);
+  }
+
+  function setStatus(text) {
+    const status = document.getElementById('llm-status');
+    if (status) status.textContent = text || '';
+  }
 
   function copyText(text) {
     if (!navigator.clipboard) {
@@ -285,17 +296,20 @@
   }
 
   function copySelectedLines() {
-    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
-      .map(cb => cb.dataset.line)
-      .filter(Boolean);
+    const selected = getSelectedLines();
+    if (!selected.length) {
+      setStatus('Select one or more log lines to copy.');
+      return;
+    }
     copyText(selected.join('\n'));
   }
 
   function appendSelectedToPrompt() {
-    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
-      .map(cb => cb.dataset.line)
-      .filter(Boolean);
-    if (!selected.length) return;
+    const selected = getSelectedLines();
+    if (!selected.length) {
+      setStatus('Select one or more log lines to append.');
+      return;
+    }
     appendToPrompt(selected.join('\n'));
   }
 
@@ -527,11 +541,7 @@
     refreshSelectedHighlights();
   }
 
-  function handleActionClick(evt) {
-    const actionEl = evt.target.closest('[data-action]');
-    if (!actionEl) return;
-
-    const action = actionEl.dataset.action;
+  function handleAction(action, actionEl) {
     switch (action) {
       case 'copy-selected':
         copySelectedLines();
@@ -562,6 +572,16 @@
     }
   }
 
+  function bindActionButtons() {
+    document.querySelectorAll('[data-action]').forEach((el) => {
+      el.addEventListener('click', (evt) => {
+        if (el.disabled) return;
+        evt.preventDefault();
+        handleAction(el.dataset.action, el);
+      });
+    });
+  }
+
   function initPage() {
     initLogSelection();
     updateProviderHints();
@@ -570,7 +590,7 @@
       providerSelect.addEventListener('change', updateProviderHints);
     }
     initColumnResizer();
-    document.addEventListener('click', handleActionClick);
+    bindActionButtons();
   }
 
   if (document.readyState === 'loading') {
