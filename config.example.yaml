@@ -46,6 +46,27 @@ pipelines:
       max_excerpt_lines: 1000
       prompt_template: './prompts/homeassistant.txt'
 
+  - name: nextcloud
+    match:
+      filename_regex: 'nextcloud.*\\.log'
+    grouping:
+      type: 'whole_file'
+    classifier:
+      type: 'regex_counter'
+      error_regexes:
+        - '"level"\\s*:\\s*(3|4)'
+        - 'PHP (Fatal error|Parse error)'
+      warning_regexes:
+        - '"level"\\s*:\\s*2'
+        - 'Login failed:'
+      ignore_regexes:
+        - '.*Trusted domain error.*'
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_excerpt_lines: 1000
+      prompt_template: './prompts/nextcloud.txt'
+
   - name: generic_default
     match:
       filename_regex: '.*'
@@ -126,6 +147,30 @@ modules:
         port: 1883
         topic: 'logtriage/homeassistant'
         min_severity: 'ERROR'
+    baseline:
+      enabled: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: nextcloud_follow
+    enabled: true
+    path: '/var/log/nextcloud/nextcloud.log'
+    mode: 'follow'
+    pipeline: 'nextcloud'
+    output_format: 'text'
+    min_print_severity: 'WARNING'
+    llm:
+      emit_llm_payloads_dir: './nextcloud_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false
+    alerts:
+      webhook:
+        enabled: false
+        url: ''
+        method: 'POST'
+        min_severity: 'ERROR'
+        headers: {}
     baseline:
       enabled: false
     stream:
