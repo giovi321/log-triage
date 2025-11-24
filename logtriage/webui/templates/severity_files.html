@@ -78,7 +78,7 @@
           <div id="client-error" class="client-error" role="alert"></div>
           <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
             <button id="save-button" type="submit">Save</button>
-            <a class="muted" href="{{ url_for('severity_files', path=selected_path) }}">Reload from disk</a>
+            <a class="muted" href="{{ url_for('severity_files') }}{% if selected_path %}?path={{ selected_path | urlencode }}{% endif %}">Reload from disk</a>
             <a class="muted" href="{{ url_for('edit_config') }}">Config</a>
           </div>
         </div>
