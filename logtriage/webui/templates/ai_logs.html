@@ -84,12 +84,12 @@
         <div class="sync-title">
           <h3 style="margin:0;">Findings</h3>
           <div class="log-actions">
-            <button type="button" class="secondary" id="copy-lines-btn">Copy selected lines</button>
+            <button type="button" class="secondary" id="copy-lines-btn" data-action="copy-selected">Copy selected lines</button>
             {% if issue_filter != 'ALL' %}
               <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
             {% endif %}
-            <button type="button" class="secondary" id="append-to-prompt-btn">Append selected to prompt</button>
-            <button type="button" class="secondary" id="toggle-all-findings">Collapse entries</button>
+            <button type="button" class="secondary" id="append-to-prompt-btn" data-action="append-selected">Append selected to prompt</button>
+            <button type="button" class="secondary" id="toggle-all-findings" data-action="toggle-all">Collapse entries</button>
             {% if tail_filter != 'ALL' %}
               <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
             {% endif %}
@@ -119,7 +119,7 @@
                           </div>
                         </div>
                         <div class="section-actions">
-                          <button type="button" class="secondary toggle-section-btn" data-section-index="{{ loop.index0 }}">Collapse</button>
+                          <button type="button" class="secondary toggle-section-btn" data-section-index="{{ loop.index0 }}" data-action="toggle-section">Collapse</button>
                         </div>
                       {% else %}
                         <div class="muted">Tail lines</div>
@@ -226,12 +226,12 @@
     <div class="llm-workbench">
       <div class="prompt-actions-row">
         <div class="left-actions">
-          <button type="button" id="send-llm-btn">Send to LLM</button>
-          <button type="button" class="secondary" id="load-predefined-btn" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
+          <button type="button" id="send-llm-btn" data-action="send-llm">Send to LLM</button>
+          <button type="button" class="secondary" id="load-predefined-btn" data-action="load-predefined" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
         </div>
         <div class="right-actions">
-          <button type="button" class="secondary" id="attach-opinion-btn">Attach AI opinion to selected finding</button>
-          <button type="button" class="secondary" id="summarize-record-btn">Summarize & record for entry</button>
+          <button type="button" class="secondary" id="attach-opinion-btn" data-action="attach-opinion">Attach AI opinion to selected finding</button>
+          <button type="button" class="secondary" id="summarize-record-btn" data-action="summarize-record">Summarize & record for entry</button>
         </div>
       </div>
         <div class="grid prompt-grid">
@@ -527,10 +527,38 @@
     refreshSelectedHighlights();
   }
 
-  function bindButton(id, handler) {
-    const btn = document.getElementById(id);
-    if (btn && typeof handler === 'function') {
-      btn.addEventListener('click', handler);
+  function handleActionClick(evt) {
+    const actionEl = evt.target.closest('[data-action]');
+    if (!actionEl) return;
+
+    const action = actionEl.dataset.action;
+    switch (action) {
+      case 'copy-selected':
+        copySelectedLines();
+        break;
+      case 'append-selected':
+        appendSelectedToPrompt();
+        break;
+      case 'toggle-all':
+        toggleAllFindings();
+        break;
+      case 'load-predefined':
+        loadPredefinedPrompt();
+        break;
+      case 'attach-opinion':
+        attachOpinionToSelectedFinding();
+        break;
+      case 'summarize-record':
+        summarizeAndRecord();
+        break;
+      case 'send-llm':
+        sendLLMPrompt();
+        break;
+      case 'toggle-section':
+        toggleSection(actionEl);
+        break;
+      default:
+        break;
     }
   }
 
@@ -542,16 +570,7 @@
       providerSelect.addEventListener('change', updateProviderHints);
     }
     initColumnResizer();
-    bindButton('copy-lines-btn', copySelectedLines);
-    bindButton('append-to-prompt-btn', appendSelectedToPrompt);
-    bindButton('toggle-all-findings', toggleAllFindings);
-    bindButton('load-predefined-btn', loadPredefinedPrompt);
-    bindButton('attach-opinion-btn', attachOpinionToSelectedFinding);
-    bindButton('summarize-record-btn', summarizeAndRecord);
-    bindButton('send-llm-btn', sendLLMPrompt);
-    document.querySelectorAll('.toggle-section-btn').forEach(btn => {
-      btn.addEventListener('click', () => toggleSection(btn));
-    });
+    document.addEventListener('click', handleActionClick);
   }
 
   if (document.readyState === 'loading') {
