@@ -160,6 +160,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         llm_min_sev = Severity.from_string(
             llm_cfg.get("min_severity", llm_defaults.min_severity.name)
         )
+        provider_name = llm_cfg.get("provider")
         provider = None
         if provider_name:
             provider = llm_defaults.providers.get(provider_name)
@@ -177,7 +178,6 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         llm_max_excerpt = int(llm_max_excerpt)
         prompt_template_raw = llm_cfg.get("prompt_template")
         prompt_template_path = Path(prompt_template_raw) if prompt_template_raw else None
-        provider_name = llm_cfg.get("provider")
         emit_dir_raw = llm_cfg.get("emit_llm_payloads_dir", item.get("emit_llm_payloads_dir"))
         emit_dir = Path(emit_dir_raw) if emit_dir_raw else None
 
