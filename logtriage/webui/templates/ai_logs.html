@@ -266,37 +266,58 @@
 </div>
 
 <script>
-  const providerSettings = {{ provider_settings|tojson }};
+  const providerSettings = {{ provider_settings|tojson }} || {};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
   const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
   const recordedSummaries = {};
 
+  function getSelectedLines() {
+    return Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
+      .map((cb) => cb.dataset.line || cb.value || '')
+      .filter((val) => val !== undefined && val !== null && String(val).length > 0);
+  }
+
+  function setStatus(text) {
+    const status = document.getElementById('llm-status');
+    if (status) status.textContent = text || '';
+  }
+
   function copyText(text) {
-    if (!navigator.clipboard) {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    } else {
-      navigator.clipboard.writeText(text);
+    const status = document.getElementById('llm-status');
+    try {
+      if (!navigator.clipboard) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } else {
+        navigator.clipboard.writeText(text);
+      }
+      if (status) status.textContent = 'Copied to clipboard.';
+    } catch (err) {
+      if (status) status.textContent = 'Copy failed: ' + (err && err.message ? err.message : 'unknown error');
     }
   }
 
   function copySelectedLines() {
-    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
-      .map(cb => cb.dataset.line)
-      .filter(Boolean);
+    const selected = getSelectedLines();
+    if (!selected.length) {
+      setStatus('Select one or more log lines to copy.');
+      return;
+    }
     copyText(selected.join('\n'));
   }
 
   function appendSelectedToPrompt() {
-    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
-      .map(cb => cb.dataset.line)
-      .filter(Boolean);
-    if (!selected.length) return;
+    const selected = getSelectedLines();
+    if (!selected.length) {
+      setStatus('Select one or more log lines to append.');
+      return;
+    }
     appendToPrompt(selected.join('\n'));
+    setStatus(`Appended ${selected.length} line${selected.length === 1 ? '' : 's'} to the prompt.`);
   }
 
   function appendToPrompt(text) {
@@ -333,6 +354,7 @@
     if (btn) {
       btn.textContent = allCollapsed ? 'Expand entries' : 'Collapse entries';
     }
+    setStatus(allCollapsed ? 'Collapsed all findings.' : 'Expanded all findings.');
   }
 
   function loadPredefinedPrompt() {
@@ -527,39 +549,28 @@
     refreshSelectedHighlights();
   }
 
-  function handleActionClick(evt) {
-    const actionEl = evt.target.closest('[data-action]');
-    if (!actionEl) return;
+  const ACTION_HANDLERS = {
+    'copy-selected': copySelectedLines,
+    'append-selected': appendSelectedToPrompt,
+    'toggle-all': toggleAllFindings,
+    'load-predefined': loadPredefinedPrompt,
+    'attach-opinion': attachOpinionToSelectedFinding,
+    'summarize-record': summarizeAndRecord,
+    'send-llm': sendLLMPrompt,
+    'toggle-section': toggleSection,
+  };
 
-    const action = actionEl.dataset.action;
-    switch (action) {
-      case 'copy-selected':
-        copySelectedLines();
-        break;
-      case 'append-selected':
-        appendSelectedToPrompt();
-        break;
-      case 'toggle-all':
-        toggleAllFindings();
-        break;
-      case 'load-predefined':
-        loadPredefinedPrompt();
-        break;
-      case 'attach-opinion':
-        attachOpinionToSelectedFinding();
-        break;
-      case 'summarize-record':
-        summarizeAndRecord();
-        break;
-      case 'send-llm':
-        sendLLMPrompt();
-        break;
-      case 'toggle-section':
-        toggleSection(actionEl);
-        break;
-      default:
-        break;
-    }
+  function bindActionButtons() {
+    document.querySelectorAll('[data-action]').forEach((el) => {
+      const action = el.dataset.action;
+      const handler = ACTION_HANDLERS[action];
+      if (!handler) return;
+      el.addEventListener('click', (evt) => {
+        if (el.disabled) return;
+        evt.preventDefault();
+        handler(el);
+      });
+    });
   }
 
   function initPage() {
@@ -570,7 +581,7 @@
       providerSelect.addEventListener('change', updateProviderHints);
     }
     initColumnResizer();
-    document.addEventListener('click', handleActionClick);
+    bindActionButtons();
   }
 
   if (document.readyState === 'loading') {
