@@ -122,6 +122,7 @@ class ModuleLLMConfig:
     enabled: bool
     min_severity: Severity
     max_excerpt_lines: int
+    context_prefix_lines: int = 0
     prompt_template_path: Optional[Path]
     provider_name: Optional[str]
     emit_llm_payloads_dir: Optional[Path]
