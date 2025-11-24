@@ -13,6 +13,10 @@
   .chunk-summary { padding:0.5rem 0.25rem; border-bottom:1px solid #1f2530; cursor:pointer; border-radius:0.45rem; transition:background 0.15s ease, box-shadow 0.15s ease; }
   .chunk-summary:hover { background:#121a27; }
   .chunk-summary.active { box-shadow:0 0 0 1px #3f5d95; background:#111827; }
+  .chunk-summary-header { display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap; }
+  .chunk-summary-actions { display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; margin:0.35rem 0 0.1rem; }
+  .chunk-summary-stats { display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap; font-size:0.9rem; }
+  .chunk-summary-reason { font-family:monospace; font-size:0.95rem; white-space:pre-wrap; margin-top:0.25rem; }
 </style>
 <div class="card">
   <h2>Logs explorer</h2>
@@ -136,51 +140,35 @@
         {% else %}
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
             <button type="button" class="secondary" onclick="copyAllChunks()">Copy all summaries</button>
-            <form method="post" action="{{ url_for('flush_logs_db') }}" style="margin:0;">
-              <input type="hidden" name="module" value="{{ current_module.name }}">
-              <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-              <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-              <button type="submit" class="secondary" style="border-color:#5c2f2f; color:#ffcdd2;">Flush database</button>
-            </form>
           </div>
           <div style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
             {% for c in recent_chunks %}
               <div class="chunk-summary" data-chunk-summary="true" data-chunk-id="{{ c.id }}">
-                  <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:center;">
-                    <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
-                      <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
-                      <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at|localtime }}</span>
-                    </div>
-                    <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-                      <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
-                      <form method="post" action="{{ url_for('delete_chunk') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
-                        <input type="hidden" name="chunk_id" value="{{ c.id }}">
-                        <input type="hidden" name="module" value="{{ current_module.name }}">
-                        <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-                        <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                        <button type="submit" class="secondary" style="border-color:#5c2f2f; color:#ffcdd2;">Delete</button>
-                      </form>
-                      <form method="post" action="{{ url_for('mark_chunk_addressed') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
-                        <input type="hidden" name="chunk_id" value="{{ c.id }}">
-                        <input type="hidden" name="module" value="{{ current_module.name }}">
-                        <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-                        <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                        <button type="submit" class="secondary">Addressed</button>
-                      </form>
-                      {% set chunk_example = (chunk_examples.get(c.id) if chunk_examples else None) %}
-                      <form method="post" action="{{ url_for('mark_false_positive') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
-                        <input type="hidden" name="chunk_id" value="{{ c.id }}">
-                        <input type="hidden" name="module" value="{{ current_module.name }}">
-                        <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-                        <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                        <input type="hidden" name="sample_line" value="{{ (chunk_example or c.reason)|e }}">
-                        <button type="submit" class="secondary">False positive</button>
-                      </form>
-                    </div>
+                <div class="chunk-summary-header">
+                  <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+                    <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
+                    <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at|localtime }}</span>
                   </div>
-                  <div class="helper-text" style="margin:0.25rem 0; display:flex; justify-content:space-between; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-                    <span>errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</span>
-                    <form method="post" action="{{ url_for('change_chunk_severity') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                  <button type="button" class="secondary" data-summary="[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }} (errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }})" onclick="copyChunk(this)">Copy</button>
+                </div>
+                <div class="chunk-summary-actions">
+                  <form method="post" action="{{ url_for('mark_chunk_addressed') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                    <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                    <input type="hidden" name="module" value="{{ current_module.name }}">
+                    <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                    <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                    <button type="submit" class="secondary">Addressed</button>
+                  </form>
+                  {% set chunk_example = (chunk_examples.get(c.id) if chunk_examples else None) %}
+                  <form method="post" action="{{ url_for('mark_false_positive') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
+                    <input type="hidden" name="chunk_id" value="{{ c.id }}">
+                    <input type="hidden" name="module" value="{{ current_module.name }}">
+                    <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                    <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                    <input type="hidden" name="sample_line" value="{{ (chunk_example or c.reason)|e }}">
+                    <button type="submit" class="secondary">False positive</button>
+                  </form>
+                  <form method="post" action="{{ url_for('change_chunk_severity') }}" style="margin:0; display:inline-flex; gap:0.25rem; align-items:center;">
                     <input type="hidden" name="chunk_id" value="{{ c.id }}">
                     <input type="hidden" name="module" value="{{ current_module.name }}">
                     <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -188,7 +176,7 @@
                     <label class="muted" style="font-size:0.9rem;">Severity
                       <select name="severity">
                         {% for sev in severity_choices %}
-                          <option value="{{ sev }}" {% if sev == c.severity or (c.severity == 'OK' and loop.first) %}selected{% endif %}>{{ sev }}</option>
+                          <option value="{{ sev }}" {% if sev == c.severity or (c.severity == 'OK' and loop.first) %}selected{%endif %}>{{ sev }}</option>
                         {% endfor %}
                         {% if c.severity == 'OK' %}
                           <option value="{{ c.severity }}" disabled>{{ c.severity }} (addressed)</option>
@@ -198,7 +186,10 @@
                     <button type="submit" class="secondary">Update</button>
                   </form>
                 </div>
-                <div style="font-family:monospace; font-size:0.95rem; white-space:pre-wrap;">{{ c.reason }}</div>
+                <div class="chunk-summary-stats helper-text">
+                  <span>errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</span>
+                </div>
+                <div class="chunk-summary-reason">{{ c.reason }}</div>
               </div>
             {% endfor %}
           </div>
