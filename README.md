@@ -334,6 +334,13 @@ export LOGTRIAGE_CONFIG=/path/to/config.yaml
 python -m logtriage.webui
 ```
 
+### Handling findings in the Web UI
+
+When browsing findings in the **Logs** page you can quickly triage each entry:
+
+- **Mark as addressed** sets the finding's severity to `OK` in the database so it no longer appears under the default "All" or "Open" filters. Use this when the issue was real but has been fixed; the record stays in the DB for history but stops driving alerts or counts as an active problem.
+- **Mark as false positive** also sets the severity to `OK`, and additionally updates the pipeline's `classifier.ignore_regexes` in `config.yaml` with a regex generated from the sample line or finding reason. The Web UI writes the config atomically (with a `.bak` backup), reloads it in memory, and future runs will ignore matching lines so they do not recreate the same finding.
+
 ## Writing custom LLM prompts
 
 Each pipeline can point to a prompt template file via `llm.prompt_template`. The file is read once and formatted with Python
