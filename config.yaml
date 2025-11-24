@@ -1,26 +1,26 @@
 llm:
   enabled: true
   min_severity: WARNING
-  max_excerpt_lines: 500
-  max_output_tokens: 512
-  request_timeout: 30
-  temperature: 0.0
-  top_p: 1.0
   default_provider: openai
   providers:
     openai:
       api_base: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
       model: gpt-4o-mini
+      max_excerpt_lines: 500
       max_output_tokens: 512
       request_timeout: 30
       temperature: 0.2
+      top_p: 1.0
     local_vllm:
       api_base: http://localhost:8000/v1
       api_key_env: VLLM_API_KEY
       model: mistral-small
+      max_excerpt_lines: 400
       max_output_tokens: 512
       request_timeout: 60
+      temperature: 0.0
+      top_p: 1.0
 
 pipelines:
   - name: rsnapshot

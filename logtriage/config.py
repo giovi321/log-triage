@@ -87,17 +87,20 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
     min_severity = Severity.from_string(
         llm_cfg.get("min_severity", defaults.get("llm_min_severity", "WARNING"))
     )
-    max_excerpt_lines = int(
+    default_provider = llm_cfg.get("default_provider")
+
+    base_max_excerpt_lines = int(
         llm_cfg.get(
             "max_excerpt_lines",
             llm_cfg.get("max_chunk_lines", defaults.get("max_excerpt_lines", 20)),
         )
     )
-    max_output_tokens = int(llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens", 512)))
-    request_timeout = float(llm_cfg.get("request_timeout", 30.0))
-    temperature = float(llm_cfg.get("temperature", 0.0))
-    top_p = float(llm_cfg.get("top_p", 1.0))
-    default_provider = llm_cfg.get("default_provider")
+    base_max_output_tokens = int(
+        llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens", 512))
+    )
+    base_request_timeout = float(llm_cfg.get("request_timeout", 30.0))
+    base_temperature = float(llm_cfg.get("temperature", 0.0))
+    base_top_p = float(llm_cfg.get("top_p", 1.0))
 
     providers: Dict[str, LLMProviderConfig] = {}
     providers_raw = llm_cfg.get("providers", {}) or {}
@@ -114,10 +117,11 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             model=str(model),
             organization=pdata.get("organization"),
             api_version=pdata.get("api_version"),
-            request_timeout=float(pdata.get("request_timeout", request_timeout)),
-            temperature=float(pdata.get("temperature", temperature)),
-            top_p=float(pdata.get("top_p", top_p)),
-            max_output_tokens=int(pdata.get("max_output_tokens", max_output_tokens)),
+            max_excerpt_lines=int(pdata.get("max_excerpt_lines", base_max_excerpt_lines)),
+            request_timeout=float(pdata.get("request_timeout", base_request_timeout)),
+            temperature=float(pdata.get("temperature", base_temperature)),
+            top_p=float(pdata.get("top_p", base_top_p)),
+            max_output_tokens=int(pdata.get("max_output_tokens", base_max_output_tokens)),
         )
 
     if default_provider and default_provider not in providers:
@@ -128,11 +132,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
     return GlobalLLMConfig(
         enabled=enabled,
         min_severity=min_severity,
-        max_excerpt_lines=max_excerpt_lines,
-        max_output_tokens=max_output_tokens,
-        request_timeout=request_timeout,
-        temperature=temperature,
-        top_p=top_p,
         default_provider=default_provider,
         providers=providers,
     )
@@ -161,12 +160,21 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         llm_min_sev = Severity.from_string(
             llm_cfg.get("min_severity", llm_defaults.min_severity.name)
         )
-        llm_max_excerpt = int(
-            llm_cfg.get(
-                "max_excerpt_lines",
-                llm_cfg.get("max_chunk_lines", llm_defaults.max_excerpt_lines),
-            )
+        provider = None
+        if provider_name:
+            provider = llm_defaults.providers.get(provider_name)
+        elif llm_defaults.default_provider:
+            provider = llm_defaults.providers.get(llm_defaults.default_provider)
+
+        llm_max_excerpt = llm_cfg.get(
+            "max_excerpt_lines", llm_cfg.get("max_chunk_lines")
         )
+        if llm_max_excerpt is None:
+            if provider is not None:
+                llm_max_excerpt = provider.max_excerpt_lines
+            else:
+                llm_max_excerpt = 20
+        llm_max_excerpt = int(llm_max_excerpt)
         prompt_template_raw = llm_cfg.get("prompt_template")
         prompt_template_path = Path(prompt_template_raw) if prompt_template_raw else None
         provider_name = llm_cfg.get("provider")

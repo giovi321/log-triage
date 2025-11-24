@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.1rem 0; }
+  .log-line input[type="checkbox"] { margin-top:0.15rem; }
+  .log-line.selected { background:#182233; border-radius:0.4rem; padding:0.25rem 0.2rem; }
+  .log-section { border:1px solid #222a38; border-radius:0.65rem; margin-bottom:0.75rem; overflow:hidden; }
+  .log-section-header { display:flex; gap:0.5rem; align-items:center; justify-content:space-between; padding:0.45rem 0.5rem; background:#111520; border-bottom:1px solid #1f2530; }
+  .log-section-body { padding:0.35rem 0.45rem; display:flex; flex-direction:column; gap:0.1rem; }
+  .log-section.collapsed .log-section-body { display:none; }
+  .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; }
+  .log-section.highlighted-finding { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
+  .llm-response-box { border:1px solid #2b3242; border-radius:0.65rem; padding:0.65rem; background:#0f131b; min-height:140px; white-space:pre-wrap; }
+  .llm-console { display:flex; flex-direction:column; gap:0.65rem; }
+  .llm-console textarea { width:100%; min-height:140px; font-family:monospace; }
+</style>
+<div class="card">
+  <h2>LLM explorer</h2>
+  <p class="helper-text">Browse the current log tail, recent findings, and ask either LLM provider about any snippet without leaving the Web UI.</p>
+  {% if message %}
+    <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #2e4735; background:#142018; color:#b7e6c5; border-radius:0.5rem;">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+    <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #5c2f2f; background:#1c1114; color:#ffcdd2; border-radius:0.5rem;">{{ error }}</div>
+  {% endif %}
+  <form method="get" action="{{ url_for('llm_responses') }}" style="margin-bottom:0.75rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+    <label>Module:
+      <select name="module" onchange="this.form.submit()">
+        {% for m in modules %}
+          <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Tail view:
+      <select name="tail_filter" onchange="this.form.submit()">
+        <option value="all" {% if tail_filter == 'ALL' %}selected{% endif %}>All lines</option>
+        {% for sev in tail_severities %}
+          <option value="{{ sev }}" {% if tail_filter == sev %}selected{% endif %}>{{ sev }} only</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Issues:
+      <select name="issue_filter" onchange="this.form.submit()">
+        <option value="all" {% if issue_filter == 'ALL' %}selected{% endif %}>All</option>
+        <option value="active" {% if issue_filter == 'ACTIVE' %}selected{% endif %}>Active</option>
+        <option value="addressed" {% if issue_filter == 'ADDRESSED' %}selected{% endif %}>Addressed</option>
+      </select>
+    </label>
+    <label>Sample:
+      <select name="sample_source" onchange="this.form.submit()">
+        <option value="tail" {% if sample_source == 'tail' %}selected{% endif %}>Raw tail</option>
+        <option value="errors" {% if sample_source == 'errors' %}selected{% endif %}>Only finding spans</option>
+      </select>
+    </label>
+    <span class="muted">Path: {{ current_module.path if current_module else '-' }}</span>
+  </form>
+
+  {% if not modules %}
+    <p class="muted">No modules configured yet.</p>
+  {% elif not current_module %}
+    <p class="muted">Select a module to view its logs.</p>
+  {% else %}
+    <div class="grid" style="gap:1.25rem; grid-template-columns: 1.4fr 1fr; align-items:start;">
+      <div>
+        <h3>Log tail</h3>
+        {% if sample_lines %}
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;">
+            <button type="button" class="secondary" onclick="copyAllLines()">Copy all lines</button>
+            <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
+            <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse findings</button>
+            {% if tail_filter != 'ALL' %}
+              <a href="{{ url_for('llm_responses') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
+            {% endif %}
+            {% if issue_filter != 'ALL' %}
+              <a href="{{ url_for('llm_responses') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
+            {% endif %}
+          </div>
+          <div id="log-lines" style="max-height:520px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
+            {% if finding_tail %}
+              {% for section in finding_tail %}
+                <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
+                  <div class="log-section-header">
+                    {% if section.finding %}
+                      <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+                        <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
+                        <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
+                      </div>
+                      <div class="section-actions" style="flex:1; justify-content:flex-end;">
+                        <div class="helper-text" style="text-align:right;">{{ section.finding.reason }}</div>
+                        <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
+                        <button type="button" class="secondary" onclick='loadForLLM({{ finding_examples.get(section.finding.id, section.finding.reason)|tojson }})'>Use in LLM</button>
+                      </div>
+                    {% else %}
+                      <div class="muted">Tail lines</div>
+                    {% endif %}
+                  </div>
+                  <div class="log-section-body">
+                    {% for line in section.lines %}
+                      <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
+                        <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
+                        <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                        <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            {% elif had_finding_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
+              <p class="muted">No sections matched the current filters.</p>
+            {% else %}
+              {% for line in sample_lines %}
+                <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
+                  <input type="checkbox" name="selected_line" data-line="{{ line|replace('\n','')|e }}">
+                  <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
+                </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+        {% else %}
+          <p class="muted">No lines read from this log path.</p>
+        {% endif %}
+      </div>
+      <div class="grid" style="gap:1rem;">
+        <div>
+          <h3>Recent finding summaries</h3>
+          {% if not db_status.connected %}
+            <p class="muted">Database not connected; start the log-triage process with database.url configured to see finding history.</p>
+          {% elif not recent_findings %}
+            <p class="muted">No findings recorded yet for this module.</p>
+          {% else %}
+            <div style="max-height:260px; overflow:auto; border:1px solid #222a38; border-radius:0.65rem; padding:0.5rem; background:#0f131b;">
+              {% for c in recent_findings %}
+                <div class="finding-summary" data-finding-summary="true" data-finding-id="{{ c.id }}">
+                  <div class="finding-summary-header" style="display:flex; justify-content:space-between; gap:0.4rem; align-items:center;">
+                    <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+                      <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
+                      <span style="font-size:0.85rem; color:#9fb1d3;">{{ c.created_at|localtime }}</span>
+                    </div>
+                    <div style="display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center;">
+                      <button type="button" class="secondary" onclick="copyText('[{{ c.severity }}] {{ c.created_at|localtime }} — {{ c.reason }}')">Copy</button>
+                      <button type="button" class="secondary" onclick='loadForLLM({{ (c.excerpt or c.reason)|tojson }})'>Load into LLM</button>
+                    </div>
+                  </div>
+                  <div class="helper-text" style="margin-top:0.25rem;">errors: {{ c.error_count }}, warnings: {{ c.warning_count }}, lines: {{ c.line_count }}{% if c.anomaly_flag %}, anomaly{% endif %}</div>
+                  <div class="finding-summary-reason">{{ c.reason }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <div>
+          <h3>LLM console</h3>
+          {% if not providers %}
+            <p class="muted">No providers configured. Update config.yaml to add entries under llm.providers.</p>
+          {% else %}
+            <div class="llm-console">
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                <label>Provider
+                  <select id="llm-provider">
+                    {% for p in providers %}
+                      <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <div id="provider-hints" class="helper-text"></div>
+              </div>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:flex-end;">
+                <label style="flex:1;">Single line
+                  <input type="text" id="llm-single-line" placeholder="Paste one log line to ask the LLM" style="width:100%;">
+                </label>
+                <button type="button" onclick="sendSingleLine()">Send</button>
+              </div>
+              <label>Prompt body
+                <textarea id="llm-prompt" placeholder="{{ 'Paste lines or click Load into LLM to start' }}">{{ seed_prompt or '' }}</textarea>
+              </label>
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
+                <button type="button" class="secondary" onclick="clearPrompt()">Clear</button>
+                <span id="llm-status" class="muted"></span>
+              </div>
+              <div>
+                <div class="helper-text" style="margin-bottom:0.25rem;">Live response</div>
+                <div id="llm-response" class="llm-response-box muted">No LLM response yet.</div>
+                <div id="llm-usage" class="helper-text" style="margin-top:0.2rem;"></div>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  const sampleLines = {{ sample_lines|tojson }};
+  const providerSettings = {{ provider_settings|tojson }};
+
+  function copyText(text) {
+    if (!navigator.clipboard) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } else {
+      navigator.clipboard.writeText(text);
+    }
+  }
+
+  function copyAllLines() {
+    copyText(sampleLines.join('\n'));
+  }
+
+  function copySelectedLines() {
+    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
+      .map(cb => cb.dataset.line)
+      .filter(Boolean);
+    copyText(selected.join('\n'));
+  }
+
+  function refreshSelectedHighlights() {
+    document.querySelectorAll('.log-line').forEach(row => {
+      const cb = row.querySelector('input[name="selected_line"]');
+      row.classList.toggle('selected', cb && cb.checked);
+    });
+  }
+
+  document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+    cb.addEventListener('change', refreshSelectedHighlights);
+  });
+  refreshSelectedHighlights();
+
+  function toggleSection(btn) {
+    const idx = btn.dataset.sectionIndex;
+    const sections = document.querySelectorAll('.log-section');
+    const section = sections[idx];
+    if (section) {
+      section.classList.toggle('collapsed');
+      btn.textContent = section.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+    }
+  }
+
+  function toggleAllFindings() {
+    const sections = document.querySelectorAll('.log-section[data-finding-section="true"]');
+    const allCollapsed = Array.from(sections).every(sec => !sec.classList.contains('collapsed'));
+    sections.forEach(sec => {
+      sec.classList.toggle('collapsed', allCollapsed);
+    });
+    const btn = document.getElementById('toggle-all-findings');
+    if (btn) {
+      btn.textContent = allCollapsed ? 'Expand findings' : 'Collapse findings';
+    }
+  }
+
+  function loadForLLM(text) {
+    const prompt = document.getElementById('llm-prompt');
+    if (prompt) {
+      prompt.value = text;
+      prompt.focus();
+    }
+  }
+
+  function clearPrompt() {
+    const prompt = document.getElementById('llm-prompt');
+    if (prompt) {
+      prompt.value = '';
+      prompt.focus();
+    }
+    const status = document.getElementById('llm-status');
+    if (status) status.textContent = '';
+    const resp = document.getElementById('llm-response');
+    if (resp) resp.textContent = 'No LLM response yet.';
+    const usage = document.getElementById('llm-usage');
+    if (usage) usage.textContent = '';
+  }
+
+  function updateProviderHints() {
+    const select = document.getElementById('llm-provider');
+    const hints = document.getElementById('provider-hints');
+    if (!select || !hints) return;
+    const cfg = providerSettings[select.value];
+    if (!cfg) {
+      hints.textContent = '';
+      return;
+    }
+    hints.textContent = `max_excerpt_lines ${cfg.max_excerpt_lines}, max_tokens ${cfg.max_output_tokens}, temp ${cfg.temperature}, top_p ${cfg.top_p}`;
+  }
+
+  async function sendLLMPrompt() {
+    const provider = document.getElementById('llm-provider');
+    const prompt = document.getElementById('llm-prompt');
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const usage = document.getElementById('llm-usage');
+    if (!provider || !prompt || !respBox) return;
+
+    const promptText = prompt.value.trim();
+    if (!promptText) {
+      status.textContent = 'Enter a prompt to query the LLM.';
+      return;
+    }
+
+    status.textContent = 'Sending...';
+    respBox.textContent = '';
+    usage.textContent = '';
+
+    const formData = new FormData();
+    formData.append('provider', provider.value);
+    formData.append('prompt', promptText);
+
+    let responseData;
+    try {
+      const resp = await fetch('{{ url_for('llm_query') }}', { method: 'POST', body: formData });
+      responseData = await resp.json();
+      if (!resp.ok) {
+        throw new Error(responseData.error || 'Request failed');
+      }
+    } catch (err) {
+      status.textContent = err.message || 'Failed to reach LLM provider';
+      respBox.textContent = '';
+      return;
+    }
+
+    status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
+    respBox.textContent = responseData.content || '(empty response)';
+    if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
+      usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
+    }
+  }
+
+  function sendSingleLine() {
+    const single = document.getElementById('llm-single-line');
+    const prompt = document.getElementById('llm-prompt');
+    if (!single || !prompt) return;
+    prompt.value = single.value;
+    sendLLMPrompt();
+  }
+
+  updateProviderHints();
+  const providerSelect = document.getElementById('llm-provider');
+  if (providerSelect) {
+    providerSelect.addEventListener('change', updateProviderHints);
+  }
+</script>
+{% endblock %}
