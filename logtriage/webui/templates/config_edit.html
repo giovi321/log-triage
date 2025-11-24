@@ -193,9 +193,9 @@
       const trimmed = raw.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
 
-      const isListItem = trimmed.startsWith('- ');
+      const isListItem = /^-\s*/.test(trimmed);
+      const keyPart = isListItem ? trimmed.replace(/^-\s*/, '') : trimmed;
       const effectiveIndent = indent + (isListItem ? 1 : 0);
-      let keyPart = isListItem ? trimmed.slice(2).trim() : trimmed;
 
       const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
       if (!keyMatch) continue;
@@ -212,8 +212,9 @@
   function firstWordForLine(line) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return null;
-    const match = trimmed.match(/^(-\s*)?([A-Za-z0-9_-]+)/);
-    return match ? normalizeSegment(match[2]) : null;
+    const withoutDash = trimmed.replace(/^-\s*/, '');
+    const match = withoutDash.match(/^([A-Za-z0-9_-]+)/);
+    return match ? normalizeSegment(match[1]) : null;
   }
 
   function hintForLine(line) {
