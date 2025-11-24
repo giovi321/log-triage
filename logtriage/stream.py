@@ -119,7 +119,7 @@ def stream_file(
     emit_llm_dir = mod.llm.emit_llm_payloads_dir
     from_beginning = mod.stream_from_beginning
     interval = mod.stream_interval
-    llm_payload_mode = mod.llm.llm_payload_mode
+    context_prefix_lines = mod.llm.context_prefix_lines
 
     finding_index = 0
 
@@ -136,7 +136,13 @@ def stream_file(
             break
 
         findings = classify_lines(
-            pcfg, file_path, pcfg.name, lines, start_line, mod.llm.max_excerpt_lines
+            pcfg,
+            file_path,
+            pcfg.name,
+            lines,
+            start_line,
+            mod.llm.max_excerpt_lines,
+            context_prefix_lines,
         )
         for f in findings:
             f.finding_index = finding_index
@@ -165,7 +171,7 @@ def stream_file(
             if f.needs_llm:
                 analyze_findings_with_llm([f], llm_defaults, mod.llm)
             if emit_llm_dir is not None and f.needs_llm:
-                write_llm_payloads([f], mod.llm, emit_llm_dir, mode=llm_payload_mode)
+                write_llm_payloads([f], mod.llm, emit_llm_dir)
 
             if mod.alert_mqtt or mod.alert_webhook:
                 send_alerts(mod, f)

@@ -170,8 +170,7 @@ modules:
       provider: 'local_vllm'
       prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -214,8 +213,7 @@ modules:
       provider: 'openai'
       prompt_template: './prompts/homeassistant.txt'
       emit_llm_payloads_dir: './ha_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     alerts:
       mqtt:
         enabled: false
@@ -241,8 +239,7 @@ modules:
       enabled: true
       prompt_template: './prompts/nextcloud.txt'
       emit_llm_payloads_dir: './nextcloud_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     alerts:
       webhook:
         enabled: false
@@ -267,8 +264,7 @@ modules:
       enabled: true
       prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     baseline:
       enabled: false
     stream:
@@ -286,8 +282,7 @@ modules:
       enabled: true
       prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     baseline:
       enabled: false
     stream:
@@ -305,8 +300,7 @@ modules:
       enabled: true
       prompt_template: './prompts/authentik.txt'
       emit_llm_payloads_dir: './authentik_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     alerts:
       webhook:
         enabled: false
@@ -331,8 +325,7 @@ modules:
       enabled: true
       prompt_template: './prompts/jellyfin.txt'
       emit_llm_payloads_dir: './jellyfin_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     alerts:
       webhook:
         enabled: false
@@ -357,8 +350,7 @@ modules:
       enabled: true
       prompt_template: './prompts/rmfakecloud.txt'
       emit_llm_payloads_dir: './rmfakecloud_llm_payloads'
-      llm_payload_mode: 'errors_only'
-      only_last_chunk: false
+      context_prefix_lines: 2
     alerts:
       webhook:
         enabled: false

@@ -125,8 +125,7 @@ class ModuleLLMConfig:
     prompt_template_path: Optional[Path]
     provider_name: Optional[str]
     emit_llm_payloads_dir: Optional[Path]
-    llm_payload_mode: str = "full"  # "full" or "errors_only"
-    only_last_chunk: bool = False   # legacy; kept for config compatibility in findings mode
+    context_prefix_lines: int = 0
     max_output_tokens: Optional[int] = None
 
 
