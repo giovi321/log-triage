@@ -130,12 +130,18 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             f"Default LLM provider '{default_provider}' is not defined under llm.providers"
         )
 
+    summary_prompt_path_raw = llm_cfg.get("summary_prompt_path")
+    summary_prompt_path = (
+        Path(summary_prompt_path_raw) if summary_prompt_path_raw else None
+    )
+
     return GlobalLLMConfig(
         enabled=enabled,
         min_severity=min_severity,
         default_provider=default_provider,
         providers=providers,
         context_prefix_lines=base_context_prefix_lines,
+        summary_prompt_path=summary_prompt_path,
     )
 
 

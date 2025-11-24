@@ -1,0 +1,9 @@
+You will receive an AI-generated opinion about one or more log findings.
+Rewrite it as a concise note that can be stored as the saved AI opinion:
+- Keep it to 2-3 sentences and under 120 words.
+- Focus on the core issue, impact, and the most relevant evidence.
+- Avoid repeating timestamps, finding numbers, or log paths that are already tracked elsewhere.
+- Use plain language and avoid bullet points.
+
+AI opinion to summarize:
+{{OPINION}}

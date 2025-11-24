@@ -14,11 +14,14 @@
   .finding-response + .finding-response { margin-top:0.65rem; }
   .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
   .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
-  .synced-shell { border:1px solid #1a2232; border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
-  .synced-grid { display:grid; grid-template-columns: 1.1fr 1fr; gap:0.75rem; align-items:start; }
-  .synced-head { display:grid; grid-template-columns:1.1fr 1fr; gap:0.75rem; align-items:flex-end; margin-bottom:0.45rem; }
-  .synced-scroll { display:grid; grid-template-columns:1.1fr 1fr; gap:0.75rem; align-items:start; max-height:560px; overflow-y:auto; padding-right:0.25rem; }
-  .synced-pane { border:1px solid #1b2332; border-radius:0.55rem; background:#0f131b; padding:0.65rem; }
+  .synced-shell { border:1px solid #1a2232; border-radius:0.75rem; padding:0.65rem; background:#0c111a; --divider-width:8px; --finding-col:62%; --ai-col:38%; }
+  .synced-grid { display:grid; grid-template-columns: var(--finding-col) var(--ai-col); gap:0.75rem; align-items:start; }
+  .synced-head { display:grid; grid-template-columns: var(--finding-col) var(--divider-width) var(--ai-col); gap:0.75rem; align-items:flex-end; margin-bottom:0.45rem; }
+  .synced-scroll { display:grid; grid-template-columns: var(--finding-col) var(--divider-width) var(--ai-col); gap:0.75rem; align-items:start; max-height:560px; overflow-y:auto; padding-right:0.25rem; }
+  .synced-pane { border:1px solid #1b2332; border-radius:0.55rem; background:#0f131b; padding:0.65rem; min-height:100%; }
+  .synced-divider { width:var(--divider-width); cursor:col-resize; background:linear-gradient(180deg, #1e2635 0%, #1b2332 60%, #1e2635 100%); border-radius:0.4rem; position:relative; align-self:stretch; }
+  .synced-divider::after { content:''; position:absolute; top:50%; left:50%; width:3px; height:26px; transform:translate(-50%,-50%); background:#0c111a; border-radius:2px; opacity:0.9; }
+  .synced-divider-placeholder { width:var(--divider-width); }
   .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
   .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
   .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
@@ -26,12 +29,13 @@
   .log-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.35rem; }
   .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
   .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
+  .prompt-actions-row { display:grid; grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:center; }
+  .prompt-actions-row .left-actions { display:flex; gap:0.5rem; flex-wrap:wrap; }
+  .prompt-actions-row .right-actions { display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; }
   .prompt-grid textarea { height:240px; }
   .prompt-panel { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; display:flex; flex-direction:column; gap:0.4rem; height:100%; }
   .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; height:100%; }
   .llm-fixed-response { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
-  .workbench-actions { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:space-between; }
-  .workbench-actions .left-actions, .workbench-actions .right-actions { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; }
   .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
 </style>
   <div class="card">
@@ -90,10 +94,10 @@
             {% endif %}
           </div>
         </div>
+        <div class="synced-divider-placeholder" aria-hidden="true"></div>
         <div class="sync-title">
           <div>
             <h3 style="margin:0;">AI opinion</h3>
-            <div class="helper-text" style="margin-top:0.2rem;">Recorded perspectives linked to the current findings.</div>
           </div>
         </div>
       </div>
@@ -186,6 +190,7 @@
             <p class="muted">No lines read from this log path.</p>
           {% endif %}
         </div>
+        <div class="synced-divider" id="synced-divider" role="separator" aria-label="Resize opinion column"></div>
         <div class="synced-pane" id="ai-pane">
           {% if not db_status.connected %}
             <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
@@ -195,14 +200,16 @@
             {% for c in recent_findings %}
               {% set response_obj = c|attr('llm_response') %}
               {% set response_content = response_obj.content if response_obj else c|attr('llm_response_content') %}
+              {% set cleaned_response = c|attr('clean_llm_response_content') if c is not none else None %}
+              {% set display_response = cleaned_response if cleaned_response is not none else response_content %}
               <div class="finding-response" data-finding-summary="true" data-finding-id="{{ c.id }}">
                 <h4>
                   <span class="status-badge sev-{{ c.severity }}">{{ c.severity }}</span>
                   <span style="font-size:0.9rem; color:#9fb1d3;">Finding #{{ c.finding_index }} · {{ c.created_at|localtime }}</span>
                 </h4>
                 <div class="helper-text">{{ c.reason }}</div>
-                {% if response_content %}
-                  <div class="llm-body">{{ response_content }}</div>
+                {% if display_response %}
+                  <div class="llm-body">{{ display_response }}</div>
                 {% else %}
                   <p class="muted" style="margin:0;">No AI opinion saved for this finding.</p>
                 {% endif %}
@@ -216,6 +223,16 @@
 
     {% if providers %}
     <div class="llm-workbench">
+      <div class="prompt-actions-row">
+        <div class="left-actions">
+          <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
+          <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
+        </div>
+        <div class="right-actions">
+          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
+          <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
+        </div>
+      </div>
       <div class="grid prompt-grid">
         <div class="prompt-panel">
           <div class="prompt-shell">
@@ -224,10 +241,6 @@
               <span id="llm-status" class="muted"></span>
             </div>
             <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}">{{ seed_prompt or '' }}</textarea>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
-              <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
-              <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
-            </div>
             <label style="margin-top:0.35rem;">Provider
               <select id="llm-provider">
                 {% for p in providers %}
@@ -244,12 +257,6 @@
           <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
         </div>
       </div>
-      <div class="workbench-actions">
-        <div class="left-actions" style="gap:0.65rem;">
-          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
-          <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
-        </div>
-      </div>
     </div>
     {% else %}
       <p class="muted">No providers configured. Update config.yaml to add entries under llm.providers.</p>
@@ -260,6 +267,7 @@
 <script>
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
+  const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
   const recordedSummaries = {};
 
   function copyText(text) {
@@ -398,6 +406,17 @@
     await callLLM(prompt.value.trim());
   }
 
+  function buildSummaryPrompt(opinionText) {
+    const template = (summaryPromptTemplate || '').trim();
+    if (template) {
+      if (template.includes('{{OPINION}}')) {
+        return template.replace(/{{OPINION}}/g, opinionText);
+      }
+      return `${template}\n\n${opinionText}`;
+    }
+    return `Summarize the following AI opinion so it can be stored alongside a finding. Keep it concise.\n\n${opinionText}`;
+  }
+
   async function summarizeAndRecord() {
     const respBox = document.getElementById('llm-response');
     const status = document.getElementById('llm-status');
@@ -407,7 +426,7 @@
       if (status) status.textContent = 'No AI opinion to summarize yet.';
       return;
     }
-    const summaryPrompt = `Summarize the following AI opinion so it can be stored alongside a finding. Keep it concise.\n\n${responseText}`;
+    const summaryPrompt = buildSummaryPrompt(responseText);
     const data = await callLLM(summaryPrompt);
     if (!data) return;
     if (!targetFinding) {
@@ -456,10 +475,49 @@
     if (status) status.textContent = 'AI opinion attached to finding #' + targetFinding;
   }
 
+  function initColumnResizer() {
+    const shell = document.querySelector('.synced-shell');
+    const scrollGrid = document.getElementById('synced-scroll');
+    const divider = document.getElementById('synced-divider');
+    if (!shell || !scrollGrid || !divider) return;
+
+    let isDragging = false;
+
+    const applyColumns = (leftPercent) => {
+      const clampedLeft = Math.min(Math.max(leftPercent, 40), 80);
+      const rightPercent = 100 - clampedLeft;
+      shell.style.setProperty('--finding-col', `${clampedLeft}%`);
+      shell.style.setProperty('--ai-col', `${rightPercent}%`);
+    };
+
+    const handleMove = (evt) => {
+      if (!isDragging) return;
+      const rect = scrollGrid.getBoundingClientRect();
+      const offsetX = evt.clientX - rect.left;
+      const total = rect.width;
+      if (total <= 0) return;
+      const leftPercent = (offsetX / total) * 100;
+      applyColumns(leftPercent);
+    };
+
+    divider.addEventListener('mousedown', (evt) => {
+      isDragging = true;
+      evt.preventDefault();
+      document.addEventListener('mousemove', handleMove);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      document.removeEventListener('mousemove', handleMove);
+    });
+  }
+
   updateProviderHints();
   const providerSelect = document.getElementById('llm-provider');
   if (providerSelect) {
     providerSelect.addEventListener('change', updateProviderHints);
   }
+  initColumnResizer();
 </script>
 {% endblock %}

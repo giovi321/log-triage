@@ -56,6 +56,46 @@ def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
 templates.env.filters["localtime"] = _format_local_timestamp
 
 
+def _clean_opinion_text(opinion_text: Optional[str], finding: Any) -> str:
+    if not opinion_text:
+        return ""
+
+    text = (opinion_text or "").strip()
+    if not text:
+        return ""
+
+    finding_index = getattr(finding, "finding_index", None)
+    severity = str(getattr(finding, "severity", "") or "").upper()
+    reason = (getattr(finding, "reason", "") or "").strip()
+
+    if finding_index is not None:
+        text = re.sub(
+            rf"\b{severity}\b\s*Finding\s*#?{finding_index}\b[^\n]*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        ).strip()
+        text = re.sub(
+            rf"\bFinding\s*#?{finding_index}\b[:\-\s·]*",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        ).strip()
+
+    text = re.sub(
+        r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\s*\w+)?",
+        "",
+        text,
+    ).strip(" ·-\n\t")
+
+    if reason:
+        text = re.sub(re.escape(reason), "", text, flags=re.IGNORECASE).strip()
+
+    text = re.sub(r"\s{2,}", " ", text).strip()
+
+    return text or opinion_text.strip()
+
+
 db_status: Dict[str, Any] = {
     "configured": False,
     "connected": False,
@@ -642,6 +682,14 @@ def _build_log_view_state(
         )
         recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
         had_recent_findings = bool(recent_findings)
+        for record in recent_findings:
+            response_obj = getattr(record, "llm_response", None)
+            response_content = (
+                response_obj.content if response_obj else getattr(record, "llm_response_content", None)
+            )
+            record.clean_llm_response_content = _clean_opinion_text(
+                response_content, record
+            )
         finding_tail = _build_finding_tail(sample_lines, recent_findings)
         finding_line_examples = _finding_line_examples(finding_tail)
         had_finding_tail = bool(finding_tail)
@@ -745,6 +793,7 @@ async def ai_logs(
 
     seed_prompt = None
     module_prompt_template = None
+    summary_prompt_template = None
     if module_obj is not None and log_state["recent_findings"]:
         max_lines = provider_cfg.max_excerpt_lines if provider_cfg else 20
         seed_prompt = _finding_excerpt_preview(log_state["recent_findings"][0], max_lines)
@@ -755,6 +804,11 @@ async def ai_logs(
                 module_prompt_template = Path(template_path).read_text()
             except Exception:
                 module_prompt_template = None
+    if getattr(llm_defaults, "summary_prompt_path", None):
+        try:
+            summary_prompt_template = Path(llm_defaults.summary_prompt_path).read_text()
+        except Exception:
+            summary_prompt_template = None
 
     return templates.TemplateResponse(
         "ai_logs.html",
@@ -772,6 +826,7 @@ async def ai_logs(
             "selected_provider": provider_name,
             "seed_prompt": seed_prompt,
             "module_prompt_template": module_prompt_template,
+            "summary_prompt_template": summary_prompt_template,
             "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
         },
     )
