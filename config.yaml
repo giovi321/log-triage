@@ -125,7 +125,7 @@ pipelines:
 
   - name: apache2_access
     match:
-      filename_regex: '*access\\.log'
+      filename_regex: '.*access\\.log'
     grouping:
       type: 'whole_file'
     classifier:
@@ -142,7 +142,7 @@ pipelines:
 
   - name: apache2_error
     match:
-      filename_regex: '*error\\.log'
+      filename_regex: '.*error\\.log'
     grouping:
       type: 'whole_file'
     classifier:

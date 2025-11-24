@@ -34,10 +34,30 @@ def load_config(path: Path) -> Dict[str, Any]:
     return data
 
 
-def _compile_regex(pattern: Optional[str]) -> Optional[re.Pattern]:
+def _compile_regex(
+    pattern: Optional[str], *, flags: int = 0, context: str = "regex"
+) -> Optional[re.Pattern]:
+    """Compile a regex pattern with clearer error messages.
+
+    Args:
+        pattern: The pattern to compile.
+        flags: Optional flags passed to ``re.compile``.
+        context: A human-friendly string describing where the pattern came from.
+
+    Returns:
+        A compiled ``re.Pattern`` or ``None`` if ``pattern`` is falsy.
+
+    Raises:
+        ValueError: If the pattern is invalid.
+    """
+
     if not pattern:
         return None
-    return re.compile(pattern)
+
+    try:
+        return re.compile(pattern, flags)
+    except re.error as exc:  # pragma: no cover - defensive validation
+        raise ValueError(f"Invalid {context}: {pattern!r} ({exc})") from exc
 
 
 def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
@@ -49,14 +69,25 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
 
         match_cfg = item.get("match", {}) or {}
         filename_regex = match_cfg.get("filename_regex", ".*")
-        match_filename_regex = re.compile(filename_regex)
+        match_filename_regex = _compile_regex(
+            filename_regex, context=f"filename_regex for pipeline '{name}'"
+        )
 
         classifier_cfg = item.get("classifier", {}) or {}
         classifier_type = classifier_cfg.get("type", "regex_counter")
 
         def _compile_list(key: str) -> List[re.Pattern]:
             patterns = classifier_cfg.get(key, []) or []
-            return [re.compile(pat, re.IGNORECASE) for pat in patterns]
+            compiled: List[re.Pattern] = []
+            for pat in patterns:
+                compiled_pattern = _compile_regex(
+                    pat,
+                    flags=re.IGNORECASE,
+                    context=f"{key} for pipeline '{name}' classifier",
+                )
+                if compiled_pattern is not None:
+                    compiled.append(compiled_pattern)
+            return compiled
 
         error_regexes = _compile_list("error_regexes")
         warning_regexes = _compile_list("warning_regexes")
