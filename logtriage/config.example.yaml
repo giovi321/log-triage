@@ -74,9 +74,10 @@ modules:
     pipeline: "rsnapshot"
     output_format: "json"
     min_print_severity: "INFO"
-    emit_llm_payloads_dir: "./rsnapshot_payloads"
-    llm_payload_mode: "errors_only"
-    only_last_chunk: true
+    llm:
+      emit_llm_payloads_dir: "./rsnapshot_payloads"
+      llm_payload_mode: "errors_only"
+      only_last_chunk: true
     exit_code_by_severity:
       OK: 0
       INFO: 0
@@ -114,9 +115,10 @@ modules:
     pipeline: "homeassistant"
     output_format: "text"
     min_print_severity: "WARNING"
-    emit_llm_payloads_dir: "./ha_llm_payloads"
-    llm_payload_mode: "errors_only"
-    only_last_chunk: false
+    llm:
+      emit_llm_payloads_dir: "./ha_llm_payloads"
+      llm_payload_mode: "errors_only"
+      only_last_chunk: false
     alerts:
       mqtt:
         enabled: true
@@ -136,6 +138,7 @@ modules:
     mode: "batch"
     output_format: "json"
     min_print_severity: "INFO"
-    emit_llm_payloads_dir: "./llm_payloads"
-    llm_payload_mode: "full"
-    only_last_chunk: false
+    llm:
+      emit_llm_payloads_dir: "./llm_payloads"
+      llm_payload_mode: "full"
+      only_last_chunk: false

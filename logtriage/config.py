@@ -123,20 +123,23 @@ def build_modules(cfg: Dict[str, Any]) -> List[ModuleConfig]:
 
         min_sev = Severity.from_string(item.get("min_print_severity", "INFO"))
 
-        emit_dir_raw = item.get("emit_llm_payloads_dir")
+        llm_cfg = item.get("llm", {}) or {}
+
+        emit_dir_raw = llm_cfg.get("emit_llm_payloads_dir", item.get("emit_llm_payloads_dir"))
         emit_dir = Path(emit_dir_raw) if emit_dir_raw else None
 
         stream_cfg = item.get("stream", {}) or {}
         stream_from_beginning = bool(stream_cfg.get("from_beginning", False))
         stream_interval = float(stream_cfg.get("interval", 1.0))
 
-        llm_mode = item.get("llm_payload_mode", "full").lower()
+        llm_mode_raw = llm_cfg.get("llm_payload_mode", item.get("llm_payload_mode", "full"))
+        llm_mode = str(llm_mode_raw).lower()
         if llm_mode not in ("full", "errors_only"):
             raise ValueError(
                 f"Module {name}: invalid llm_payload_mode {llm_mode} (expected 'full' or 'errors_only')"
             )
 
-        only_last_chunk = bool(item.get("only_last_chunk", False))
+        only_last_chunk = bool(llm_cfg.get("only_last_chunk", item.get("only_last_chunk", False)))
 
         exit_map_raw = item.get("exit_code_by_severity")
         exit_map = None
