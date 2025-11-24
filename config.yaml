@@ -108,6 +108,31 @@ pipelines:
       max_excerpt_lines: 500
       prompt_template: './prompts/rmfakecloud.txt'
 
+  - name: jellyfin
+    match:
+      filename_regex: 'jellyfin.*\\.log'
+    grouping:
+      type: 'whole_file'
+    classifier:
+      type: 'regex_counter'
+      error_regexes:
+        - '\\[ERR\\]'
+        - 'UnauthorizedAccessException'
+        - 'Permission denied'
+        - 'Access to the path .* is denied'
+        - 'Error in metadata saver'
+      warning_regexes:
+        - '\\[WRN\\]'
+        - '\\bwarning\\b'
+      ignore_regexes:
+        - 'Optimizing and vacuuming jellyfin.db'
+        - 'jellyfin.db optimized successfully'
+    llm:
+      enabled: true
+      min_severity: WARNING
+      max_excerpt_lines: 1000
+      prompt_template: './prompts/jellyfin.txt'
+
   - name: apache2_access
     match:
       filename_regex: '*access\\.log'
@@ -307,6 +332,30 @@ modules:
     min_print_severity: 'WARNING'
     llm:
       emit_llm_payloads_dir: './authentik_llm_payloads'
+      llm_payload_mode: 'errors_only'
+      only_last_chunk: false
+    alerts:
+      webhook:
+        enabled: false
+        url: ''
+        method: 'POST'
+        min_severity: 'ERROR'
+        headers: {}
+    baseline:
+      enabled: false
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  - name: jellyfin
+    enabled: true
+    path: '/var/log/fluent-bit/jellyfin.log'
+    mode: 'follow'
+    pipeline: 'jellyfin'
+    output_format: 'text'
+    min_print_severity: 'WARNING'
+    llm:
+      emit_llm_payloads_dir: './jellyfin_llm_payloads'
       llm_payload_mode: 'errors_only'
       only_last_chunk: false
     alerts:
