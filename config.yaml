@@ -193,7 +193,7 @@ modules:
     min_print_severity: 'WARNING'
     llm:
       enabled: false
-      provider: 'openai'
+      provider: 'local_vllm'
       prompt_template: './prompts/homeassistant.txt'
       emit_llm_payloads_dir: './ha_llm_payloads'
       context_prefix_lines: 2
@@ -220,6 +220,7 @@ modules:
     min_print_severity: 'WARNING'
     llm:
       enabled: false
+      provider: 'local_vllm'
       prompt_template: './prompts/nextcloud.txt'
       emit_llm_payloads_dir: './nextcloud_llm_payloads'
       context_prefix_lines: 2
@@ -244,6 +245,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      provider: 'local_vllm'
       enabled: false
       prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
@@ -262,6 +264,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'INFO'
     llm:
+      provider: 'local_vllm'
       enabled: true
       prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
@@ -280,6 +283,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      provider: 'local_vllm'
       enabled: false
       prompt_template: './prompts/authentik.txt'
       emit_llm_payloads_dir: './authentik_llm_payloads'
@@ -305,6 +309,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      provider: 'local_vllm'
       enabled: false
       prompt_template: './prompts/jellyfin.txt'
       emit_llm_payloads_dir: './jellyfin_llm_payloads'
@@ -330,6 +335,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
+      provider: 'local_vllm'
       enabled: false
       prompt_template: './prompts/rmfakecloud.txt'
       emit_llm_payloads_dir: './rmfakecloud_llm_payloads'
