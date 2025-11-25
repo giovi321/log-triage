@@ -7,15 +7,15 @@ llm:
     openai:
       api_base: https://api.openai.com/v1
       api_key_env: OPENAI_API_KEY
-      model: gpt-4o-mini
+      model: gpt-5-mini
       max_excerpt_lines: 500
       max_output_tokens: 512
-      request_timeout: 30
+      request_timeout: 45
       temperature: 0.2
       top_p: 1.0
     local_vllm:
       api_base: http://192.168.56.106:8000/v1
-      api_key_env: PLAVEHOLDER
+      api_key_env:
       model: TheBloke/Mistral-7B-Instruct-v0.1-GPTQ
       max_excerpt_lines: 400
       max_output_tokens: 2048
@@ -149,7 +149,7 @@ modules:
     output_format: 'json'
     min_print_severity: 'INFO'
     llm:
-      enabled: true
+      enabled: false
       provider: 'local_vllm'
       prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
@@ -192,7 +192,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
-      enabled: true
+      enabled: false
       provider: 'openai'
       prompt_template: './prompts/homeassistant.txt'
       emit_llm_payloads_dir: './ha_llm_payloads'
@@ -219,7 +219,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
-      enabled: true
+      enabled: false
       prompt_template: './prompts/nextcloud.txt'
       emit_llm_payloads_dir: './nextcloud_llm_payloads'
       context_prefix_lines: 2
@@ -244,7 +244,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
-      enabled: true
+      enabled: false
       prompt_template: './prompts/apache2.txt'
       emit_llm_payloads_dir: './apache_llm_payloads'
       context_prefix_lines: 2
@@ -280,7 +280,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
-      enabled: true
+      enabled: false
       prompt_template: './prompts/authentik.txt'
       emit_llm_payloads_dir: './authentik_llm_payloads'
       context_prefix_lines: 2
@@ -305,7 +305,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
-      enabled: true
+      enabled: false
       prompt_template: './prompts/jellyfin.txt'
       emit_llm_payloads_dir: './jellyfin_llm_payloads'
       context_prefix_lines: 2
@@ -330,7 +330,7 @@ modules:
     output_format: 'text'
     min_print_severity: 'WARNING'
     llm:
-      enabled: true
+      enabled: false
       prompt_template: './prompts/rmfakecloud.txt'
       emit_llm_payloads_dir: './rmfakecloud_llm_payloads'
       context_prefix_lines: 2
