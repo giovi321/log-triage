@@ -276,35 +276,40 @@ def get_module_stats() -> Dict[str, ModuleStats]:
     stats: Dict[str, ModuleStats] = {}
 
     try:
-        activity_rows = sess.query(ModuleActivity).all()
-        activities = {row.module_name: row.last_seen for row in activity_rows}
-    except Exception:
-        activities = {}
+        try:
+            activity_rows = sess.query(ModuleActivity).all()
+            activities = {row.module_name: row.last_seen for row in activity_rows}
+        except Exception:
+            activities = {}
 
-    try:
-        rows = (
-            sess.query(FindingRecord)
-            .filter(FindingRecord.created_at >= window_start)
-            .order_by(FindingRecord.module_name, FindingRecord.created_at.asc())
-            .all()
-        )
-        for row in rows:
-            s = stats.get(row.module_name)
-            if s is None:
-                s = ModuleStats(
-                    module_name=row.module_name,
-                    last_severity=None,
-                    last_seen=None,
-                    errors_24h=0,
-                    warnings_24h=0,
-                )
-                stats[row.module_name] = s
-            sev = (row.severity or "").upper()
-            if sev in ("ERROR", "CRITICAL"):
-                s.errors_24h += 1
-            elif sev == "WARNING":
-                s.warnings_24h += 1
-            s.last_severity = row.severity
+        try:
+            rows = (
+                sess.query(FindingRecord)
+                .filter(FindingRecord.created_at >= window_start)
+                .order_by(FindingRecord.module_name, FindingRecord.created_at.asc())
+                .all()
+            )
+            for row in rows:
+                s = stats.get(row.module_name)
+                if s is None:
+                    s = ModuleStats(
+                        module_name=row.module_name,
+                        last_severity=None,
+                        last_seen=None,
+                        errors_24h=0,
+                        warnings_24h=0,
+                    )
+                    stats[row.module_name] = s
+                sev = (row.severity or "").upper()
+                if sev in ("ERROR", "CRITICAL"):
+                    s.errors_24h += 1
+                elif sev == "WARNING":
+                    s.warnings_24h += 1
+                s.last_severity = row.severity
+                if row.created_at and (s.last_seen is None or row.created_at > s.last_seen):
+                    s.last_seen = row.created_at
+        except Exception:
+            pass
 
         for mod_name, seen_at in activities.items():
             s = stats.get(mod_name)
@@ -320,8 +325,6 @@ def get_module_stats() -> Dict[str, ModuleStats]:
             else:
                 if s.last_seen is None or (seen_at and seen_at > s.last_seen):
                     s.last_seen = seen_at
-    except Exception:
-        return {}
     finally:
         sess.close()
 
