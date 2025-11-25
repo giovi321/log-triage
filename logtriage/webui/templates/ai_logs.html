@@ -24,17 +24,17 @@
   .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
   .finding-controls select { min-width:120px; }
   .log-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.35rem; }
-  .log-actions { align-items:center; flex-wrap:nowrap; overflow-x:auto; padding-bottom:0.15rem; }
+  .log-actions { align-items:center; flex-wrap:nowrap; overflow-x:auto; overflow-y:visible; padding-bottom:0.15rem; position:relative; z-index:950; }
   .log-actions > * { white-space:nowrap; }
   .context-toggle { display:flex; align-items:center; gap:0.35rem; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
   .context-toggle .chip-group { display:inline-flex; gap:0.3rem; }
   .context-toggle button { padding:0.3rem 0.6rem; border-radius:0.4rem; background:#182033; border:1px solid #27324a; color:#dfe7f4; }
   .context-toggle button.active { background:#2e4472; border-color:#3c5c98; }
-  .selection-box { display:flex; align-items:center; gap:0.35rem; position:relative; z-index:900; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
+  .selection-box { display:flex; align-items:center; gap:0.35rem; position:relative; z-index:1100; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
   .selection-box .muted { font-size:0.9rem; }
-  .action-menu { position:relative; }
+  .action-menu { position:relative; z-index:1200; }
   .action-menu button.menu-trigger { display:inline-flex; align-items:center; gap:0.35rem; }
-  .action-menu .menu-panel { position:absolute; top:calc(100% + 0.35rem); right:0; background:#0f131b; border:1px solid #2b3242; border-radius:0.4rem; padding:0.35rem; box-shadow:0 10px 26px rgba(0,0,0,0.35); min-width:0; display:none; z-index:910; }
+  .action-menu .menu-panel { position:absolute; top:calc(100% + 0.35rem); right:0; background:#0f131b; border:1px solid #2b3242; border-radius:0.4rem; padding:0.35rem; box-shadow:0 10px 26px rgba(0,0,0,0.35); min-width:0; display:none; z-index:1300; }
   .action-menu.open .menu-panel { display:flex; flex-wrap:wrap; gap:0.3rem; }
   .action-menu .menu-panel button { flex:1 1 auto; min-width:90px; justify-content:center; background:#182033; border:1px solid #27324a; }
   .action-menu .menu-panel button:hover { background:#23355a; }
