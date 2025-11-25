@@ -32,6 +32,13 @@
   .context-toggle button.active { background:#2e4472; border-color:#3c5c98; }
   .selection-box { display:flex; align-items:center; gap:0.35rem; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
   .selection-box .muted { font-size:0.9rem; }
+  .action-menu { position:relative; }
+  .action-menu button.menu-trigger { display:inline-flex; align-items:center; gap:0.35rem; }
+  .action-menu .menu-panel { position:absolute; bottom:calc(100% + 0.35rem); right:0; background:#0f131b; border:1px solid #2b3242; border-radius:0.4rem; padding:0.35rem; box-shadow:0 10px 26px rgba(0,0,0,0.35); min-width:0; display:none; z-index:8; }
+  .action-menu.open .menu-panel { display:flex; flex-wrap:wrap; gap:0.3rem; }
+  .action-menu .menu-panel button { flex:1 1 auto; min-width:90px; justify-content:center; background:#182033; border:1px solid #27324a; }
+  .action-menu .menu-panel button:hover { background:#23355a; }
+  button.danger { background:#7d3434; border:1px solid #a35f5f; color:#f8eaea; box-shadow:none; }
   .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
   .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
   .prompt-grid textarea { height:240px; }
@@ -85,9 +92,22 @@
           <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
           <button type="button" class="secondary" onclick="copySelectedLines()">Copy</button>
           <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
-          <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
+          <div class="action-menu" id="mark-finding-menu">
+            <button type="button" class="secondary menu-trigger" id="mark-finding-trigger" aria-haspopup="true" aria-expanded="false" onclick="toggleSeverityMenu()" {% if not current_module or not db_status.connected %}disabled{% endif %}>
+              <span id="mark-finding-label">Mark as finding</span>
+            </button>
+            <div class="menu-panel" id="mark-finding-panel" role="menu" aria-label="Choose severity">
+              {% for sev in severity_choices %}
+                <button type="button" role="menuitem" onclick="submitManualFinding('{{ sev }}')">{{ sev }}</button>
+              {% endfor %}
+              {% if not severity_choices %}
+                <button type="button" role="menuitem" onclick="submitManualFinding('ERROR')">ERROR</button>
+              {% endif %}
+            </div>
+          </div>
+          <button type="button" class="danger" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
         </div>
-        <form class="selection-box" id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}">
+        <form id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}" style="display:none;">
           <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
           <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
           <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -95,7 +115,6 @@
           <input type="hidden" name="sample_source" value="{{ sample_source }}">
           <input type="hidden" name="lines" id="manual-finding-lines">
           <input type="hidden" name="line_indexes" id="manual-finding-indexes">
-          <button type="button" class="secondary" onclick="submitManualFinding()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Mark as finding</button>
         </form>
         <div class="context-toggle" id="context-toggle">
           <span class="muted" style="font-size:0.92rem;">Include 3</span>
@@ -105,7 +124,6 @@
           </div>
           <span class="muted" style="font-size:0.92rem;">lines to prompt</span>
         </div>
-      <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse entries</button>
       {% if issue_filter != 'ALL' %}
         <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
       {% endif %}
@@ -474,7 +492,27 @@
       return;
     }
     const allChecked = boxes.every(cb => cb.checked);
-    btn.textContent = allChecked ? 'Clear all' : 'Select all';
+    btn.textContent = allChecked ? 'Deselect all' : 'Select all';
+  }
+
+  function toggleSeverityMenu(forceState = null) {
+    const menu = document.getElementById('mark-finding-menu');
+    const trigger = document.getElementById('mark-finding-trigger');
+    if (!menu || !trigger || trigger.disabled) return;
+    const shouldOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+  }
+
+  function closeSeverityMenu() {
+    toggleSeverityMenu(false);
+  }
+
+  function setManualFindingLabel() {
+    const label = document.getElementById('mark-finding-label');
+    if (label) {
+      label.textContent = 'Mark as finding';
+    }
   }
 
   function toggleSection(btn) {
@@ -484,18 +522,6 @@
     if (section) {
       section.classList.toggle('collapsed');
       btn.textContent = section.classList.contains('collapsed') ? 'Expand' : 'Collapse';
-    }
-  }
-
-  function toggleAllFindings() {
-    const sections = document.querySelectorAll('.log-section[data-finding-section="true"]');
-    const allCollapsed = Array.from(sections).every(sec => !sec.classList.contains('collapsed'));
-    sections.forEach(sec => {
-      sec.classList.toggle('collapsed', allCollapsed);
-    });
-    const btn = document.getElementById('toggle-all-findings');
-    if (btn) {
-      btn.textContent = allCollapsed ? 'Expand entries' : 'Collapse entries';
     }
   }
 
@@ -690,7 +716,7 @@
     }));
   }
 
-  function submitManualFinding() {
+  function submitManualFinding(severity = null) {
     const form = document.getElementById('manual-finding-form');
     if (!form) return;
     const selected = getSelectedLineData();
@@ -703,6 +729,11 @@
       alert('Selected lines did not include any content.');
       return;
     }
+    const severityField = document.getElementById('manual-finding-severity');
+    if (severityField && severity) {
+      severityField.value = severity;
+      setManualFindingLabel();
+    }
     const indexes = selected
       .map(item => Number.parseInt(item.index, 10))
       .filter(idx => !Number.isNaN(idx));
@@ -711,9 +742,29 @@
     const indexesField = document.getElementById('manual-finding-indexes');
     if (linesField) linesField.value = lines.join('\n');
     if (indexesField) indexesField.value = indexes.join(',');
-
+    closeSeverityMenu();
     form.submit();
   }
+
+  function updateManualFindingSeed() {
+    setManualFindingLabel();
+  }
+
+  document.addEventListener('click', event => {
+    const menu = document.getElementById('mark-finding-menu');
+    if (!menu) return;
+    if (!menu.contains(event.target)) {
+      closeSeverityMenu();
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      closeSeverityMenu();
+    }
+  });
+
+  updateManualFindingSeed();
 
   updateProviderHints();
   const providerSelect = document.getElementById('llm-provider');
