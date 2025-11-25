@@ -75,24 +75,7 @@ def classify_rsnapshot_basic(
                     )
                 )
 
-    m = re.search(r"exit\s+code\s*=\s*(\d+)", joined_all)
-    if m:
-        exit_code = int(m.group(1))
-        severity = Severity.ERROR if exit_code != 0 else Severity.OK
-        findings.append(
-            Finding(
-                file_path=file_path,
-                pipeline_name=pipeline_name,
-                finding_index=len(findings),
-                severity=severity,
-                message=f"rsnapshot exit code {exit_code}",
-                line_start=start_line,
-                line_end=start_line + len(lines) - 1,
-                rule_id="exit_code",
-                excerpt=lines[:excerpt_limit],
-            )
-        )
-    elif not findings and joined_all.strip():
+    if not findings and joined_all.strip():
         findings.append(
             Finding(
                 file_path=file_path,

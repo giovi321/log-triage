@@ -13,7 +13,6 @@ It works per *module* defined in a YAML config file. Each module describes:
 - which pipeline (rules) to apply
 - when to prepare LLM payloads
 - how to print the summary
-- optionally, which exit code to use for automation
 - optionally, how to send alerts (webhook / MQTT)
 - optionally, how to use a baseline to detect anomalies
 - optionally, how to store summaries in a database and show them in a Web UI
@@ -56,7 +55,6 @@ pip install '.[webui,mqtt]'
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Per-module options for:
   - context lines included ahead of each finding (`llm.context_prefix_lines`)
-  - mapping highest severity to process exit code (`exit_code_by_severity`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)
   - baseline / anomaly detection (`baseline` block)
 - Optional SQL database integration for storing per-finding records (SQLite or Postgres)
@@ -189,12 +187,6 @@ modules:
       prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
       context_prefix_lines: 2
-    exit_code_by_severity:
-      OK: 0
-      INFO: 0
-      WARNING: 1
-      ERROR: 2
-      CRITICAL: 3
 
   - name: homeassistant_follow
     enabled: true

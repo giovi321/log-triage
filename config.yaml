@@ -154,12 +154,6 @@ modules:
       prompt_template: './prompts/rsnapshot.txt'
       emit_llm_payloads_dir: './rsnapshot_payloads'
       context_prefix_lines: 2
-    exit_code_by_severity:
-      OK: 0
-      INFO: 0
-      WARNING: 1
-      ERROR: 2
-      CRITICAL: 3
     alerts:
       webhook:
         enabled: false

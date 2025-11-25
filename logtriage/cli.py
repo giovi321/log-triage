@@ -227,20 +227,6 @@ def main(argv: Optional[List[str]] = None) -> None:
             inspect_chunks(mod, pipelines)
             return
 
-        # If a single batch module has an exit_code_by_severity mapping,
-        # run it and exit with the mapped code based on highest severity.
-        if len(modules_to_run) == 1:
-            mod = modules_to_run[0]
-            if mod.mode == "batch" and mod.exit_code_by_severity:
-                findings = run_module_batch(mod, pipelines, llm_defaults)
-                if findings:
-                    highest = max((c.severity for c in findings), default=Severity.UNKNOWN)
-                else:
-                    highest = Severity.UNKNOWN
-                exit_code = mod.exit_code_by_severity.get(highest, 0)
-                sys.exit(exit_code)
-            # else: fall through to normal behavior
-
         has_follow_module = any(mod.mode == "follow" for mod in modules_to_run)
 
         for mod in modules_to_run:
