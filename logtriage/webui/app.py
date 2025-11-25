@@ -30,7 +30,6 @@ from .db import (
     get_module_stats,
     get_next_finding_index,
     setup_database,
-    get_latest_finding_time,
     get_recent_findings_for_module,
     update_finding_llm_data,
     update_finding_severity,
@@ -156,6 +155,73 @@ def _build_modules_from_config() -> List[ModuleConfig]:
     return build_modules(raw_config, llm_defaults)
 
 
+def _derive_ingestion_status(
+    modules: List[ModuleConfig],
+    stats: Dict[str, Any],
+    now: Optional[datetime.datetime] = None,
+    freshness_minutes: int = 10,
+) -> Dict[str, Any]:
+    """Compute a traffic-light style indicator for log ingestion freshness.
+
+    We rely on module activity heartbeats (last_seen) rather than findings so that
+    modules without recent findings still contribute to freshness.
+    """
+
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
+    freshness_window = datetime.timedelta(minutes=freshness_minutes)
+
+    enabled_modules = [m.name for m in modules if m.enabled]
+    if not enabled_modules:
+        return {
+            "state_class": "warn",
+            "message": "No enabled modules",
+            "stale_modules": [],
+            "latest_seen": None,
+        }
+
+    latest_seen: Optional[datetime.datetime] = None
+    stale_modules: List[str] = []
+
+    for mod_name in enabled_modules:
+        mod_stats = stats.get(mod_name)
+        last_seen = getattr(mod_stats, "last_seen", None)
+        if last_seen and last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=datetime.timezone.utc)
+
+        if last_seen and (latest_seen is None or last_seen > latest_seen):
+            latest_seen = last_seen
+
+        if last_seen is None or (now - last_seen) > freshness_window:
+            stale_modules.append(mod_name)
+
+    if latest_seen is None:
+        return {
+            "state_class": "error",
+            "message": "No log activity recorded",
+            "stale_modules": enabled_modules,
+            "latest_seen": None,
+        }
+
+    if not stale_modules:
+        state_class = "ok"
+        message = f"Logs updating (within {freshness_minutes}m)"
+    elif len(stale_modules) == len(enabled_modules):
+        state_class = "error"
+        message = f"No recent log updates (> {freshness_minutes}m)"
+    else:
+        state_class = "warn"
+        message = f"Some modules stale (> {freshness_minutes}m)"
+
+    return {
+        "state_class": state_class,
+        "message": message,
+        "stale_modules": stale_modules,
+        "latest_seen": latest_seen,
+    }
+
+
 def _render_config_editor(
     request: Request,
     username: str,
@@ -279,8 +345,8 @@ async def dashboard(request: Request):
         key=lambda m: (not m.enabled, m.name.lower()),
     )
     stats = get_module_stats()
-    latest_finding_at = get_latest_finding_time()
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
+    ingestion_status = _derive_ingestion_status(modules, stats, now=page_rendered_at)
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -289,8 +355,8 @@ async def dashboard(request: Request):
             "modules": modules,
             "stats": stats,
             "db_status": db_status,
-            "latest_finding_at": latest_finding_at,
             "page_rendered_at": page_rendered_at,
+            "ingestion_status": ingestion_status,
         },
     )
 
