@@ -24,6 +24,12 @@
   .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
   .finding-controls select { min-width:120px; }
   .log-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.35rem; }
+  .log-actions { align-items:center; flex-wrap:nowrap; overflow-x:auto; padding-bottom:0.15rem; }
+  .log-actions > * { white-space:nowrap; }
+  .context-toggle { display:flex; align-items:center; gap:0.35rem; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
+  .context-toggle .chip-group { display:inline-flex; gap:0.3rem; }
+  .context-toggle button { padding:0.3rem 0.6rem; border-radius:0.4rem; background:#182033; border:1px solid #27324a; color:#dfe7f4; }
+  .context-toggle button.active { background:#2e4472; border-color:#3c5c98; }
   .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
   .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
   .prompt-grid textarea { height:240px; }
@@ -31,11 +37,6 @@
   .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; height:100%; }
   .llm-fixed-response { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
   .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
-  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:none; align-items:center; justify-content:center; z-index:20; }
-  .modal-panel { background:#0f131b; border:1px solid #2b3242; border-radius:0.6rem; padding:1rem; width:420px; max-width:90vw; box-shadow:0 14px 38px rgba(0,0,0,0.45); display:flex; flex-direction:column; gap:0.6rem; }
-  .modal-panel h3 { margin:0; }
-  .modal-actions { display:flex; gap:0.45rem; justify-content:flex-end; flex-wrap:wrap; }
-  .danger-button { background:#5c2f2f; border-color:#804343; color:#ffe5e5; }
 </style>
   <div class="card">
     <h2>AI logs explorer</h2>
@@ -82,21 +83,33 @@
         <div class="sync-title">
           <h3 style="margin:0;">Findings</h3>
           <div class="log-actions">
+            <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
             <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
             {% if issue_filter != 'ALL' %}
               <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
             {% endif %}
             <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Append selected to prompt</button>
+            <div class="context-toggle" id="context-toggle">
+              <span class="muted" style="font-size:0.92rem;">Include 3</span>
+              <div class="chip-group">
+                <button type="button" class="secondary active" data-context-direction="before" onclick="setContextDirection('before')">preceding</button>
+                <button type="button" class="secondary" data-context-direction="after" onclick="setContextDirection('after')">following</button>
+              </div>
+              <span class="muted" style="font-size:0.92rem;">lines when adding to LLM prompt</span>
+            </div>
             <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse entries</button>
             {% if tail_filter != 'ALL' %}
               <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
             {% endif %}
-            <label class="muted" style="display:inline-flex; gap:0.3rem; align-items:center;">
-              <input type="checkbox" id="include-context-lines">
-              Include 3 preceding lines when sending to LLM
-            </label>
-            <button type="button" class="secondary" onclick="openFlushModal()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Flush module findings</button>
+            <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete selected findings</button>
           </div>
+          <form id="delete-selected-findings-form" method="post" action="{{ url_for('delete_selected_findings') }}" style="display:none;">
+            <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+            <input type="hidden" name="finding_ids" id="selected-finding-ids">
+          </form>
         </div>
         <div class="sync-title">
           <div>
@@ -279,30 +292,6 @@
   {% endif %}
 </div>
 
-<div id="module-flush-modal" class="modal-backdrop">
-  <div class="modal-panel">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
-      <h3>Flush findings for {{ current_module.name if current_module else 'module' }}</h3>
-      <button type="button" class="secondary" onclick="closeFlushModal()">Close</button>
-    </div>
-    <p class="helper-text" style="margin:0;">This removes all stored findings for the selected module. This cannot be undone.</p>
-    <form method="post" action="{{ url_for('flush_module_logs') }}">
-      <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
-      <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-      <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-      <input type="hidden" name="sample_source" value="{{ sample_source }}">
-      <label>Type <code>confirm</code> to enable the flush
-        <input type="text" name="confirm_token" id="flush-confirm-input" autocomplete="off" inputmode="text" oninput="toggleFlushSubmit()">
-      </label>
-      <div class="helper-text" style="margin-top:0.2rem;">To protect your data, the flush button stays disabled until you type <strong>confirm</strong> exactly.</div>
-      <div class="modal-actions" style="margin-top:0.4rem;">
-        <button type="button" class="secondary" onclick="closeFlushModal()">Cancel</button>
-        <button type="submit" id="flush-submit-button" class="danger-button" disabled>Flush findings</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <script>
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
@@ -311,49 +300,7 @@
   const recordedSummaries = {};
   const CONTEXT_LINE_COUNT = 3;
 
-  const flushModal = document.getElementById('module-flush-modal');
-  const flushConfirmInput = document.getElementById('flush-confirm-input');
-  const flushSubmitButton = document.getElementById('flush-submit-button');
-
-  function toggleFlushSubmit() {
-    if (!flushSubmitButton) return;
-    const value = (flushConfirmInput && flushConfirmInput.value) ? flushConfirmInput.value.trim().toLowerCase() : '';
-    flushSubmitButton.disabled = value !== 'confirm';
-  }
-
-  function openFlushModal() {
-    if (!flushModal) return;
-    flushModal.style.display = 'flex';
-    if (flushConfirmInput) {
-      flushConfirmInput.value = '';
-      flushConfirmInput.focus();
-    }
-    toggleFlushSubmit();
-  }
-
-  function closeFlushModal() {
-    if (!flushModal) return;
-    flushModal.style.display = 'none';
-  }
-
-  if (flushModal) {
-    flushModal.addEventListener('click', (event) => {
-      if (event.target === flushModal) {
-        closeFlushModal();
-      }
-    });
-  }
-
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && flushModal && flushModal.style.display === 'flex') {
-      closeFlushModal();
-    }
-  });
-
-  function includeContextLines() {
-    const toggle = document.getElementById('include-context-lines');
-    return !!(toggle && toggle.checked);
-  }
+  let contextDirection = 'before';
 
   function buildLineLookup() {
     const lookup = new Map();
@@ -368,9 +315,9 @@
     return lookup;
   }
 
-  function collectSelectedLines(withContext = false) {
+  function collectSelectedLines(direction = null) {
     const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
-    if (!withContext) {
+    if (!direction) {
       return selected.map(cb => cb.dataset.line).filter(Boolean);
     }
 
@@ -383,8 +330,15 @@
       const idxRaw = cb.dataset.lineIndex || cb.value;
       const idx = Number.parseInt(idxRaw, 10);
       if (!Number.isNaN(idx)) {
-        for (let i = CONTEXT_LINE_COUNT; i >= 1; i -= 1) {
-          indexes.add(idx - i);
+        if (direction === 'before') {
+          for (let i = CONTEXT_LINE_COUNT; i >= 1; i -= 1) {
+            indexes.add(idx - i);
+          }
+        }
+        if (direction === 'after') {
+          for (let i = 1; i <= CONTEXT_LINE_COUNT; i += 1) {
+            indexes.add(idx + i);
+          }
         }
         indexes.add(idx);
       } else if (text) {
@@ -418,6 +372,22 @@
     return contextual;
   }
 
+  function setContextDirection(direction) {
+    if (contextDirection === direction) {
+      contextDirection = null;
+    } else {
+      contextDirection = direction;
+    }
+    refreshContextButtons();
+  }
+
+  function refreshContextButtons() {
+    document.querySelectorAll('[data-context-direction]').forEach(btn => {
+      const dir = btn.dataset.contextDirection;
+      btn.classList.toggle('active', dir === contextDirection);
+    });
+  }
+
   function copyText(text) {
     if (!navigator.clipboard) {
       const ta = document.createElement('textarea');
@@ -432,12 +402,12 @@
   }
 
   function copySelectedLines() {
-    const selected = collectSelectedLines(false);
+    const selected = collectSelectedLines();
     copyText(selected.join('\n'));
   }
 
   function appendSelectedToPrompt() {
-    const selected = collectSelectedLines(includeContextLines());
+    const selected = collectSelectedLines(contextDirection);
     if (!selected.length) return;
     appendToPrompt(selected.join('\n'));
   }
@@ -454,12 +424,36 @@
       const cb = row.querySelector('input[name="selected_line"]');
       row.classList.toggle('selected', cb && cb.checked);
     });
+    updateSelectAllButtonLabel();
   }
 
   document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
     cb.addEventListener('change', refreshSelectedHighlights);
   });
   refreshSelectedHighlights();
+  refreshContextButtons();
+
+  function toggleSelectAllLines() {
+    const boxes = Array.from(document.querySelectorAll('input[name="selected_line"]'));
+    if (!boxes.length) return;
+    const shouldSelectAll = boxes.some(cb => !cb.checked);
+    boxes.forEach(cb => {
+      cb.checked = shouldSelectAll;
+    });
+    refreshSelectedHighlights();
+  }
+
+  function updateSelectAllButtonLabel() {
+    const btn = document.getElementById('select-all-lines');
+    if (!btn) return;
+    const boxes = Array.from(document.querySelectorAll('input[name="selected_line"]'));
+    if (!boxes.length) {
+      btn.textContent = 'Select all';
+      return;
+    }
+    const allChecked = boxes.every(cb => cb.checked);
+    btn.textContent = allChecked ? 'Clear all' : 'Select all';
+  }
 
   function toggleSection(btn) {
     const idx = btn.dataset.sectionIndex;
@@ -580,15 +574,36 @@
     if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
   }
 
-  function getSelectedFindingId() {
+  function getSelectedFindingIds() {
+    const ids = new Set();
     const checked = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
-    for (const cb of checked) {
+    checked.forEach(cb => {
       const section = cb.closest('[data-finding-section="true"]');
       if (section && section.dataset.findingId) {
-        return section.dataset.findingId;
+        ids.add(section.dataset.findingId);
       }
+    });
+    return Array.from(ids);
+  }
+
+  function getSelectedFindingId() {
+    const ids = getSelectedFindingIds();
+    return ids.length ? ids[0] : '';
+  }
+
+  function deleteSelectedFindings() {
+    const form = document.getElementById('delete-selected-findings-form');
+    const idsInput = document.getElementById('selected-finding-ids');
+    if (!form || !idsInput) return;
+    const ids = getSelectedFindingIds();
+    if (!ids.length) {
+      alert('Select at least one finding entry to delete.');
+      return;
     }
-    return '';
+    const confirmed = confirm(`Delete ${ids.length} selected finding(s)?`);
+    if (!confirmed) return;
+    idsInput.value = ids.join(',');
+    form.submit();
   }
 
   async function attachOpinionToSelectedFinding() {
