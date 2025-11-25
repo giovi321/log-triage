@@ -297,6 +297,7 @@ def get_module_stats() -> Dict[str, ModuleStats]:
                 s.warnings_24h += 1
             s.last_severity = row.severity
             s.last_reason = row.message
+            s.last_seen = row.created_at
 
         for mod_name, seen_at in activities.items():
             s = stats.get(mod_name)
