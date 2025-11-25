@@ -86,6 +86,10 @@
             {% if tail_filter != 'ALL' %}
               <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
             {% endif %}
+            <label class="muted" style="display:inline-flex; gap:0.3rem; align-items:center;">
+              <input type="checkbox" id="include-context-lines">
+              Include 3 preceding lines when sending to LLM
+            </label>
           </div>
         </div>
         <div class="sync-title">
@@ -121,7 +125,7 @@
                     <div class="log-section-body">
                       {% for line in section.lines %}
                         <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
-                          <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
+                          <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
                           <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
                           <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
                         </div>
@@ -202,7 +206,7 @@
               <div class="synced-pane tail-pane">
                 {% for line in sample_lines %}
                   <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
-                    <input type="checkbox" name="selected_line" data-line="{{ line|replace('\n','')|e }}">
+                    <input type="checkbox" name="selected_line" data-line-index="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e }}">
                     <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
                   </div>
                 {% endfor %}
@@ -275,6 +279,75 @@
   const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
   {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
   const recordedSummaries = {};
+  const CONTEXT_LINE_COUNT = 3;
+
+  function includeContextLines() {
+    const toggle = document.getElementById('include-context-lines');
+    return !!(toggle && toggle.checked);
+  }
+
+  function buildLineLookup() {
+    const lookup = new Map();
+    document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+      const idxRaw = cb.dataset.lineIndex || cb.value;
+      const idx = Number.parseInt(idxRaw, 10);
+      const text = cb.dataset.line;
+      if (!Number.isNaN(idx) && typeof text !== 'undefined') {
+        lookup.set(idx, text);
+      }
+    });
+    return lookup;
+  }
+
+  function collectSelectedLines(withContext = false) {
+    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
+    if (!withContext) {
+      return selected.map(cb => cb.dataset.line).filter(Boolean);
+    }
+
+    const lookup = buildLineLookup();
+    const indexes = new Set();
+    const fallbackTexts = [];
+
+    selected.forEach(cb => {
+      const text = cb.dataset.line;
+      const idxRaw = cb.dataset.lineIndex || cb.value;
+      const idx = Number.parseInt(idxRaw, 10);
+      if (!Number.isNaN(idx)) {
+        for (let i = CONTEXT_LINE_COUNT; i >= 1; i -= 1) {
+          indexes.add(idx - i);
+        }
+        indexes.add(idx);
+      } else if (text) {
+        fallbackTexts.push(text);
+      }
+    });
+
+    const orderedIndexes = Array.from(indexes)
+      .filter(idx => lookup.has(idx))
+      .sort((a, b) => a - b);
+
+    const seen = new Set();
+    const contextual = [];
+    orderedIndexes.forEach(idx => {
+      const text = lookup.get(idx);
+      if (!text) return;
+      const key = `${idx}:${text}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      contextual.push(text);
+    });
+
+    fallbackTexts.forEach(text => {
+      if (!text) return;
+      const key = `x:${text}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      contextual.push(text);
+    });
+
+    return contextual;
+  }
 
   function copyText(text) {
     if (!navigator.clipboard) {
@@ -290,16 +363,12 @@
   }
 
   function copySelectedLines() {
-    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
-      .map(cb => cb.dataset.line)
-      .filter(Boolean);
+    const selected = collectSelectedLines(false);
     copyText(selected.join('\n'));
   }
 
   function appendSelectedToPrompt() {
-    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'))
-      .map(cb => cb.dataset.line)
-      .filter(Boolean);
+    const selected = collectSelectedLines(includeContextLines());
     if (!selected.length) return;
     appendToPrompt(selected.join('\n'));
   }
