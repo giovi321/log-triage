@@ -23,6 +23,7 @@ from .config import load_full_config, parse_webui_settings, WebUISettings, get_c
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
     delete_all_findings,
+    delete_findings_for_module,
     delete_finding_by_id,
     get_finding_by_id,
     get_module_stats,
@@ -899,6 +900,81 @@ async def flush_logs_db(
         )
 
     msg = "Database already empty." if deleted == 0 else f"Deleted {deleted} stored finding(s)."
+    return _logs_redirect(
+        module,
+        message=msg,
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+        sample_source=sample_source,
+    )
+
+
+@app.post("/logs/db/flush-module", name="flush_module_logs")
+async def flush_module_logs(
+    request: Request,
+    module: str = Form(...),
+    tail_filter: str = Form("all"),
+    issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
+    confirm_token: str = Form(""),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not module:
+        return _logs_redirect(
+            module,
+            error="Select a module before flushing findings.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    if (confirm_token or "").strip().lower() != "confirm":
+        return _logs_redirect(
+            module,
+            error="Enter 'confirm' to proceed with flushing findings.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    if not db_status.get("connected"):
+        return _logs_redirect(
+            module,
+            error="Database not connected.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    modules = {m.name for m in _build_modules_from_config()}
+    if module not in modules:
+        return _logs_redirect(
+            None,
+            error=f"Unknown module '{module}'.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    try:
+        deleted = delete_findings_for_module(module)
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Failed to flush findings: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    msg = (
+        f"No stored findings for {module}."
+        if deleted == 0
+        else f"Deleted {deleted} stored finding(s) for {module}."
+    )
     return _logs_redirect(
         module,
         message=msg,
