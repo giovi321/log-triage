@@ -47,15 +47,22 @@
       <tbody>
         {% for m in modules %}
         {% set st = stats.get(m.name) if stats else None %}
-        {% set sev = st.last_severity if st else None %}
-        <tr>
+        <tr class="{% if not m.enabled %}module-disabled{% endif %}">
           <td>{{ m.name }}</td>
           <td><span class="tag">{{ m.mode }}</span></td>
           <td style="font-family:monospace; font-size:0.85rem;">{{ m.path }}</td>
           <td>{{ m.pipeline_name or "-" }}</td>
           <td>{{ "yes" if m.enabled else "no" }}</td>
           <td>
-            {% set status = sev or "WARNING" %}
+            {% set status = "OK" %}
+            {% if st %}
+              {% set sev_upper = (st.last_severity or "")|upper %}
+              {% if st.errors_24h > 0 or sev_upper in ("ERROR", "CRITICAL") %}
+                {% set status = "ERROR" if sev_upper != "CRITICAL" else "CRITICAL" %}
+              {% elif st.warnings_24h > 0 or sev_upper == "WARNING" %}
+                {% set status = "WARNING" %}
+              {% endif %}
+            {% endif %}
             <span class="status-badge sev-{{ status }}">{{ status }}</span>
           </td>
           <td style="font-size:0.85rem;">
