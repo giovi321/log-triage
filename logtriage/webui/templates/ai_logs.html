@@ -88,15 +88,7 @@
           <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
         </div>
         <form class="selection-box" id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}">
-          <span class="muted">Mark selected as finding:</span>
-          <input type="text" name="message" id="manual-finding-message" placeholder="Finding reason" style="min-width:14rem;">
-          <label class="muted" style="font-size:0.9rem;">Severity
-            <select name="severity" id="manual-finding-severity">
-              {% for sev in severity_choices %}
-                <option value="{{ sev }}">{{ sev }}</option>
-              {% endfor %}
-            </select>
-          </label>
+          <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
           <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
           <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
           <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
@@ -698,17 +690,6 @@
     }));
   }
 
-  function updateManualFindingSeed() {
-    const messageInput = document.getElementById('manual-finding-message');
-    if (!messageInput || messageInput.value.trim()) return;
-    const selected = getSelectedLineData();
-    if (!selected.length) return;
-    const firstText = selected.find(item => item.text)?.text;
-    if (firstText) {
-      messageInput.value = firstText;
-    }
-  }
-
   function submitManualFinding() {
     const form = document.getElementById('manual-finding-form');
     if (!form) return;
@@ -725,12 +706,6 @@
     const indexes = selected
       .map(item => Number.parseInt(item.index, 10))
       .filter(idx => !Number.isNaN(idx));
-
-    const messageInput = document.getElementById('manual-finding-message');
-    if (messageInput && !messageInput.value.trim()) {
-      const firstLine = lines.find(Boolean) || '';
-      messageInput.value = firstLine;
-    }
 
     const linesField = document.getElementById('manual-finding-lines');
     const indexesField = document.getElementById('manual-finding-indexes');

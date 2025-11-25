@@ -1173,8 +1173,8 @@ async def change_finding_severity(
 async def create_manual_finding(
     request: Request,
     module: Optional[str] = Form(None),
-    severity: str = Form(...),
-    message: str = Form(""),
+    severity: str = Form("ERROR"),
+    message: Optional[str] = Form(None),
     lines: str = Form(""),
     line_indexes: str = Form(""),
     tail_filter: str = Form("all"),
@@ -1685,11 +1685,8 @@ def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int 
 
 
 def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[Dict[str, Any]]:
-    if not sample_lines:
-        return []
-
     indexed_lines = [{"index": idx, "text": line} for idx, line in enumerate(sample_lines)]
-    remaining = list(indexed_lines)
+    used_indexes: set[int] = set()
     sections: List[Dict[str, Any]] = []
 
     sorted_findings = sorted(
@@ -1698,19 +1695,41 @@ def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[
         reverse=True,
     )
 
-    for finding in sorted_findings:
-        if not remaining:
-            break
-        count = int(getattr(finding, "line_count", 0) or 0)
-        if count <= 0:
-            continue
-        take = min(count, len(remaining))
-        finding_lines = remaining[-take:]
-        remaining = remaining[:-take]
-        sections.append({"finding": finding, "lines": finding_lines})
+    def _lines_for_finding(finding):
+        start = getattr(finding, "line_start", None)
+        end = getattr(finding, "line_end", None)
+        excerpt = getattr(finding, "excerpt", None) or ""
+        excerpt_lines = excerpt.splitlines() if isinstance(excerpt, str) else list(excerpt)
 
-    if remaining:
-        sections.append({"finding": None, "lines": remaining})
+        if start is not None and end is not None and start >= 0 and end >= start:
+            matching = [entry for entry in indexed_lines if start <= entry.get("index", -1) <= end]
+            if matching:
+                return matching
+            if excerpt_lines:
+                return [
+                    {"index": start + offset, "text": text}
+                    for offset, text in enumerate(excerpt_lines)
+                ]
+
+        return [
+            {"index": (start + idx) if start is not None else None, "text": text}
+            for idx, text in enumerate(excerpt_lines)
+        ]
+
+    for finding in sorted_findings:
+        lines = _lines_for_finding(finding)
+        if not lines:
+            continue
+        for entry in lines:
+            idx = entry.get("index")
+            if isinstance(idx, int):
+                used_indexes.add(idx)
+        sections.append({"finding": finding, "lines": lines})
+
+    if indexed_lines:
+        remaining = [ln for ln in indexed_lines if ln.get("index") not in used_indexes]
+        if remaining:
+            sections.append({"finding": None, "lines": remaining})
 
     return sections
 
