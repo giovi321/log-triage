@@ -157,16 +157,9 @@ else:  # pragma: no cover - used when sqlalchemy is absent
 class ModuleStats:
     module_name: str
     last_severity: Optional[str]
-    last_reason: Optional[str]
     last_seen: Optional[datetime.datetime]
     errors_24h: int
     warnings_24h: int
-    findings_24h: int
-
-    # compatibility alias for legacy templates
-    @property
-    def chunks_24h(self) -> int:
-        return self.findings_24h
 
 
 def setup_database(database_url: str):
@@ -301,22 +294,24 @@ def get_module_stats() -> Dict[str, ModuleStats]:
                 s = ModuleStats(
                     module_name=row.module_name,
                     last_severity=None,
-                    last_reason=None,
                     last_seen=None,
                     errors_24h=0,
                     warnings_24h=0,
-                    findings_24h=0,
                 )
                 stats[row.module_name] = s
-            s.findings_24h += 1
             sev = (row.severity or "").upper()
             if sev in ("ERROR", "CRITICAL"):
                 s.errors_24h += 1
             elif sev == "WARNING":
                 s.warnings_24h += 1
             s.last_severity = row.severity
-            s.last_reason = row.message
-            s.last_seen = row.created_at
+
+        last_seen_rows = (
+            sess.query(FindingRecord.module_name, func.max(FindingRecord.created_at))
+            .group_by(FindingRecord.module_name)
+            .all()
+        )
+        last_seen_by_module = {name: seen_at for name, seen_at in last_seen_rows}
 
         for mod_name, seen_at in activities.items():
             s = stats.get(mod_name)
@@ -324,11 +319,24 @@ def get_module_stats() -> Dict[str, ModuleStats]:
                 s = ModuleStats(
                     module_name=mod_name,
                     last_severity=None,
-                    last_reason=None,
                     last_seen=seen_at,
                     errors_24h=0,
                     warnings_24h=0,
-                    findings_24h=0,
+                )
+                stats[mod_name] = s
+            else:
+                if s.last_seen is None or (seen_at and seen_at > s.last_seen):
+                    s.last_seen = seen_at
+
+        for mod_name, seen_at in last_seen_by_module.items():
+            s = stats.get(mod_name)
+            if s is None:
+                s = ModuleStats(
+                    module_name=mod_name,
+                    last_severity=None,
+                    last_seen=seen_at,
+                    errors_24h=0,
+                    warnings_24h=0,
                 )
                 stats[mod_name] = s
             else:
