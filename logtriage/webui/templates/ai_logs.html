@@ -34,7 +34,7 @@
   .selection-box .muted { font-size:0.9rem; }
   .action-menu { position:relative; z-index:1200; }
   .action-menu button.menu-trigger { display:inline-flex; align-items:center; gap:0.35rem; }
-  .action-menu .menu-panel { position:absolute; top:calc(100% + 0.35rem); right:0; background:#0f131b; border:1px solid #2b3242; border-radius:0.4rem; padding:0.35rem; box-shadow:0 10px 26px rgba(0,0,0,0.35); min-width:0; display:none; z-index:1300; }
+  .action-menu .menu-panel { position:fixed; right:0; top:0; background:#0f131b; border:1px solid #2b3242; border-radius:0.4rem; padding:0.35rem; box-shadow:0 10px 26px rgba(0,0,0,0.35); min-width:0; display:none; z-index:1800; }
   .action-menu.open .menu-panel { display:flex; flex-wrap:wrap; gap:0.3rem; }
   .action-menu .menu-panel button { flex:1 1 auto; min-width:90px; justify-content:center; background:#182033; border:1px solid #27324a; }
   .action-menu .menu-panel button:hover { background:#23355a; }
@@ -495,18 +495,49 @@
     btn.textContent = allChecked ? 'Deselect all' : 'Select all';
   }
 
+  function positionSeverityMenu() {
+    const panel = document.getElementById('mark-finding-panel');
+    const trigger = document.getElementById('mark-finding-trigger');
+    if (!panel || !trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const gutter = 8;
+    const rightOffset = Math.max(gutter, window.innerWidth - rect.right);
+
+    panel.style.top = `${rect.bottom + gutter}px`;
+    panel.style.right = `${rightOffset}px`;
+    panel.style.left = 'auto';
+  }
+
   function toggleSeverityMenu(forceState = null) {
     const menu = document.getElementById('mark-finding-menu');
+    const panel = document.getElementById('mark-finding-panel');
     const trigger = document.getElementById('mark-finding-trigger');
-    if (!menu || !trigger || trigger.disabled) return;
+    if (!menu || !panel || !trigger || trigger.disabled) return;
     const shouldOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+
+    if (shouldOpen) {
+      panel.style.display = 'flex';
+      positionSeverityMenu();
+    } else {
+      panel.style.display = 'none';
+    }
   }
 
   function closeSeverityMenu() {
     toggleSeverityMenu(false);
   }
+
+  ['scroll', 'resize'].forEach(evt => {
+    window.addEventListener(evt, () => {
+      const menu = document.getElementById('mark-finding-menu');
+      if (menu && menu.classList.contains('open')) {
+        positionSeverityMenu();
+      }
+    }, true);
+  });
 
   function setManualFindingLabel() {
     const label = document.getElementById('mark-finding-label');
