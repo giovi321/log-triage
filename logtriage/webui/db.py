@@ -306,29 +306,7 @@ def get_module_stats() -> Dict[str, ModuleStats]:
                 s.warnings_24h += 1
             s.last_severity = row.severity
 
-        last_seen_rows = (
-            sess.query(FindingRecord.module_name, func.max(FindingRecord.created_at))
-            .group_by(FindingRecord.module_name)
-            .all()
-        )
-        last_seen_by_module = {name: seen_at for name, seen_at in last_seen_rows}
-
         for mod_name, seen_at in activities.items():
-            s = stats.get(mod_name)
-            if s is None:
-                s = ModuleStats(
-                    module_name=mod_name,
-                    last_severity=None,
-                    last_seen=seen_at,
-                    errors_24h=0,
-                    warnings_24h=0,
-                )
-                stats[mod_name] = s
-            else:
-                if s.last_seen is None or (seen_at and seen_at > s.last_seen):
-                    s.last_seen = seen_at
-
-        for mod_name, seen_at in last_seen_by_module.items():
             s = stats.get(mod_name)
             if s is None:
                 s = ModuleStats(

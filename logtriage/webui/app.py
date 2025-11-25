@@ -274,7 +274,10 @@ async def dashboard(request: Request):
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    modules = _build_modules_from_config()
+    modules = sorted(
+        _build_modules_from_config(),
+        key=lambda m: (not m.enabled, m.name.lower()),
+    )
     stats = get_module_stats()
     latest_finding_at = get_latest_finding_time()
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
