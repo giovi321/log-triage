@@ -201,23 +201,26 @@
                             <input type="hidden" name="sample_source" value="{{ sample_source }}">
                             <button type="submit" class="secondary">False positive</button>
                           </form>
-                          <form method="post" action="{{ url_for('change_finding_severity') }}">
+                          <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ section.finding.id }}">
                             <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
                             <input type="hidden" name="module" value="{{ current_module.name }}">
                             <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
                             <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
                             <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                            <label class="muted" style="font-size:0.9rem;">Severity
-                              <select name="severity">
+                            <input type="hidden" name="severity" id="finding-severity-value-{{ section.finding.id }}" value="{{ section.finding.severity if section.finding.severity != 'OK' else (severity_choices[0] if severity_choices else 'ERROR') }}">
+                            <div class="action-menu finding-severity-menu" id="finding-sev-menu-{{ section.finding.id }}" data-finding-id="{{ section.finding.id }}">
+                              <button type="button" class="secondary menu-trigger" id="finding-sev-trigger-{{ section.finding.id }}" aria-haspopup="true" aria-expanded="false" onclick="toggleFindingSeverityMenu('{{ section.finding.id }}')">
+                                Update severity
+                              </button>
+                              <div class="menu-panel" id="finding-sev-panel-{{ section.finding.id }}" role="menu" aria-label="Choose severity for finding {{ section.finding.finding_index }}">
                                 {% for sev in severity_choices %}
-                                  <option value="{{ sev }}" {% if sev == section.finding.severity or (section.finding.severity == 'OK' and loop.first) %}selected{% endif %}>{{ sev }}</option>
+                                  <button type="button" class="secondary" role="menuitem" onclick="submitFindingSeverity('{{ section.finding.id }}', '{{ sev }}')">{{ sev }}</button>
                                 {% endfor %}
                                 {% if section.finding.severity == 'OK' %}
-                                  <option value="{{ section.finding.severity }}" disabled>{{ section.finding.severity }} (addressed)</option>
+                                  <button type="button" class="secondary" disabled>{{ section.finding.severity }} (addressed)</button>
                                 {% endif %}
-                              </select>
-                            </label>
-                            <button type="submit" class="secondary">Update</button>
+                              </div>
+                            </div>
                           </form>
                         </div>
                       {% endif %}
@@ -496,9 +499,7 @@
     btn.textContent = allChecked ? 'Deselect all' : 'Select all';
   }
 
-  function positionSeverityMenu() {
-    const panel = document.getElementById('mark-finding-panel');
-    const trigger = document.getElementById('mark-finding-trigger');
+  function positionFloatingPanel(panel, trigger) {
     if (!panel || !trigger) return;
 
     const rect = trigger.getBoundingClientRect();
@@ -508,6 +509,13 @@
     panel.style.top = `${rect.bottom + gutter}px`;
     panel.style.right = `${rightOffset}px`;
     panel.style.left = 'auto';
+  }
+
+  function positionSeverityMenu() {
+    positionFloatingPanel(
+      document.getElementById('mark-finding-panel'),
+      document.getElementById('mark-finding-trigger'),
+    );
   }
 
   function toggleSeverityMenu(forceState = null) {
@@ -531,12 +539,47 @@
     toggleSeverityMenu(false);
   }
 
+  function positionFindingSeverityMenu(findingId) {
+    const panel = document.getElementById(`finding-sev-panel-${findingId}`);
+    const trigger = document.getElementById(`finding-sev-trigger-${findingId}`);
+    positionFloatingPanel(panel, trigger);
+  }
+
+  function toggleFindingSeverityMenu(findingId, forceState = null) {
+    const menu = document.getElementById(`finding-sev-menu-${findingId}`);
+    const panel = document.getElementById(`finding-sev-panel-${findingId}`);
+    const trigger = document.getElementById(`finding-sev-trigger-${findingId}`);
+    if (!menu || !panel || !trigger) return;
+
+    const shouldOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+
+    if (shouldOpen) {
+      panel.style.display = 'flex';
+      positionFindingSeverityMenu(findingId);
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  function closeAllFindingSeverityMenus() {
+    document.querySelectorAll('.finding-severity-menu').forEach(menu => {
+      const fid = menu.dataset.findingId;
+      if (fid) toggleFindingSeverityMenu(fid, false);
+    });
+  }
+
   ['scroll', 'resize'].forEach(evt => {
     window.addEventListener(evt, () => {
       const menu = document.getElementById('mark-finding-menu');
       if (menu && menu.classList.contains('open')) {
         positionSeverityMenu();
       }
+      document.querySelectorAll('.finding-severity-menu.open').forEach(menu => {
+        const fid = menu.dataset.findingId;
+        if (fid) positionFindingSeverityMenu(fid);
+      });
     }, true);
   });
 
@@ -778,21 +821,38 @@
     form.submit();
   }
 
+  function submitFindingSeverity(findingId, severity) {
+    const form = document.getElementById(`finding-severity-form-${findingId}`);
+    const severityField = document.getElementById(`finding-severity-value-${findingId}`);
+    if (!form || !severityField) return;
+
+    if (severity) {
+      severityField.value = severity;
+    }
+    closeAllFindingSeverityMenus();
+    form.submit();
+  }
+
   function updateManualFindingSeed() {
     setManualFindingLabel();
   }
 
   document.addEventListener('click', event => {
-    const menu = document.getElementById('mark-finding-menu');
-    if (!menu) return;
-    if (!menu.contains(event.target)) {
+    const markMenu = document.getElementById('mark-finding-menu');
+    if (markMenu && !markMenu.contains(event.target)) {
       closeSeverityMenu();
+    }
+
+    const findingMenu = event.target.closest('.finding-severity-menu');
+    if (!findingMenu) {
+      closeAllFindingSeverityMenus();
     }
   });
 
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') {
       closeSeverityMenu();
+      closeAllFindingSeverityMenus();
     }
   });
 
