@@ -173,6 +173,11 @@
       .status-chip.error { border-color:#ff6b6b; color:#ffb0b0; }
       .status-chip.ok { border-color:#4caf50; color:#b7e6c5; }
       .status-chip.warn { border-color:#f2b705; color:#f4e3a7; }
+      .status-chip.traffic { display:flex; align-items:center; gap:0.35rem; }
+      .traffic-dot { width:12px; height:12px; border-radius:999px; background:#7a8699; box-shadow:0 0 0 3px rgba(122,134,153,0.25); }
+      .status-chip.traffic.ok .traffic-dot { background:#2e7d32; box-shadow:0 0 0 3px rgba(46,125,50,0.25); }
+      .status-chip.traffic.warn .traffic-dot { background:#f2b705; box-shadow:0 0 0 3px rgba(242,183,5,0.3); }
+      .status-chip.traffic.error .traffic-dot { background:#c62828; box-shadow:0 0 0 3px rgba(198,40,40,0.25); }
       .module-disabled { opacity: 0.55; filter: saturate(0.35); }
       .editor-layout { display:grid; grid-template-columns: minmax(0, 3.5fr) minmax(320px, 1fr); gap:1.5rem; align-items:start; }
       @media (max-width: 960px) {
