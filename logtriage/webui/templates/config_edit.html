@@ -308,6 +308,21 @@
 
     const candidates = [];
     if (firstWord) {
+      const normalizedAncestors = ancestors.map(normalizeSegment).filter(Boolean);
+
+      // Most specific: full path with ancestors and current key
+      for (let i = normalizedAncestors.length; i >= 0; i--) {
+        const joined = [...normalizedAncestors.slice(0, i), normalizeSegment(firstWord)]
+          .filter(Boolean)
+          .join('_');
+        if (joined) {
+          candidates.push(joined);
+        }
+      }
+    }
+
+    // Backwards compatibility with older hint keys like "modules_name"
+    if (firstWord) {
       for (let i = ancestors.length - 1; i >= 0; i--) {
         const prefix = normalizeSegment(ancestors[i]);
         if (prefix) {
@@ -317,9 +332,21 @@
       candidates.push(firstWord);
     }
 
+    // Exact matches first
     for (const key of candidates) {
       if (key && hintTexts[key]) {
         return hintTexts[key];
+      }
+    }
+
+    // Wildcard matches (e.g., llm_providers_*_api_base)
+    const wildcardKeys = Object.keys(hintTexts).filter((key) => key.includes('*'));
+    for (const candidate of candidates) {
+      for (const wildcard of wildcardKeys) {
+        const regex = new RegExp('^' + wildcard.replace(/\*/g, '[^_]+') + '$');
+        if (regex.test(candidate)) {
+          return hintTexts[wildcard];
+        }
       }
     }
 
