@@ -55,7 +55,7 @@
           <td>{{ m.pipeline_name or "-" }}</td>
           <td>{{ "yes" if m.enabled else "no" }}</td>
           <td>
-            {% set status = sev or "OK" %}
+            {% set status = sev or "WARNING" %}
             <span class="status-badge sev-{{ status }}">{{ status }}</span>
           </td>
           <td style="font-size:0.85rem;">

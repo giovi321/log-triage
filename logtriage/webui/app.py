@@ -68,7 +68,6 @@ db_status: Dict[str, Any] = {
     "url": None,
 }
 
-ADDRESSED_SEVERITY = "OK"
 SEVERITY_CHOICES = ["CRITICAL", "ERROR", "WARNING"]
 
 
@@ -661,11 +660,11 @@ def _build_log_view_state(
         finding_tail = _build_finding_tail(sample_lines, recent_findings)
         finding_line_examples = _finding_line_examples(finding_tail)
         had_finding_tail = bool(finding_tail)
-        if issue_filter_normalized == "ADDRESSED":
+        if issue_filter_normalized == "ACTIVE":
             recent_findings = [
                 c
                 for c in recent_findings
-                if str(getattr(c, "severity", "")).upper() == ADDRESSED_SEVERITY
+                if str(getattr(c, "severity", "")).upper() in SEVERITY_CHOICES
             ]
             finding_tail = _filter_finding_tail(
                 finding_tail,
@@ -673,22 +672,9 @@ def _build_log_view_state(
                 extra_predicate=lambda section: str(
                     getattr(section.get("finding"), "severity", "")
                 ).upper()
-                == ADDRESSED_SEVERITY,
+                in SEVERITY_CHOICES,
             )
-        elif issue_filter_normalized == "ACTIVE":
-            recent_findings = [
-                c
-                for c in recent_findings
-                if str(getattr(c, "severity", "")).upper() != ADDRESSED_SEVERITY
-            ]
-            finding_tail = _filter_finding_tail(
-                finding_tail,
-                tail_filter="ALL",
-                extra_predicate=lambda section: str(
-                    getattr(section.get("finding"), "severity", "")
-                ).upper()
-                != ADDRESSED_SEVERITY,
-            )
+
         for section in finding_tail:
             finding = section.get("finding")
             if not finding:
@@ -696,7 +682,7 @@ def _build_log_view_state(
             sev = str(getattr(finding, "severity", "")).upper()
             if sev and sev not in available_severities:
                 available_severities.append(sev)
-            if sev and sev != ADDRESSED_SEVERITY and sev not in severity_choices:
+            if sev and sev not in severity_choices:
                 severity_choices.append(sev)
 
         finding_tail = _filter_finding_tail(
@@ -1275,57 +1261,6 @@ async def create_manual_finding(
     return _logs_redirect(
         module_obj.name,
         message="Manual finding recorded.",
-        tail_filter=tail_filter,
-        issue_filter=issue_filter,
-        sample_source=sample_source,
-    )
-
-
-@app.post("/logs/finding/address", name="mark_finding_addressed")
-async def mark_finding_addressed(
-    request: Request,
-    finding_id: int = Form(...),
-    module: Optional[str] = Form(None),
-    tail_filter: str = Form("all"),
-    issue_filter: str = Form("all"),
-    sample_source: str = Form("tail"),
-):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    if not db_status.get("connected"):
-        return _logs_redirect(
-            module,
-            error="Database not connected.",
-            tail_filter=tail_filter,
-            issue_filter=issue_filter,
-            sample_source=sample_source,
-        )
-
-    try:
-        updated = update_finding_severity(finding_id, ADDRESSED_SEVERITY)
-    except Exception as exc:
-        return _logs_redirect(
-            module,
-            error=f"Failed to mark as addressed: {exc}",
-            tail_filter=tail_filter,
-            issue_filter=issue_filter,
-            sample_source=sample_source,
-        )
-
-    if not updated:
-        return _logs_redirect(
-            module,
-            error="Entry not found.",
-            tail_filter=tail_filter,
-            issue_filter=issue_filter,
-            sample_source=sample_source,
-        )
-
-    return _logs_redirect(
-        module,
-        message="Finding marked as addressed.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
         sample_source=sample_source,

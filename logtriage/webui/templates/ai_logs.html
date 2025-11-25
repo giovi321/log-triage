@@ -75,7 +75,6 @@
       <select name="issue_filter" onchange="this.form.submit()">
         <option value="all" {% if issue_filter == 'ALL' %}selected{% endif %}>All</option>
         <option value="active" {% if issue_filter == 'ACTIVE' %}selected{% endif %}>Active</option>
-        <option value="addressed" {% if issue_filter == 'ADDRESSED' %}selected{% endif %}>Addressed</option>
       </select>
     </label>
     <input type="hidden" name="sample_source" value="{{ sample_source }}">
@@ -183,14 +182,6 @@
                       {% endfor %}
                       {% if section.finding %}
                         <div class="finding-controls">
-                          <form method="post" action="{{ url_for('mark_finding_addressed') }}">
-                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
-                            <input type="hidden" name="module" value="{{ current_module.name }}">
-                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                            <button type="submit" class="secondary">Addressed</button>
-                          </form>
                           {% set finding_example = (finding_examples.get(section.finding.id) if finding_examples else None) %}
                           <form method="post" action="{{ url_for('mark_false_positive') }}">
                             <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
@@ -207,7 +198,7 @@
                             <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
                             <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
                             <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                            <input type="hidden" name="severity" id="finding-severity-value-{{ section.finding.id }}" value="{{ section.finding.severity if section.finding.severity != 'OK' else (severity_choices[0] if severity_choices else 'ERROR') }}">
+                            <input type="hidden" name="severity" id="finding-severity-value-{{ section.finding.id }}" value="{{ section.finding.severity if section.finding.severity in severity_choices else (severity_choices[0] if severity_choices else 'ERROR') }}">
                             <div class="action-menu finding-severity-menu" id="finding-sev-menu-{{ section.finding.id }}" data-finding-id="{{ section.finding.id }}">
                               <button type="button" class="secondary menu-trigger" id="finding-sev-trigger-{{ section.finding.id }}" aria-haspopup="true" aria-expanded="false" onclick="toggleFindingSeverityMenu('{{ section.finding.id }}')">
                                 Update severity
@@ -216,9 +207,6 @@
                                 {% for sev in severity_choices %}
                                   <button type="button" class="secondary" role="menuitem" onclick="submitFindingSeverity('{{ section.finding.id }}', '{{ sev }}')">{{ sev }}</button>
                                 {% endfor %}
-                                {% if section.finding.severity == 'OK' %}
-                                  <button type="button" class="secondary" disabled>{{ section.finding.severity }} (addressed)</button>
-                                {% endif %}
                               </div>
                             </div>
                           </form>

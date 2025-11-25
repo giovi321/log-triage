@@ -48,7 +48,7 @@ pip install '.[webui,mqtt]'
   - rsnapshot-specific heuristic
 - Per-pipeline ignore rules (`ignore_regexes`) to drop known-noise lines before counting
 - Severity levels:
-  - WARNING, ERROR, CRITICAL (`OK` is reserved for findings marked as addressed)
+  - WARNING, ERROR, CRITICAL
 - Batch mode (scan file or directory once)
 - Follow mode (continuous tail of a single log file), rotation-aware (`tail -F` style)
 - Optional config change detection for follow-mode modules to auto-reload after saving via the Web UI (`--reload-on-change`)
@@ -246,7 +246,7 @@ python -m logtriage.webui
 
 When browsing findings in the **Logs** page you can quickly triage each entry:
 
-- **Mark as addressed** sets the finding's severity to `OK` so it no longer appears under the default "All" or "Open" filters. Use this when the issue was real but has been fixed; the record stays in the DB for history but stops driving alerts or counts as an active problem.
+Use severity updates to reflect the current state of findings; addressed items should be handled by updating or removing the finding rather than assigning an alternative severity level.
 - **Mark as false positive** removes the finding entirely after adding the sample to `classifier.ignore_regexes` in `config.yaml`. The Web UI writes the config atomically (with a `.bak` backup), reloads it in memory, and future runs will ignore matching lines so they do not recreate the same finding.
 
 ## Writing custom LLM prompts
