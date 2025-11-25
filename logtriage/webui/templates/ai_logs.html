@@ -79,22 +79,40 @@
   {% elif not current_module %}
     <p class="muted">Select a module to view its logs.</p>
   {% else %}
-    <div class="log-actions" style="margin-bottom:0.6rem;">
-      <div class="selection-box">
-        <span class="muted">Selected:</span>
-        <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
-        <button type="button" class="secondary" onclick="copySelectedLines()">Copy lines</button>
-        <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
-        <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
-      </div>
-      <div class="context-toggle" id="context-toggle">
-        <span class="muted" style="font-size:0.92rem;">Include 3</span>
-        <div class="chip-group">
-          <button type="button" class="secondary active" data-context-direction="before" onclick="toggleContextDirection('before')">preceding</button>
-          <button type="button" class="secondary" data-context-direction="after" onclick="toggleContextDirection('after')">following</button>
+      <div class="log-actions" style="margin-bottom:0.6rem;">
+        <div class="selection-box">
+          <span class="muted">Selected:</span>
+          <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
+          <button type="button" class="secondary" onclick="copySelectedLines()">Copy</button>
+          <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
+          <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
         </div>
-        <span class="muted" style="font-size:0.92rem;">lines to prompt</span>
-      </div>
+        <form class="selection-box" id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}">
+          <span class="muted">Mark selected as finding:</span>
+          <input type="text" name="message" id="manual-finding-message" placeholder="Finding reason" style="min-width:14rem;">
+          <label class="muted" style="font-size:0.9rem;">Severity
+            <select name="severity" id="manual-finding-severity">
+              {% for sev in severity_choices %}
+                <option value="{{ sev }}">{{ sev }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+          <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+          <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+          <input type="hidden" name="sample_source" value="{{ sample_source }}">
+          <input type="hidden" name="lines" id="manual-finding-lines">
+          <input type="hidden" name="line_indexes" id="manual-finding-indexes">
+          <button type="button" class="secondary" onclick="submitManualFinding()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Mark as finding</button>
+        </form>
+        <div class="context-toggle" id="context-toggle">
+          <span class="muted" style="font-size:0.92rem;">Include 3</span>
+          <div class="chip-group">
+          <button type="button" class="secondary" data-context-direction="before" onclick="toggleContextDirection('before')">preceding</button>
+          <button type="button" class="secondary" data-context-direction="after" onclick="toggleContextDirection('after')">following</button>
+          </div>
+          <span class="muted" style="font-size:0.92rem;">lines to prompt</span>
+        </div>
       <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse entries</button>
       {% if issue_filter != 'ALL' %}
         <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
@@ -118,7 +136,6 @@
         <div class="sync-title">
           <div>
             <h3 style="margin:0;">AI opinion</h3>
-            <div class="helper-text" style="margin-top:0.2rem;">Recorded perspectives linked to the current findings.</div>
           </div>
         </div>
       </div>
@@ -204,8 +221,13 @@
                   {% else %}
                     {% set response_obj = section.finding|attr('llm_response') %}
                     {% set response_content = response_obj.content if response_obj else section.finding|attr('llm_response_content') %}
+                    {% set response_provider = response_obj.provider if response_obj else section.finding|attr('llm_provider') %}
+                    {% set response_model = response_obj.model if response_obj else section.finding|attr('llm_model') %}
                     <div class="finding-response" data-finding-summary="true" data-finding-id="{{ section.finding.id }}">
                       <div class="helper-text" style="margin:0;">AI opinion for finding #{{ section.finding.finding_index }}</div>
+                      {% if response_provider or response_model %}
+                        <div class="helper-text" style="margin:0;">Source: {{ response_provider or 'Unknown provider' }}{% if response_model %} · {{ response_model }}{% endif %}</div>
+                      {% endif %}
                       {% if response_content %}
                         <div class="llm-body">{{ response_content }}</div>
                       {% else %}
@@ -304,7 +326,8 @@
   const recordedSummaries = {};
   const CONTEXT_LINE_COUNT = 3;
 
-  const contextDirections = new Set(['before']);
+  const contextDirections = new Set();
+  let lastLLMData = null;
 
   function buildLineLookup() {
     const lookup = new Map();
@@ -431,6 +454,7 @@
       row.classList.toggle('selected', cb && cb.checked);
     });
     updateSelectAllButtonLabel();
+    updateManualFindingSeed();
   }
 
   document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
@@ -541,6 +565,7 @@
     if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
       if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
     }
+    lastLLMData = responseData;
     return responseData;
   }
 
@@ -577,6 +602,7 @@
       summaryEl.textContent = `Recorded summary: ${recordedSummaries[targetFinding]}`;
       summaryEl.style.display = 'block';
     }
+    await persistOpinionToFinding(targetFinding, data);
     if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
   }
 
@@ -631,7 +657,87 @@
       summaryEl.textContent = `Recorded AI opinion: ${responseText}`;
       summaryEl.style.display = 'block';
     }
+    await persistOpinionToFinding(targetFinding, lastLLMData || { content: responseText });
     if (status) status.textContent = 'AI opinion attached to finding #' + targetFinding;
+  }
+
+  async function persistOpinionToFinding(findingId, data = {}) {
+    const status = document.getElementById('llm-status');
+    const payload = new FormData();
+    payload.append('finding_id', findingId);
+    payload.append('provider', data.provider || '');
+    payload.append('model', data.model || '');
+    payload.append('content', data.content || '');
+    if (data.usage) {
+      if (typeof data.usage.prompt_tokens !== 'undefined') {
+        payload.append('prompt_tokens', data.usage.prompt_tokens ?? '');
+      }
+      if (typeof data.usage.completion_tokens !== 'undefined') {
+        payload.append('completion_tokens', data.usage.completion_tokens ?? '');
+      }
+    }
+
+    try {
+      const resp = await fetch('{{ url_for('record_finding_opinion') }}', { method: 'POST', body: payload });
+      const dataResp = await resp.json();
+      if (!resp.ok) {
+        throw new Error(dataResp.error || 'Failed to store AI opinion.');
+      }
+      if (status) status.textContent = dataResp.message || 'AI opinion stored.';
+      return true;
+    } catch (err) {
+      if (status) status.textContent = err.message || 'Failed to store AI opinion.';
+      return false;
+    }
+  }
+
+  function getSelectedLineData() {
+    return Array.from(document.querySelectorAll('input[name="selected_line"]:checked')).map(cb => ({
+      index: cb.dataset.lineIndex || cb.value,
+      text: cb.dataset.line,
+    }));
+  }
+
+  function updateManualFindingSeed() {
+    const messageInput = document.getElementById('manual-finding-message');
+    if (!messageInput || messageInput.value.trim()) return;
+    const selected = getSelectedLineData();
+    if (!selected.length) return;
+    const firstText = selected.find(item => item.text)?.text;
+    if (firstText) {
+      messageInput.value = firstText;
+    }
+  }
+
+  function submitManualFinding() {
+    const form = document.getElementById('manual-finding-form');
+    if (!form) return;
+    const selected = getSelectedLineData();
+    if (!selected.length) {
+      alert('Select at least one log line to record a finding.');
+      return;
+    }
+    const lines = selected.map(item => item.text).filter(Boolean);
+    if (!lines.length) {
+      alert('Selected lines did not include any content.');
+      return;
+    }
+    const indexes = selected
+      .map(item => Number.parseInt(item.index, 10))
+      .filter(idx => !Number.isNaN(idx));
+
+    const messageInput = document.getElementById('manual-finding-message');
+    if (messageInput && !messageInput.value.trim()) {
+      const firstLine = lines.find(Boolean) || '';
+      messageInput.value = firstLine;
+    }
+
+    const linesField = document.getElementById('manual-finding-lines');
+    const indexesField = document.getElementById('manual-finding-indexes');
+    if (linesField) linesField.value = lines.join('\n');
+    if (indexesField) indexesField.value = indexes.join(',');
+
+    form.submit();
   }
 
   updateProviderHints();
