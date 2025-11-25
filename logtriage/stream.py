@@ -155,6 +155,11 @@ def stream_file(
             f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
 
         for f in findings:
+            if f.needs_llm:
+                analyze_findings_with_llm([f], llm_defaults, mod.llm)
+            if emit_llm_dir is not None and f.needs_llm:
+                write_llm_payloads([f], mod.llm, emit_llm_dir)
+
             if f.severity >= min_severity:
                 print(f"{f.file_path} [{f.pipeline_name}] finding={f.finding_index}")
                 print(f"  severity: {f.severity.name}")
@@ -167,11 +172,6 @@ def stream_file(
                 store_finding(mod.name, f)
             except Exception:
                 pass
-
-            if f.needs_llm:
-                analyze_findings_with_llm([f], llm_defaults, mod.llm)
-            if emit_llm_dir is not None and f.needs_llm:
-                write_llm_payloads([f], mod.llm, emit_llm_dir)
 
             if mod.alert_mqtt or mod.alert_webhook:
                 send_alerts(mod, f)
