@@ -21,6 +21,7 @@ else:
         Text,
         create_engine,
         inspect,
+        func,
         text,
     )
     from sqlalchemy.orm import declarative_base, sessionmaker
@@ -196,6 +197,24 @@ def get_session():
     if _engine is None or SessionLocal is None:
         return None
     return SessionLocal()
+
+
+def get_next_finding_index(module_name: str) -> int:
+    sess = get_session()
+    if sess is None:
+        return 1
+
+    try:
+        max_idx = (
+            sess.query(func.max(FindingRecord.finding_index))
+            .filter(FindingRecord.module_name == module_name)
+            .scalar()
+        )
+        return (max_idx or 0) + 1
+    except Exception:
+        return 1
+    finally:
+        sess.close()
 
 
 def store_finding(module_name: str, finding, anomaly_flag: bool = False):
@@ -479,6 +498,43 @@ def update_finding_severity(finding_id: int, severity: str) -> bool:
             sess.query(FindingRecord)
             .filter(FindingRecord.id == finding_id)
             .update({"severity": severity}, synchronize_session=False)
+        )
+        sess.commit()
+        return bool(updated)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+def update_finding_llm_data(
+    finding_id: int,
+    *,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    content: Optional[str] = None,
+    prompt_tokens: Optional[int] = None,
+    completion_tokens: Optional[int] = None,
+) -> bool:
+    sess = get_session()
+    if sess is None:
+        return False
+
+    try:
+        updated = (
+            sess.query(FindingRecord)
+            .filter(FindingRecord.id == finding_id)
+            .update(
+                {
+                    "llm_provider": provider,
+                    "llm_model": model,
+                    "llm_response_content": content,
+                    "llm_prompt_tokens": prompt_tokens,
+                    "llm_completion_tokens": completion_tokens,
+                },
+                synchronize_session=False,
+            )
         )
         sess.commit()
         return bool(updated)
