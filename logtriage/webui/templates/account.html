@@ -2,7 +2,6 @@
 {% block content %}
 <div class="grid two-col">
   <div class="card" style="grid-column: span 2;">
-    <h2>Change password</h2>
     <p class="helper-text">Update your bcrypt hash inside <code>webui.admin_users</code>. A backup of <code>config.yaml</code> will be written.</p>
     {% if error %}
       <p style="color:#ff6b6b;">{{ error }}</p>
