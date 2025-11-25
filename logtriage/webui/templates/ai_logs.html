@@ -4,7 +4,7 @@
   .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
   .log-line input[type="checkbox"] { margin-top:0.15rem; }
   .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
-  .log-section { border-left:3px solid #2f4261; border-radius:0.35rem; margin-bottom:0.65rem; padding:0.35rem 0.5rem; background:#0e121b; }
+  .log-section { border-left:3px solid #2f4261; border-radius:0.35rem; padding:0.35rem 0.5rem 0.2rem; background:#0e121b; }
   .log-section-header { display:flex; gap:0.6rem; align-items:flex-start; justify-content:space-between; padding-bottom:0.25rem; }
   .log-section-body { padding:0.1rem 0; display:flex; flex-direction:column; gap:0.05rem; }
   .log-section.collapsed .log-section-body { display:none; }
@@ -216,9 +216,6 @@
                                 {% for sev in severity_choices %}
                                   <button type="button" class="secondary" role="menuitem" onclick="submitFindingSeverity('{{ section.finding.id }}', '{{ sev }}')">{{ sev }}</button>
                                 {% endfor %}
-                                {% if section.finding.severity == 'OK' %}
-                                  <button type="button" class="secondary" disabled>{{ section.finding.severity }} (addressed)</button>
-                                {% endif %}
                               </div>
                             </div>
                           </form>
