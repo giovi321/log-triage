@@ -31,6 +31,11 @@
   .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; height:100%; }
   .llm-fixed-response { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
   .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.55); display:none; align-items:center; justify-content:center; z-index:20; }
+  .modal-panel { background:#0f131b; border:1px solid #2b3242; border-radius:0.6rem; padding:1rem; width:420px; max-width:90vw; box-shadow:0 14px 38px rgba(0,0,0,0.45); display:flex; flex-direction:column; gap:0.6rem; }
+  .modal-panel h3 { margin:0; }
+  .modal-actions { display:flex; gap:0.45rem; justify-content:flex-end; flex-wrap:wrap; }
+  .danger-button { background:#5c2f2f; border-color:#804343; color:#ffe5e5; }
 </style>
   <div class="card">
     <h2>AI logs explorer</h2>
@@ -90,6 +95,7 @@
               <input type="checkbox" id="include-context-lines">
               Include 3 preceding lines when sending to LLM
             </label>
+            <button type="button" class="secondary" onclick="openFlushModal()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Flush module findings</button>
           </div>
         </div>
         <div class="sync-title">
@@ -273,6 +279,30 @@
   {% endif %}
 </div>
 
+<div id="module-flush-modal" class="modal-backdrop">
+  <div class="modal-panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem;">
+      <h3>Flush findings for {{ current_module.name if current_module else 'module' }}</h3>
+      <button type="button" class="secondary" onclick="closeFlushModal()">Close</button>
+    </div>
+    <p class="helper-text" style="margin:0;">This removes all stored findings for the selected module. This cannot be undone.</p>
+    <form method="post" action="{{ url_for('flush_module_logs') }}">
+      <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+      <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+      <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+      <input type="hidden" name="sample_source" value="{{ sample_source }}">
+      <label>Type <code>confirm</code> to enable the flush
+        <input type="text" name="confirm_token" id="flush-confirm-input" autocomplete="off" inputmode="text" oninput="toggleFlushSubmit()">
+      </label>
+      <div class="helper-text" style="margin-top:0.2rem;">To protect your data, the flush button stays disabled until you type <strong>confirm</strong> exactly.</div>
+      <div class="modal-actions" style="margin-top:0.4rem;">
+        <button type="button" class="secondary" onclick="closeFlushModal()">Cancel</button>
+        <button type="submit" id="flush-submit-button" class="danger-button" disabled>Flush findings</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
@@ -280,6 +310,45 @@
   {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
   const recordedSummaries = {};
   const CONTEXT_LINE_COUNT = 3;
+
+  const flushModal = document.getElementById('module-flush-modal');
+  const flushConfirmInput = document.getElementById('flush-confirm-input');
+  const flushSubmitButton = document.getElementById('flush-submit-button');
+
+  function toggleFlushSubmit() {
+    if (!flushSubmitButton) return;
+    const value = (flushConfirmInput && flushConfirmInput.value) ? flushConfirmInput.value.trim().toLowerCase() : '';
+    flushSubmitButton.disabled = value !== 'confirm';
+  }
+
+  function openFlushModal() {
+    if (!flushModal) return;
+    flushModal.style.display = 'flex';
+    if (flushConfirmInput) {
+      flushConfirmInput.value = '';
+      flushConfirmInput.focus();
+    }
+    toggleFlushSubmit();
+  }
+
+  function closeFlushModal() {
+    if (!flushModal) return;
+    flushModal.style.display = 'none';
+  }
+
+  if (flushModal) {
+    flushModal.addEventListener('click', (event) => {
+      if (event.target === flushModal) {
+        closeFlushModal();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && flushModal && flushModal.style.display === 'flex') {
+      closeFlushModal();
+    }
+  });
 
   function includeContextLines() {
     const toggle = document.getElementById('include-context-lines');
