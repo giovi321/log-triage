@@ -174,7 +174,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         if output_format not in ("text", "json"):
             raise ValueError(f"Module {name}: invalid output_format {output_format}")
 
-        min_sev = Severity.from_string(item.get("min_print_severity", "INFO"))
+        min_sev = Severity.from_string(item.get("min_print_severity", "WARNING"))
 
         llm_cfg = item.get("llm", {}) or {}
         llm_enabled = bool(llm_cfg.get("enabled", llm_defaults.enabled))

@@ -75,19 +75,4 @@ def classify_rsnapshot_basic(
                     )
                 )
 
-    if not findings and joined_all.strip():
-        findings.append(
-            Finding(
-                file_path=file_path,
-                pipeline_name=pipeline_name,
-                finding_index=0,
-                severity=Severity.OK,
-                message="rsnapshot run looks normal",
-                line_start=start_line,
-                line_end=start_line + len(lines) - 1,
-                rule_id=None,
-                excerpt=lines[:excerpt_limit],
-            )
-        )
-
     return findings

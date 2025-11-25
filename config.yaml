@@ -147,7 +147,7 @@ modules:
     mode: 'batch'
     pipeline: 'rsnapshot'
     output_format: 'json'
-    min_print_severity: 'INFO'
+    min_print_severity: 'WARNING'
     llm:
       enabled: false
       provider: 'local_vllm'
@@ -256,7 +256,7 @@ modules:
     mode: 'follow'
     pipeline: 'apache2_error'
     output_format: 'text'
-    min_print_severity: 'INFO'
+    min_print_severity: 'WARNING'
     llm:
       provider: 'local_vllm'
       enabled: true

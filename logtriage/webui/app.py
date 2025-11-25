@@ -68,7 +68,8 @@ db_status: Dict[str, Any] = {
     "url": None,
 }
 
-SEVERITY_CHOICES = ["CRITICAL", "ERROR", "WARNING", "INFO", "OK"]
+ADDRESSED_SEVERITY = "OK"
+SEVERITY_CHOICES = ["CRITICAL", "ERROR", "WARNING"]
 
 
 def _init_database(raw: Dict[str, Any]):
@@ -646,7 +647,7 @@ def _build_log_view_state(
     available_severities: List[str] = []
     tail_filter_normalized = (tail_filter or "all").upper()
     issue_filter_normalized = (issue_filter or "all").upper()
-    severity_choices = [sev for sev in SEVERITY_CHOICES if sev != "OK"]
+    severity_choices = list(SEVERITY_CHOICES)
     had_finding_tail = False
     had_recent_findings = False
     if module_obj is not None:
@@ -662,7 +663,9 @@ def _build_log_view_state(
         had_finding_tail = bool(finding_tail)
         if issue_filter_normalized == "ADDRESSED":
             recent_findings = [
-                c for c in recent_findings if str(getattr(c, "severity", "")).upper() == "OK"
+                c
+                for c in recent_findings
+                if str(getattr(c, "severity", "")).upper() == ADDRESSED_SEVERITY
             ]
             finding_tail = _filter_finding_tail(
                 finding_tail,
@@ -670,11 +673,13 @@ def _build_log_view_state(
                 extra_predicate=lambda section: str(
                     getattr(section.get("finding"), "severity", "")
                 ).upper()
-                == "OK",
+                == ADDRESSED_SEVERITY,
             )
         elif issue_filter_normalized == "ACTIVE":
             recent_findings = [
-                c for c in recent_findings if str(getattr(c, "severity", "")).upper() != "OK"
+                c
+                for c in recent_findings
+                if str(getattr(c, "severity", "")).upper() != ADDRESSED_SEVERITY
             ]
             finding_tail = _filter_finding_tail(
                 finding_tail,
@@ -682,7 +687,7 @@ def _build_log_view_state(
                 extra_predicate=lambda section: str(
                     getattr(section.get("finding"), "severity", "")
                 ).upper()
-                != "OK",
+                != ADDRESSED_SEVERITY,
             )
         for section in finding_tail:
             finding = section.get("finding")
@@ -691,7 +696,7 @@ def _build_log_view_state(
             sev = str(getattr(finding, "severity", "")).upper()
             if sev and sev not in available_severities:
                 available_severities.append(sev)
-            if sev and sev != "OK" and sev not in severity_choices:
+            if sev and sev != ADDRESSED_SEVERITY and sev not in severity_choices:
                 severity_choices.append(sev)
 
         finding_tail = _filter_finding_tail(
@@ -1228,7 +1233,7 @@ async def create_manual_finding(
     try:
         severity_value = Severity.from_string(normalized)
     except Exception:
-        severity_value = Severity.UNKNOWN
+        severity_value = Severity.WARNING
 
     message_text = (message or "").strip() or selected_lines[0]
 
@@ -1299,7 +1304,7 @@ async def mark_finding_addressed(
         )
 
     try:
-        updated = update_finding_severity(finding_id, "OK")
+        updated = update_finding_severity(finding_id, ADDRESSED_SEVERITY)
     except Exception as exc:
         return _logs_redirect(
             module,
@@ -1483,13 +1488,28 @@ async def mark_false_positive(
     _refresh_llm_defaults()
 
     try:
-        update_finding_severity(finding_id, "OK")
-    except Exception:
-        pass
+        deleted = delete_finding_by_id(finding_id)
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Ignore rule saved, but failed to remove finding: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    if not deleted:
+        return _logs_redirect(
+            module,
+            error="Ignore rule saved, but finding was not removed.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
 
     return _logs_redirect(
         module,
-        message="Marked as false positive and added to ignore rules.",
+        message="Marked as false positive, removed from findings, and added to ignore rules.",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
         sample_source=sample_source,
