@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from pathlib import Path
+from typing import Dict, List, Optional
+
 from .models import Finding, Severity, ModuleLLMConfig
 
 
@@ -100,7 +103,7 @@ def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines:
             f"File: {finding.file_path}\n"
             f"Line span: {finding.line_start}-{finding.line_end}\n\n"
             "Return a single JSON object with the following keys:\n"
-            "  severity: one of ['OK','INFO','WARNING','ERROR','CRITICAL']\n"
+            "  severity: one of ['WARNING','ERROR','CRITICAL']\n"
             "  reason: short human-readable explanation\n"
             "  key_lines: list of log lines to highlight\n"
             "  action_items: list of suggested actions or checks\n\n"

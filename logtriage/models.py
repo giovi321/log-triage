@@ -6,12 +6,10 @@ from typing import List, Optional, Dict
 
 
 class Severity(enum.IntEnum):
-    UNKNOWN = 0
-    OK = 1
-    INFO = 2
-    WARNING = 3
-    ERROR = 4
-    CRITICAL = 5
+    OK = 0
+    WARNING = 1
+    ERROR = 2
+    CRITICAL = 3
 
     @classmethod
     def from_string(cls, value: str) -> "Severity":

@@ -24,7 +24,7 @@ def analyze_file(
                 file_path=file_path,
                 pipeline_name=pcfg.name,
                 finding_index=0,
-                severity=Severity.UNKNOWN,
+                severity=Severity.ERROR,
                 message=f"failed to read file: {e}",
                 line_start=1,
                 line_end=1,

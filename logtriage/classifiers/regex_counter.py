@@ -70,19 +70,4 @@ def classify_regex_counter(
                     )
                 )
 
-    if not findings and any(ln.strip() for ln in lines):
-        findings.append(
-            Finding(
-                file_path=file_path,
-                pipeline_name=pipeline_name,
-                finding_index=0,
-                severity=Severity.OK,
-                message="No error/warning matches",
-                line_start=start_line,
-                line_end=start_line + len(lines) - 1,
-                rule_id=None,
-                excerpt=lines[:excerpt_limit],
-            )
-        )
-
     return findings
