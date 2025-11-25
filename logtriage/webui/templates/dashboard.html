@@ -24,7 +24,6 @@
       <span class="status-chip">Page last updated: {{ page_rendered_at|localtime }}</span>
     {% endif %}
   </div>
-  <p class="helper-text" style="margin-top:0.4rem;">If you only see <em>n/a</em> values, make sure the log-triage process (e.g. <code>logtriage run</code>) is running with this same config and writing to the configured database.</p>
 </div>
 
 <div class="card">
@@ -41,10 +40,8 @@
           <th>Enabled</th>
           <th>Status</th>
           <th>Last seen</th>
-          <th>Last reason</th>
           <th style="text-align:right;">24h errors</th>
           <th style="text-align:right;">24h warnings</th>
-          <th style="text-align:right;">24h findings</th>
         </tr>
       </thead>
       <tbody>
@@ -64,12 +61,8 @@
           <td style="font-size:0.85rem;">
             {% if st and st.last_seen %}{{ st.last_seen|localtime }}{% else %}<span class="muted">n/a</span>{% endif %}
           </td>
-          <td style="font-size:0.85rem; max-width:240px; overflow:hidden; text-overflow:ellipsis;">
-            {% if st and st.last_reason %}{{ st.last_reason }}{% else %}<span class="muted">n/a</span>{% endif %}
-          </td>
           <td style="text-align:right;">{{ st.errors_24h if st else 0 }}</td>
           <td style="text-align:right;">{{ st.warnings_24h if st else 0 }}</td>
-          <td style="text-align:right;">{{ st.findings_24h if st else 0 }}</td>
         </tr>
         {% endfor %}
       </tbody>
