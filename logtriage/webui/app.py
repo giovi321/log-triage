@@ -168,6 +168,8 @@ def _derive_ingestion_status(
     """
 
     now = now or datetime.datetime.now(datetime.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=datetime.timezone.utc)
     freshness_window = datetime.timedelta(minutes=freshness_minutes)
 
     enabled_modules = [m.name for m in modules if m.enabled]
@@ -185,6 +187,9 @@ def _derive_ingestion_status(
     for mod_name in enabled_modules:
         mod_stats = stats.get(mod_name)
         last_seen = getattr(mod_stats, "last_seen", None)
+        if last_seen and last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=datetime.timezone.utc)
+
         if last_seen and (latest_seen is None or last_seen > latest_seen):
             latest_seen = last_seen
 
