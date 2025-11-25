@@ -13,15 +13,17 @@ if _sqlalchemy_spec is None:
     declarative_base = lambda: None  # type: ignore
 else:
     from sqlalchemy import (
-        create_engine,
+        Boolean,
         Column,
+        DateTime,
         Integer,
         String,
-        Boolean,
-        DateTime,
         Text,
+        create_engine,
+        inspect,
+        text,
     )
-    from sqlalchemy.orm import sessionmaker, declarative_base
+    from sqlalchemy.orm import declarative_base, sessionmaker
     _sqlalchemy_import_error = None
 
 Base = declarative_base() if declarative_base else None
@@ -29,6 +31,41 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False) if sessionmaker e
 
 _engine = None
 _db_url: Optional[str] = None
+
+
+def _ensure_llm_columns(engine):
+    """Add LLM response columns to the findings table when missing.
+
+    Existing deployments may have been created before these columns existed; we
+    issue lightweight ALTER TABLE statements to keep them in sync without
+    requiring an external migration step.
+    """
+
+    if Base is None:
+        return
+
+    inspector = inspect(engine)
+    try:
+        existing = {col["name"] for col in inspector.get_columns("findings")}
+    except Exception:
+        return
+
+    ddl_statements = [
+        ("llm_provider", "VARCHAR(128)"),
+        ("llm_model", "VARCHAR(128)"),
+        ("llm_response_content", "TEXT"),
+        ("llm_prompt_tokens", "INTEGER"),
+        ("llm_completion_tokens", "INTEGER"),
+    ]
+
+    with engine.begin() as conn:
+        for col_name, col_type in ddl_statements:
+            if col_name in existing:
+                continue
+            try:
+                conn.execute(text(f"ALTER TABLE findings ADD COLUMN {col_name} {col_type}"))
+            except Exception:
+                continue
 
 
 if Base is not None:
@@ -47,6 +84,11 @@ if Base is not None:
         rule_id = Column(String(256), nullable=True)
         excerpt = Column(Text, nullable=True)
         anomaly_flag = Column(Boolean, nullable=False, default=False)
+        llm_provider = Column(String(128), nullable=True)
+        llm_model = Column(String(128), nullable=True)
+        llm_response_content = Column(Text, nullable=True)
+        llm_prompt_tokens = Column(Integer, nullable=True)
+        llm_completion_tokens = Column(Integer, nullable=True)
         created_at = Column(
             DateTime(timezone=True),
             nullable=False,
@@ -76,6 +118,23 @@ if Base is not None:
         def warning_count(self):
             sev = (self.severity or "").upper()
             return 1 if sev == "WARNING" else 0
+
+        @property
+        def llm_response(self):
+            try:
+                from ..models import LLMResponse
+
+                if not self.llm_response_content and not self.llm_provider:
+                    return None
+                return LLMResponse(
+                    provider=self.llm_provider or "",
+                    model=self.llm_model or "",
+                    content=self.llm_response_content or "",
+                    prompt_tokens=self.llm_prompt_tokens,
+                    completion_tokens=self.llm_completion_tokens,
+                )
+            except Exception:
+                return None
 else:  # pragma: no cover - used when sqlalchemy is absent
     class FindingRecord:
         pass
@@ -115,6 +174,7 @@ def setup_database(database_url: str):
 
     engine = create_engine(database_url, future=True)
     Base.metadata.create_all(engine)
+    _ensure_llm_columns(engine)
     SessionLocal.configure(bind=engine)
     _engine = engine
     _db_url = database_url
@@ -131,6 +191,8 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
     sess = get_session()
     if sess is None:
         return
+
+    llm_response = getattr(finding, "llm_response", None)
     obj = FindingRecord(
         module_name=module_name,
         pipeline_name=getattr(finding, "pipeline_name", None),
@@ -145,6 +207,11 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         rule_id=getattr(finding, "rule_id", None),
         excerpt="\n".join(getattr(finding, "excerpt", []) or []),
         anomaly_flag=bool(anomaly_flag),
+        llm_provider=getattr(llm_response, "provider", None),
+        llm_model=getattr(llm_response, "model", None),
+        llm_response_content=getattr(llm_response, "content", None),
+        llm_prompt_tokens=getattr(llm_response, "prompt_tokens", None),
+        llm_completion_tokens=getattr(llm_response, "completion_tokens", None),
     )
     try:
         sess.add(obj)

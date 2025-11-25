@@ -110,14 +110,16 @@ def run_module_batch(
 
     for f in findings:
         f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
+
+    analyze_findings_with_llm(findings, llm_defaults, mod.llm)
+
+    for f in findings:
         if mod.alert_mqtt or mod.alert_webhook:
             send_alerts(mod, f)
         try:
             store_finding(mod.name, f, anomaly_flag=f.rule_id == "baseline_anomaly")
         except Exception:
             pass
-
-    analyze_findings_with_llm(findings, llm_defaults, mod.llm)
 
     if mod.llm.emit_llm_payloads_dir:
         write_llm_payloads(
