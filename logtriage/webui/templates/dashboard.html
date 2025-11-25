@@ -39,7 +39,7 @@
           <th>Path</th>
           <th>Pipeline</th>
           <th>Enabled</th>
-          <th>Last severity</th>
+          <th>Status</th>
           <th>Last seen</th>
           <th>Last reason</th>
           <th style="text-align:right;">24h errors</th>
@@ -58,11 +58,8 @@
           <td>{{ m.pipeline_name or "-" }}</td>
           <td>{{ "yes" if m.enabled else "no" }}</td>
           <td>
-            {% if sev %}
-              <span class="status-badge sev-{{ sev }}">{{ sev }}</span>
-            {% else %}
-              <span class="muted">n/a</span>
-            {% endif %}
+            {% set status = sev or "OK" %}
+            <span class="status-badge sev-{{ status }}">{{ status }}</span>
           </td>
           <td style="font-size:0.85rem;">
             {% if st and st.last_seen %}{{ st.last_seen|localtime }}{% else %}<span class="muted">n/a</span>{% endif %}
