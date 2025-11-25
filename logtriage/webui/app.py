@@ -24,6 +24,7 @@ from .auth import authenticate_user, create_session_token, get_current_user, pwd
 from .db import (
     delete_all_findings,
     delete_findings_for_module,
+    delete_findings_by_ids,
     delete_finding_by_id,
     get_finding_by_id,
     get_module_stats,
@@ -978,6 +979,74 @@ async def flush_module_logs(
     return _logs_redirect(
         module,
         message=msg,
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+        sample_source=sample_source,
+    )
+
+
+@app.post("/logs/finding/delete-multiple", name="delete_selected_findings")
+async def delete_selected_findings(
+    request: Request,
+    module: Optional[str] = Form(None),
+    tail_filter: str = Form("all"),
+    issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
+    finding_ids: str = Form(""),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(
+            module,
+            error="Database not connected.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    raw_ids = [part.strip() for part in (finding_ids or "").split(",") if part.strip()]
+    parsed_ids = []
+    for raw in raw_ids:
+        try:
+            parsed_ids.append(int(raw))
+        except ValueError:
+            continue
+
+    if not parsed_ids:
+        return _logs_redirect(
+            module,
+            error="Select at least one finding to delete.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    try:
+        deleted = delete_findings_by_ids(parsed_ids)
+    except Exception as exc:
+        return _logs_redirect(
+            module,
+            error=f"Failed to delete entries: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    if not deleted:
+        return _logs_redirect(
+            module,
+            error="No matching findings were removed.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    return _logs_redirect(
+        module,
+        message=f"Deleted {deleted} finding(s).",
         tail_filter=tail_filter,
         issue_filter=issue_filter,
         sample_source=sample_source,

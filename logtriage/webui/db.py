@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import importlib.util
 from dataclasses import dataclass
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Iterable
 
 _sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
 if _sqlalchemy_spec is None:
@@ -401,6 +401,29 @@ def delete_findings_for_module(module_name: str) -> int:
         deleted = (
             sess.query(FindingRecord)
             .filter(FindingRecord.module_name == module_name)
+            .delete(synchronize_session=False)
+        )
+        sess.commit()
+        return deleted or 0
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
+def delete_findings_by_ids(finding_ids: Iterable[int]) -> int:
+    sess = get_session()
+    if sess is None:
+        return 0
+
+    try:
+        ids = [fid for fid in finding_ids if isinstance(fid, int)]
+        if not ids:
+            return 0
+        deleted = (
+            sess.query(FindingRecord)
+            .filter(FindingRecord.id.in_(ids))
             .delete(synchronize_session=False)
         )
         sess.commit()
