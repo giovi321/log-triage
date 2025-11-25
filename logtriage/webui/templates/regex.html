@@ -57,7 +57,7 @@
               </div>
             </div>
             <div style="margin-top:0.5rem;">
-              <button type="submit">Suggest regex from selected line</button>
+              <button type="submit" class="secondary">Suggest regex from selected line</button>
             </div>
           </form>
         {% else %}
@@ -78,7 +78,7 @@
             <label><input type="radio" name="regex_kind" value="warning" {% if regex_kind == "warning" %}checked{% endif %}> warning</label>
             <label><input type="radio" name="regex_kind" value="ignore" {% if regex_kind == "ignore" %}checked{% endif %}> ignore</label>
           </div>
-          <button type="submit">Test against sample</button>
+          <button type="submit" class="secondary">Test against sample</button>
         </form>
 
         {% if matches %}

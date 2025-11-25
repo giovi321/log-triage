@@ -141,14 +141,14 @@
             <label for="find-text">Find</label>
             <input id="find-text" type="text" placeholder="Search" autocomplete="off">
             <div class="search-actions">
-              <button id="find-prev" type="button" aria-label="Find previous match">Prev</button>
-              <button id="find-next" type="button" aria-label="Find next match">Next</button>
+              <button id="find-prev" type="button" class="secondary" aria-label="Find previous match">Prev</button>
+              <button id="find-next" type="button" class="secondary" aria-label="Find next match">Next</button>
             </div>
             <label for="replace-text">Replace</label>
             <input id="replace-text" type="text" placeholder="With" autocomplete="off">
             <div class="search-actions">
-              <button id="replace-one" type="button" aria-label="Replace the current match">Replace</button>
-              <button id="replace-all" type="button" aria-label="Replace all matches">Replace all</button>
+              <button id="replace-one" type="button" class="secondary" aria-label="Replace the current match">Replace</button>
+              <button id="replace-all" type="button" class="secondary" aria-label="Replace all matches">Replace all</button>
             </div>
             <div class="search-status" id="search-status" aria-live="polite"></div>
           </div>
@@ -169,7 +169,7 @@
                   aria-label="Reload configuration from disk">
             Reload from disk
           </button>
-          <a class="muted" href="{{ url_for('dashboard') }}">Cancel</a>
+          <button type="button" class="secondary" onclick="window.location.href='{{ url_for('dashboard') }}'">Cancel</button>
           <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
         </div>
       </div>
