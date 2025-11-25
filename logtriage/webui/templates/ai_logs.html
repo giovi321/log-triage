@@ -30,6 +30,8 @@
   .context-toggle .chip-group { display:inline-flex; gap:0.3rem; }
   .context-toggle button { padding:0.3rem 0.6rem; border-radius:0.4rem; background:#182033; border:1px solid #27324a; color:#dfe7f4; }
   .context-toggle button.active { background:#2e4472; border-color:#3c5c98; }
+  .selection-box { display:flex; align-items:center; gap:0.35rem; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
+  .selection-box .muted { font-size:0.9rem; }
   .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
   .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
   .prompt-grid textarea { height:240px; }
@@ -39,7 +41,6 @@
   .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
 </style>
   <div class="card">
-    <h2>AI logs explorer</h2>
     {% if message %}
       <div class="helper-text" style="margin:0.35rem 0; padding:0.4rem 0.6rem; border:1px solid #2e4735; background:#142018; color:#b7e6c5; border-radius:0.5rem;">{{ message }}</div>
     {% endif %}
@@ -78,38 +79,41 @@
   {% elif not current_module %}
     <p class="muted">Select a module to view its logs.</p>
   {% else %}
+    <div class="log-actions" style="margin-bottom:0.6rem;">
+      <div class="selection-box">
+        <span class="muted">Selected:</span>
+        <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
+        <button type="button" class="secondary" onclick="copySelectedLines()">Copy lines</button>
+        <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
+        <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
+      </div>
+      <div class="context-toggle" id="context-toggle">
+        <span class="muted" style="font-size:0.92rem;">Include 3</span>
+        <div class="chip-group">
+          <button type="button" class="secondary active" data-context-direction="before" onclick="toggleContextDirection('before')">preceding</button>
+          <button type="button" class="secondary" data-context-direction="after" onclick="toggleContextDirection('after')">following</button>
+        </div>
+        <span class="muted" style="font-size:0.92rem;">lines to prompt</span>
+      </div>
+      <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse entries</button>
+      {% if issue_filter != 'ALL' %}
+        <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
+      {% endif %}
+      {% if tail_filter != 'ALL' %}
+        <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
+      {% endif %}
+    </div>
+    <form id="delete-selected-findings-form" method="post" action="{{ url_for('delete_selected_findings') }}" style="display:none;">
+      <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+      <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+      <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+      <input type="hidden" name="sample_source" value="{{ sample_source }}">
+      <input type="hidden" name="finding_ids" id="selected-finding-ids">
+    </form>
     <div class="synced-shell">
       <div class="synced-head">
         <div class="sync-title">
           <h3 style="margin:0;">Findings</h3>
-          <div class="log-actions">
-            <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
-            <button type="button" class="secondary" onclick="copySelectedLines()">Copy selected lines</button>
-            {% if issue_filter != 'ALL' %}
-              <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
-            {% endif %}
-            <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Append selected to prompt</button>
-            <div class="context-toggle" id="context-toggle">
-              <span class="muted" style="font-size:0.92rem;">Include 3</span>
-              <div class="chip-group">
-                <button type="button" class="secondary active" data-context-direction="before" onclick="setContextDirection('before')">preceding</button>
-                <button type="button" class="secondary" data-context-direction="after" onclick="setContextDirection('after')">following</button>
-              </div>
-              <span class="muted" style="font-size:0.92rem;">lines when adding to LLM prompt</span>
-            </div>
-            <button type="button" class="secondary" onclick="toggleAllFindings()" id="toggle-all-findings">Collapse entries</button>
-            {% if tail_filter != 'ALL' %}
-              <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
-            {% endif %}
-            <button type="button" class="secondary" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete selected findings</button>
-          </div>
-          <form id="delete-selected-findings-form" method="post" action="{{ url_for('delete_selected_findings') }}" style="display:none;">
-            <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
-            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-            <input type="hidden" name="sample_source" value="{{ sample_source }}">
-            <input type="hidden" name="finding_ids" id="selected-finding-ids">
-          </form>
         </div>
         <div class="sync-title">
           <div>
@@ -300,7 +304,7 @@
   const recordedSummaries = {};
   const CONTEXT_LINE_COUNT = 3;
 
-  let contextDirection = 'before';
+  const contextDirections = new Set(['before']);
 
   function buildLineLookup() {
     const lookup = new Map();
@@ -315,9 +319,9 @@
     return lookup;
   }
 
-  function collectSelectedLines(direction = null) {
+  function collectSelectedLines(directions = null) {
     const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
-    if (!direction) {
+    if (!directions) {
       return selected.map(cb => cb.dataset.line).filter(Boolean);
     }
 
@@ -325,17 +329,19 @@
     const indexes = new Set();
     const fallbackTexts = [];
 
+    const dirSet = new Set(Array.isArray(directions) || directions instanceof Set ? Array.from(directions) : [directions].filter(Boolean));
+
     selected.forEach(cb => {
       const text = cb.dataset.line;
       const idxRaw = cb.dataset.lineIndex || cb.value;
       const idx = Number.parseInt(idxRaw, 10);
       if (!Number.isNaN(idx)) {
-        if (direction === 'before') {
+        if (dirSet.has('before')) {
           for (let i = CONTEXT_LINE_COUNT; i >= 1; i -= 1) {
             indexes.add(idx - i);
           }
         }
-        if (direction === 'after') {
+        if (dirSet.has('after')) {
           for (let i = 1; i <= CONTEXT_LINE_COUNT; i += 1) {
             indexes.add(idx + i);
           }
@@ -372,11 +378,11 @@
     return contextual;
   }
 
-  function setContextDirection(direction) {
-    if (contextDirection === direction) {
-      contextDirection = null;
+  function toggleContextDirection(direction) {
+    if (contextDirections.has(direction)) {
+      contextDirections.delete(direction);
     } else {
-      contextDirection = direction;
+      contextDirections.add(direction);
     }
     refreshContextButtons();
   }
@@ -384,7 +390,7 @@
   function refreshContextButtons() {
     document.querySelectorAll('[data-context-direction]').forEach(btn => {
       const dir = btn.dataset.contextDirection;
-      btn.classList.toggle('active', dir === contextDirection);
+      btn.classList.toggle('active', contextDirections.has(dir));
     });
   }
 
@@ -407,7 +413,7 @@
   }
 
   function appendSelectedToPrompt() {
-    const selected = collectSelectedLines(contextDirection);
+    const selected = collectSelectedLines(contextDirections);
     if (!selected.length) return;
     appendToPrompt(selected.join('\n'));
   }
