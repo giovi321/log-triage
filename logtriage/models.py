@@ -6,7 +6,6 @@ from typing import List, Optional, Dict
 
 
 class Severity(enum.IntEnum):
-    OK = 0
     WARNING = 1
     ERROR = 2
     CRITICAL = 3
