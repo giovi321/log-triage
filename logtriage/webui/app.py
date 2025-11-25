@@ -17,7 +17,7 @@ from starlette import status
 from fastapi.staticfiles import StaticFiles
 
 from ..config import build_llm_config, build_modules, load_config
-from ..models import GlobalLLMConfig, ModuleConfig
+from ..models import GlobalLLMConfig, ModuleConfig, Severity, Finding
 from ..llm_client import _call_chat_completion
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
@@ -28,10 +28,13 @@ from .db import (
     delete_finding_by_id,
     get_finding_by_id,
     get_module_stats,
+    get_next_finding_index,
     setup_database,
     get_latest_finding_time,
     get_recent_findings_for_module,
+    update_finding_llm_data,
     update_finding_severity,
+    store_finding,
 )
 
 
@@ -1166,6 +1169,113 @@ async def change_finding_severity(
     )
 
 
+@app.post("/logs/finding/manual", name="create_manual_finding")
+async def create_manual_finding(
+    request: Request,
+    module: Optional[str] = Form(None),
+    severity: str = Form("ERROR"),
+    message: Optional[str] = Form(None),
+    lines: str = Form(""),
+    line_indexes: str = Form(""),
+    tail_filter: str = Form("all"),
+    issue_filter: str = Form("all"),
+    sample_source: str = Form("tail"),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if not db_status.get("connected"):
+        return _logs_redirect(
+            module,
+            error="Database not connected.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    modules = {m.name: m for m in _build_modules_from_config()}
+    module_obj = modules.get(module or "")
+    if module_obj is None:
+        return _logs_redirect(
+            None,
+            error="Select a module before creating a finding.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    normalized = (severity or "").upper()
+    if normalized not in SEVERITY_CHOICES:
+        return _logs_redirect(
+            module_obj.name,
+            error="Invalid severity provided.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    selected_lines = [ln for ln in (lines.split("\n") if lines else []) if ln.strip()]
+    if not selected_lines:
+        return _logs_redirect(
+            module_obj.name,
+            error="Select at least one log line to create a finding.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    try:
+        severity_value = Severity.from_string(normalized)
+    except Exception:
+        severity_value = Severity.UNKNOWN
+
+    message_text = (message or "").strip() or selected_lines[0]
+
+    parsed_indexes = []
+    if line_indexes:
+        for raw in line_indexes.split(","):
+            try:
+                parsed_indexes.append(int(raw))
+            except ValueError:
+                continue
+    line_start = min(parsed_indexes) if parsed_indexes else 0
+    line_end = max(parsed_indexes) if parsed_indexes else line_start + len(selected_lines) - 1
+
+    finding_index = get_next_finding_index(module_obj.name)
+    finding = Finding(
+        file_path=Path(module_obj.path),
+        pipeline_name=getattr(module_obj, "pipeline_name", None) or "",
+        finding_index=finding_index,
+        severity=severity_value,
+        message=message_text,
+        line_start=line_start,
+        line_end=line_end,
+        rule_id=None,
+        excerpt=selected_lines,
+        needs_llm=False,
+    )
+
+    try:
+        store_finding(module_obj.name, finding)
+    except Exception as exc:
+        return _logs_redirect(
+            module_obj.name,
+            error=f"Failed to store finding: {exc}",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    return _logs_redirect(
+        module_obj.name,
+        message="Manual finding recorded.",
+        tail_filter=tail_filter,
+        issue_filter=issue_filter,
+        sample_source=sample_source,
+    )
+
+
 @app.post("/logs/finding/address", name="mark_finding_addressed")
 async def mark_finding_addressed(
     request: Request,
@@ -1215,6 +1325,54 @@ async def mark_finding_addressed(
         issue_filter=issue_filter,
         sample_source=sample_source,
     )
+
+
+@app.post("/logs/finding/opinion", name="record_finding_opinion")
+async def record_finding_opinion(
+    request: Request,
+    finding_id: int = Form(...),
+    provider: str = Form(""),
+    model: str = Form(""),
+    content: str = Form(""),
+    prompt_tokens: Optional[int] = Form(None),
+    completion_tokens: Optional[int] = Form(None),
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
+
+    if not db_status.get("connected"):
+        return JSONResponse({"error": "Database not connected."}, status_code=status.HTTP_400_BAD_REQUEST)
+
+    finding = get_finding_by_id(finding_id)
+    if finding is None:
+        return JSONResponse({"error": "Finding not found."}, status_code=status.HTTP_404_NOT_FOUND)
+
+    def _to_int(value):
+        if value is None:
+            return None
+        try:
+            stripped = str(value).strip()
+            return int(stripped) if stripped else None
+        except Exception:
+            return None
+
+    try:
+        ok = update_finding_llm_data(
+            finding_id,
+            provider=provider or None,
+            model=model or None,
+            content=content or None,
+            prompt_tokens=_to_int(prompt_tokens),
+            completion_tokens=_to_int(completion_tokens),
+        )
+    except Exception as exc:
+        return JSONResponse({"error": f"Failed to store AI opinion: {exc}"}, status_code=500)
+
+    if not ok:
+        return JSONResponse({"error": "Failed to store AI opinion."}, status_code=400)
+
+    return JSONResponse({"message": "AI opinion stored."})
 
 
 @app.post("/logs/finding/false_positive", name="mark_false_positive")
@@ -1527,11 +1685,8 @@ def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int 
 
 
 def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[Dict[str, Any]]:
-    if not sample_lines:
-        return []
-
     indexed_lines = [{"index": idx, "text": line} for idx, line in enumerate(sample_lines)]
-    remaining = list(indexed_lines)
+    used_indexes: set[int] = set()
     sections: List[Dict[str, Any]] = []
 
     sorted_findings = sorted(
@@ -1540,19 +1695,41 @@ def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[
         reverse=True,
     )
 
-    for finding in sorted_findings:
-        if not remaining:
-            break
-        count = int(getattr(finding, "line_count", 0) or 0)
-        if count <= 0:
-            continue
-        take = min(count, len(remaining))
-        finding_lines = remaining[-take:]
-        remaining = remaining[:-take]
-        sections.append({"finding": finding, "lines": finding_lines})
+    def _lines_for_finding(finding):
+        start = getattr(finding, "line_start", None)
+        end = getattr(finding, "line_end", None)
+        excerpt = getattr(finding, "excerpt", None) or ""
+        excerpt_lines = excerpt.splitlines() if isinstance(excerpt, str) else list(excerpt)
 
-    if remaining:
-        sections.append({"finding": None, "lines": remaining})
+        if start is not None and end is not None and start >= 0 and end >= start:
+            matching = [entry for entry in indexed_lines if start <= entry.get("index", -1) <= end]
+            if matching:
+                return matching
+            if excerpt_lines:
+                return [
+                    {"index": start + offset, "text": text}
+                    for offset, text in enumerate(excerpt_lines)
+                ]
+
+        return [
+            {"index": (start + idx) if start is not None else None, "text": text}
+            for idx, text in enumerate(excerpt_lines)
+        ]
+
+    for finding in sorted_findings:
+        lines = _lines_for_finding(finding)
+        if not lines:
+            continue
+        for entry in lines:
+            idx = entry.get("index")
+            if isinstance(idx, int):
+                used_indexes.add(idx)
+        sections.append({"finding": finding, "lines": lines})
+
+    if indexed_lines:
+        remaining = [ln for ln in indexed_lines if ln.get("index") not in used_indexes]
+        if remaining:
+            sections.append({"finding": None, "lines": remaining})
 
     return sections
 
