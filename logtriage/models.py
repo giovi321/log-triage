@@ -87,7 +87,6 @@ class ModuleConfig:
     llm: "ModuleLLMConfig"
     stream_from_beginning: bool
     stream_interval: float
-    exit_code_by_severity: Optional[Dict[Severity, int]] = None
     alert_mqtt: Optional[AlertMQTTConfig] = None
     alert_webhook: Optional[AlertWebhookConfig] = None
     baseline: Optional[BaselineConfig] = None

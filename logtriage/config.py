@@ -231,14 +231,6 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         stream_from_beginning = bool(stream_cfg.get("from_beginning", False))
         stream_interval = float(stream_cfg.get("interval", 1.0))
 
-        exit_map_raw = item.get("exit_code_by_severity")
-        exit_map = None
-        if exit_map_raw:
-            exit_map = {}
-            for sev_name, code in exit_map_raw.items():
-                sev = Severity.from_string(str(sev_name))
-                exit_map[sev] = int(code)
-
         alerts_cfg = item.get("alerts", {}) or {}
 
         alert_mqtt_cfg = None
@@ -311,7 +303,6 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
                 llm=module_llm_cfg,
                 stream_from_beginning=stream_from_beginning,
                 stream_interval=stream_interval,
-                exit_code_by_severity=exit_map,
                 alert_mqtt=alert_mqtt_cfg,
                 alert_webhook=alert_webhook_cfg,
                 baseline=baseline_cfg,

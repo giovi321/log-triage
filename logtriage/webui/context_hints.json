@@ -41,7 +41,6 @@
   "modules_mode": "modules.mode: batch reads everything once, follow tails a single growing log file with rotation awareness.",
   "modules_output_format": "modules.output_format: text prints human friendly findings to stdout, json emits a machine readable object per finding.",
   "modules_min_print_severity": "modules.min_print_severity: filter so that only findings at or above this severity are printed by the module regardless of what the classifier produced.",
-  "modules_exit_code_by_severity": "modules.exit_code_by_severity: map of severity to exit code for automation.",
   "modules_alerts": "modules.alerts: webhook and MQTT delivery points that can be tailored per module with their own severity thresholds.",
   "alerts_webhook": "alerts.webhook: HTTP callback settings used when a finding should be pushed to an external service.",
   "alerts_mqtt": "alerts.mqtt: configuration for publishing findings to an MQTT broker.",
