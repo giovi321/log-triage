@@ -119,6 +119,18 @@ if Base is not None:
             sev = (self.severity or "").upper()
             return 1 if sev == "WARNING" else 0
 
+
+    class ModuleActivity(Base):
+        __tablename__ = "module_activity"
+
+        module_name = Column(String(128), primary_key=True)
+        last_seen = Column(
+            DateTime(timezone=True),
+            nullable=False,
+            default=lambda: datetime.datetime.now(datetime.timezone.utc),
+            index=True,
+        )
+
         @property
         def llm_response(self):
             try:
@@ -252,6 +264,12 @@ def get_module_stats() -> Dict[str, ModuleStats]:
     stats: Dict[str, ModuleStats] = {}
 
     try:
+        activity_rows = sess.query(ModuleActivity).all()
+        activities = {row.module_name: row.last_seen for row in activity_rows}
+    except Exception:
+        activities = {}
+
+    try:
         rows = (
             sess.query(FindingRecord)
             .filter(FindingRecord.created_at >= window_start)
@@ -279,13 +297,51 @@ def get_module_stats() -> Dict[str, ModuleStats]:
                 s.warnings_24h += 1
             s.last_severity = row.severity
             s.last_reason = row.message
-            s.last_seen = row.created_at
+
+        for mod_name, seen_at in activities.items():
+            s = stats.get(mod_name)
+            if s is None:
+                s = ModuleStats(
+                    module_name=mod_name,
+                    last_severity=None,
+                    last_reason=None,
+                    last_seen=seen_at,
+                    errors_24h=0,
+                    warnings_24h=0,
+                    findings_24h=0,
+                )
+                stats[mod_name] = s
+            else:
+                if s.last_seen is None or (seen_at and seen_at > s.last_seen):
+                    s.last_seen = seen_at
     except Exception:
         return {}
     finally:
         sess.close()
 
     return stats
+
+
+def update_module_last_seen(module_name: str, seen_at: Optional[datetime.datetime] = None):
+    sess = get_session()
+    if sess is None:
+        return
+
+    seen_at = seen_at or datetime.datetime.now(datetime.timezone.utc)
+
+    try:
+        row = sess.query(ModuleActivity).filter(ModuleActivity.module_name == module_name).first()
+        if row is None:
+            row = ModuleActivity(module_name=module_name, last_seen=seen_at)
+            sess.add(row)
+        else:
+            if row.last_seen is None or seen_at > row.last_seen:
+                row.last_seen = seen_at
+        sess.commit()
+    except Exception:
+        sess.rollback()
+    finally:
+        sess.close()
 
 
 def get_latest_finding_time():
