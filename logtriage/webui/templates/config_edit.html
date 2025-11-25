@@ -51,31 +51,49 @@
     white-space: pre-wrap;
   }
 
-  .search-bar {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-    align-items: end;
+  .editor-surface {
+    position: relative;
   }
 
-  .search-bar label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.9rem;
-    color: #cfd7e6;
-  }
-
-  .search-bar .search-actions {
+  .search-row {
     display: flex;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.45rem;
     flex-wrap: wrap;
+    padding: 0.35rem 0.5rem;
+    margin-bottom: 0.5rem;
+    background: #0f1424;
+    border: 1px solid #1f2a3d;
+    border-radius: 0.55rem;
+  }
+
+  .search-row label {
+    font-size: 0.85rem;
+    color: #cfd7e6;
+    margin-right: 0.25rem;
+  }
+
+  .search-row input {
+    width: 180px;
+  }
+
+  .search-row .search-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
   }
 
   .search-status {
     color: #9fb1d3;
-    font-size: 0.9rem;
-    min-height: 1.2rem;
+    font-size: 0.85rem;
+    margin-left: auto;
+    min-height: 1rem;
+  }
+
+  .search-highlight {
+    background: #2f4d92;
+    color: #fff;
   }
 
   .client-error {
@@ -119,29 +137,29 @@
   <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor">
     <div class="config-editor-grid">
       <div class="editor-pane">
-        <div class="search-bar" role="search">
-          <div>
+        <div class="editor-surface">
+          <div class="search-row" role="search">
             <label for="find-text">Find</label>
-            <input id="find-text" type="text" placeholder="Search text" autocomplete="off">
+            <input id="find-text" type="text" placeholder="Search" autocomplete="off">
+            <div class="search-actions">
+              <button id="find-prev" type="button" aria-label="Find previous match">Prev</button>
+              <button id="find-next" type="button" aria-label="Find next match">Next</button>
+            </div>
+            <label for="replace-text">Replace</label>
+            <input id="replace-text" type="text" placeholder="With" autocomplete="off">
+            <div class="search-actions">
+              <button id="replace-one" type="button" aria-label="Replace the current match">Replace</button>
+              <button id="replace-all" type="button" aria-label="Replace all matches">Replace all</button>
+            </div>
+            <div class="search-status" id="search-status" aria-live="polite"></div>
           </div>
-          <div>
-            <label for="replace-text">Replace with</label>
-            <input id="replace-text" type="text" placeholder="Replacement" autocomplete="off">
-          </div>
-          <div class="search-actions">
-            <button id="find-prev" type="button" aria-label="Find previous match">Find prev</button>
-            <button id="find-next" type="button" aria-label="Find next match">Find next</button>
-            <button id="replace-one" type="button" aria-label="Replace the current match">Replace</button>
-            <button id="replace-all" type="button" aria-label="Replace all matches">Replace all</button>
-          </div>
-          <div class="search-status" id="search-status" aria-live="polite"></div>
+          <textarea id="config-text"
+                    name="config_text"
+                    rows="28"
+                    wrap="off"
+                    spellcheck="false"
+                    aria-label="config.yaml editor">{{ config_text }}</textarea>
         </div>
-        <textarea id="config-text"
-                  name="config_text"
-                  rows="28"
-                  wrap="off"
-                  spellcheck="false"
-                  aria-label="config.yaml editor">{{ config_text }}</textarea>
         <div id="client-error" class="client-error" role="alert"></div>
         <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
           <button id="save-button" type="submit">Save</button>
@@ -206,6 +224,7 @@
   const defaultHint = hintTexts.root || 'Top-level settings for logtriage.';
   let errorLineHandle = null;
   let lastSearchDirection = 'next';
+  let currentSearchMarker = null;
 
   function debounce(fn, delay = 250) {
     let timer;
@@ -234,6 +253,13 @@
   function setSearchStatus(text) {
     if (searchStatus) {
       searchStatus.textContent = text || '';
+    }
+  }
+
+  function clearSearchHighlight() {
+    if (currentSearchMarker) {
+      currentSearchMarker.clear();
+      currentSearchMarker = null;
     }
   }
 
@@ -343,6 +369,7 @@
     const query = (findInput?.value || '').trim();
     if (!query) {
       setSearchStatus('Enter text to find');
+      clearSearchHighlight();
       return null;
     }
 
@@ -375,11 +402,14 @@
 
     if (matchIndex === -1) {
       setSearchStatus('No matches');
+      clearSearchHighlight();
       return null;
     }
 
     const from = doc.posFromIndex(matchIndex);
     const to = doc.posFromIndex(matchIndex + query.length);
+    clearSearchHighlight();
+    currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
     doc.setSelection(from, to);
     editor.scrollIntoView({ from, to });
     setSearchStatus('');
@@ -401,6 +431,8 @@
       const start = doc.getCursor('from');
       doc.replaceSelection(replacement, 'around');
       const end = doc.posFromIndex(doc.indexFromPos(start) + replacement.length);
+      clearSearchHighlight();
+      currentSearchMarker = doc.markText(start, end, { className: 'search-highlight' });
       doc.setSelection(start, end);
       editor.scrollIntoView({ from: start, to: end });
       editor.save();
@@ -443,6 +475,8 @@
       const firstIdx = newText.indexOf(replacement);
       const from = doc.posFromIndex(Math.max(0, firstIdx));
       const to = doc.posFromIndex(Math.max(0, firstIdx + replacement.length));
+      clearSearchHighlight();
+      currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
       doc.setSelection(from, to);
       editor.scrollIntoView({ from, to });
     }
