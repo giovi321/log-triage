@@ -125,41 +125,6 @@ def _load_context_hints() -> Dict[str, str]:
     }
 
 
-def _load_regex_presets() -> List[Dict[str, str]]:
-    candidates = [
-        BASE_DIR / "regex_presets.json",
-        ASSETS_DIR / "regex_presets.json",
-    ]
-
-    for path in candidates:
-        try:
-            if not path.exists():
-                continue
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(data, list):
-                continue
-
-            presets: List[Dict[str, str]] = []
-            for entry in data:
-                if not isinstance(entry, dict):
-                    continue
-                label = str(entry.get("label", "")).strip()
-                pattern = str(entry.get("pattern", "")).strip()
-                if not label or not pattern:
-                    continue
-                kind = str(entry.get("kind", "error")).lower()
-                if kind not in {"error", "warning", "ignore"}:
-                    kind = "error"
-                presets.append({"label": label, "pattern": pattern, "kind": kind})
-
-            if presets:
-                return presets
-        except Exception:
-            continue
-
-    return []
-
-
 def _available_sample_logs() -> List[Dict[str, Any]]:
     if not SAMPLE_LOG_DIR.exists():
         return []
@@ -224,7 +189,6 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
 settings, raw_config, CONFIG_PATH = _load_settings_and_config()
 llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 context_hints = _load_context_hints()
-regex_presets = _load_regex_presets()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
 
 REGEX_WIZARD_STEPS = [
@@ -287,13 +251,6 @@ def _regex_step_hints(step: str) -> List[Dict[str, str]]:
     mapping = {
         "pick": [
             {
-                "title": "Know your source",
-                "body": _hint(
-                    "modules_stream",
-                    "Follow mode tails a single file and respects rotation; batch walks directories recursively.",
-                ),
-            },
-            {
                 "title": "Module context",
                 "body": _hint(
                     "modules_path",
@@ -312,13 +269,6 @@ def _regex_step_hints(step: str) -> List[Dict[str, str]]:
             },
         ],
         "test": [
-            {
-                "title": "Chunking matters",
-                "body": _hint(
-                    "grouping_type",
-                    "Grouping controls how lines are chunked before classification; marker regexes split multi-line entries.",
-                ),
-            },
             {
                 "title": "Context windows",
                 "body": _hint(
@@ -560,7 +510,6 @@ def _regex_context(
         "sample_source": normalized_source,
         "sample_source_label": _sample_source_label(normalized_source),
         "sample_options": _sample_source_options(),
-        "regex_presets": regex_presets,
         "regex_issues": regex_issues,
         "wizard": wizard or _regex_wizard_metadata(active_step),
         "step_hints": step_hints or _build_all_regex_hints(),
