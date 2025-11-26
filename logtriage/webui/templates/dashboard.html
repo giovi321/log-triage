@@ -23,8 +23,8 @@
           <span class="muted">Stale: {{ ingestion_status.stale_modules|join(', ') }}</span>
         {% endif %}
       </span>
-      {% if ingestion_status.latest_seen %}
-        <span class="status-chip">Latest log activity: {{ ingestion_status.latest_seen|localtime }}</span>
+      {% if ingestion_status.latest_log_update %}
+        <span class="status-chip">Latest log activity: {{ ingestion_status.latest_log_update|localtime }}</span>
       {% endif %}
     {% endif %}
     {% if page_rendered_at %}
@@ -35,7 +35,7 @@
 
 <div class="card">
   <h2>Modules</h2>
-  <p class="helper-text">Live view of configured modules with last seen events and their severities.</p>
+  <p class="helper-text">Live view of configured modules with last log updates and their severities.</p>
   {% if modules %}
     <table style="font-size:0.9rem;">
       <thead>
@@ -46,7 +46,7 @@
           <th>Pipeline</th>
           <th>Enabled</th>
           <th>Status</th>
-          <th>Last seen</th>
+          <th>Last log update</th>
           <th style="text-align:right;">24h errors</th>
           <th style="text-align:right;">24h warnings</th>
         </tr>
@@ -73,7 +73,7 @@
             <span class="status-badge sev-{{ status }}">{{ status }}</span>
           </td>
           <td style="font-size:0.85rem;">
-            {% if st and st.last_seen %}{{ st.last_seen|localtime }}{% else %}<span class="muted">n/a</span>{% endif %}
+            {% if st and st.last_log_update %}{{ st.last_log_update|localtime }}{% else %}<span class="muted">n/a</span>{% endif %}
           </td>
           <td style="text-align:right;">{{ st.errors_24h if st else 0 }}</td>
           <td style="text-align:right;">{{ st.warnings_24h if st else 0 }}</td>

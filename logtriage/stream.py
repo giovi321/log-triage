@@ -1,4 +1,3 @@
-import datetime
 import os
 import time
 from pathlib import Path
@@ -10,7 +9,7 @@ from .llm_client import analyze_findings_with_llm
 from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
 from .baseline import apply_baseline
-from .webui.db import store_finding, update_module_last_seen
+from .webui.db import store_finding
 
 
 def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
@@ -132,8 +131,6 @@ def stream_file(
     ):
         if not lines:
             continue
-
-        update_module_last_seen(mod.name, datetime.datetime.now(datetime.timezone.utc))
 
         if should_reload is not None and should_reload():
             break
