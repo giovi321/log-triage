@@ -1,9 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.35rem 0.25rem; border-radius:0.4rem; transition:background 0.15s ease, border 0.15s ease; }
+  .wizard-progress { display:flex; flex-wrap:wrap; gap:0.75rem; margin-top:0.5rem; }
+  .wizard-step { display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0.75rem; border:1px solid #232b3b; border-radius:0.65rem; background:#0f1422; min-width:170px; }
+  .wizard-step .bullet { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; }
+  .wizard-step.complete { border-color:#2c3c5e; background:#111a2b; }
+  .wizard-step.complete .bullet { background:#1f2f4b; color:#cfe1ff; }
+  .wizard-step.active { border-color:#4c6ad4; box-shadow:0 0 0 1px rgba(76,106,212,0.35); }
+  .wizard-step.active .bullet { background:#4c6ad4; color:#fff; }
+  .wizard-step.upcoming { opacity:0.65; }
+  .wizard-step .step-label { font-weight:700; color:#e6ecf7; }
+  .wizard-step .step-status { font-size:0.8rem; color:#93a3c1; }
+  .step-section { border:1px solid #1f2530; border-radius:0.75rem; padding:0.9rem; background:#0f131e; margin-top:1rem; }
+  .step-title { display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.35rem; }
+  .step-body { display:grid; grid-template-columns: minmax(0, 2.4fr) minmax(260px, 1fr); gap:1rem; align-items:start; }
+  @media (max-width: 900px) { .step-body { grid-template-columns: 1fr; } }
+  .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.35rem 0.4rem; border-radius:0.4rem; transition:background 0.15s ease, border 0.15s ease; }
   .regex-line input[type="radio"] { margin-top:0.2rem; }
   .regex-line.selected { background:#182233; border:1px solid #2c3a55; }
+  .regex-line .line-content { display:flex; flex-direction:column; gap:0.35rem; width:100%; }
   .regex-kind { display:flex; flex-wrap:wrap; gap:0.4rem 0.75rem; }
   .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; }
   .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
@@ -41,6 +56,9 @@
   {% if message %}
     <p style="color:#81c784;">{{ message }}</p>
   {% endif %}
+  {% if ingestion_status %}
+    <p class="helper-text" style="margin-top:0.25rem;">Log ingestion: {{ ingestion_status.message }}</p>
+  {% endif %}
 
   {% if current_module %}
     <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
@@ -51,25 +69,41 @@
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
-            <div style="max-height:400px; overflow:auto; border:1px solid #333; padding:0.35rem;">
+            <div style="max-height:320px; overflow:auto; border:1px solid #333; padding:0.35rem; border-radius:0.5rem;" aria-label="Sample lines">
               <div class="regex-lines">
-                {% for line in sample_lines %}
+                {% for entry in sample_lines %}
                   <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
-                    <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %}>
-                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ loop.index0 }}:</span>
-                    <span style="flex:1; white-space:pre-wrap;" {% if matches and (loop.index0 in matches) %}class="match-line"{% endif %}>{{ line }}</span>
+                    <input type="radio" name="sample_index" value="{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
+                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ entry.index }}:</span>
+                    <div class="line-content">
+                      <span class="line-preview {% if matches and (entry.index in matches) %}match-line{% endif %}" data-preview="{{ entry.preview }}" data-full="{{ entry.full }}" data-clipped="{{ entry.was_clipped }}">{{ entry.preview }}</span>
+                      {% if entry.is_preview_truncated or entry.was_clipped %}
+                        <button type="button" class="link-button" data-toggle-full>View full line</button>
+                        <div class="line-full" style="display:none; white-space:pre-wrap; word-break:break-word;">{{ entry.full }}{% if entry.was_clipped %}<em style="color:#ccc;"> (clipped preview)</em>{% endif %}</div>
+                      {% endif %}
+                    </div>
                   </div>
                 {% endfor %}
               </div>
             </div>
             <div style="margin-top:0.5rem;">
-              <button type="submit" class="secondary">Suggest regex from selected line</button>
+              <button type="submit" class="secondary">Use selected line to draft regex</button>
             </div>
           </form>
-        {% else %}
-          <p style="color:#888;">No lines read from log file.</p>
-        {% endif %}
+          {% else %}
+            <p class="helper-text">No lines read from log file.</p>
+          {% endif %}
+        </div>
+        <div class="hint-stack" aria-label="Pick sample tips">
+          {% for hint in step_hints.get('pick', []) %}
+            <div class="hint-card">
+              <h4>{{ hint.title }}</h4>
+              <p>{{ hint.body }}</p>
+            </div>
+          {% endfor %}
+        </div>
       </div>
+    </div>
 
       <div style="flex:1 1 40%; min-width:260px;">
         <h3>Regex</h3>
@@ -88,6 +122,13 @@
           {% endif %}
           <div style="margin-bottom:0.5rem;">
             <textarea name="regex_value" rows="4" style="width:95%; font-family:monospace;">{{ regex_value }}</textarea>
+            {% if regex_issues %}
+              <ul class="inline-errors">
+                {% for issue in regex_issues %}
+                  <li>{{ issue }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
           </div>
           <div class="regex-kind" style="margin-bottom:0.5rem;">
             <label><input type="radio" name="regex_kind" value="error" {% if regex_kind == "error" %}checked{% endif %}> error</label>
@@ -97,9 +138,53 @@
           <button type="submit" class="secondary">Test against sample</button>
         </form>
 
-        {% if matches %}
-          <p style="margin-top:0.5rem; font-size:0.8rem;">Matched lines: {{ matches|length }}</p>
-        {% endif %}
+    <div class="step-section" id="step-test">
+      <div class="step-title">
+        <h3 style="margin:0;">3. Run tests</h3>
+        <span class="badge">Matched lines: {{ matches|length }}</span>
+      </div>
+      <div class="step-body">
+        <div>
+          {% if matches %}
+            <p class="helper-text" style="margin-top:0;">Highlighted rows above show where the regex matched.</p>
+          {% else %}
+            <p class="helper-text" style="margin-top:0;">No matches yet. Adjust the pattern and press Enter to retry.</p>
+          {% endif %}
+        </div>
+        <div class="hint-stack" aria-label="Test tips">
+          {% for hint in step_hints.get('test', []) %}
+            <div class="hint-card">
+              <h4>{{ hint.title }}</h4>
+              <p>{{ hint.body }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="step-section" id="step-save">
+      <div class="step-title">
+        <h3 style="margin:0;">4. Save to pipeline</h3>
+        <span class="helper-kbd"><kbd>Enter</kbd> to confirm</span>
+      </div>
+      <div class="step-body">
+        <div>
+          <form method="post" action="{{ url_for('regex_save') }}" class="inline-controls">
+            <input type="hidden" name="module" value="{{ current_module.name }}">
+            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+            <input type="hidden" name="regex_value" value="{{ regex_value }}">
+            <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
+            <button type="submit">Save regex to classifier</button>
+          </form>
+        </div>
+        <div class="hint-stack" aria-label="Save tips">
+          {% for hint in step_hints.get('save', []) %}
+            <div class="hint-card">
+              <h4>{{ hint.title }}</h4>
+              <p>{{ hint.body }}</p>
+            </div>
+          {% endfor %}
+        </div>
       </div>
     </div>
   {% else %}
@@ -109,14 +194,14 @@
 <script>
   function highlightSelectedLine() {
     document.querySelectorAll('.regex-line').forEach(el => el.classList.remove('selected'));
-    const selected = document.querySelector('input[name="sample_line"]:checked');
+    const selected = document.querySelector('input[name="sample_index"]:checked');
     if (selected) {
       const row = selected.closest('.regex-line');
       if (row) row.classList.add('selected');
     }
   }
 
-  document.querySelectorAll('input[name="sample_line"]').forEach(input => {
+  document.querySelectorAll('input[name="sample_index"]').forEach(input => {
     input.addEventListener('change', highlightSelectedLine);
   });
 

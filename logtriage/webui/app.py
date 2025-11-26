@@ -36,6 +36,11 @@ from .db import (
     update_finding_severity,
     store_finding,
 )
+from .regex_utils import (
+    _compile_regex_with_feedback,
+    _lint_regex_input,
+    _prepare_sample_lines,
+)
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -221,6 +226,142 @@ llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 context_hints = _load_context_hints()
 regex_presets = _load_regex_presets()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
+
+REGEX_WIZARD_STEPS = [
+    ("pick", "Pick sample lines"),
+    ("draft", "Draft regex"),
+    ("test", "Run tests"),
+    ("save", "Save to pipeline"),
+]
+
+
+def _get_regex_state(request: Request) -> Dict[str, Any]:
+    state = request.session.get("regex_lab_state") or {}
+    normalized = {
+        "module": state.get("module"),
+        "sample_source": state.get("sample_source", "tail"),
+        "regex_value": state.get("regex_value", ""),
+        "regex_kind": state.get("regex_kind", "error"),
+        "matches": state.get("matches", []),
+        "step": state.get("step", "pick"),
+    }
+    return normalized
+
+
+def _update_regex_state(request: Request, **updates: Any) -> Dict[str, Any]:
+    state = _get_regex_state(request)
+    if "module" in updates and updates["module"] != state.get("module"):
+        state["matches"] = []
+        state["step"] = "pick"
+
+    for key, value in updates.items():
+        if value is not None:
+            state[key] = value
+
+    request.session["regex_lab_state"] = state
+    return state
+
+
+def _regex_wizard_metadata(current_step: str) -> Dict[str, Any]:
+    steps = []
+    seen_current = False
+    for step_id, label in REGEX_WIZARD_STEPS:
+        if step_id == current_step:
+            status = "active"
+            seen_current = True
+        elif not seen_current:
+            status = "complete"
+        else:
+            status = "upcoming"
+        steps.append({"id": step_id, "label": label, "status": status})
+    return {
+        "steps": steps,
+        "active_label": next((label for sid, label in REGEX_WIZARD_STEPS if sid == current_step), REGEX_WIZARD_STEPS[0][1]),
+    }
+
+
+def _regex_step_hints(step: str) -> List[Dict[str, str]]:
+    def _hint(key: str, fallback: str) -> str:
+        return context_hints.get(key, fallback)
+
+    mapping = {
+        "pick": [
+            {
+                "title": "Know your source",
+                "body": _hint(
+                    "modules_stream",
+                    "Follow mode tails a single file and respects rotation; batch walks directories recursively.",
+                ),
+            },
+            {
+                "title": "Module context",
+                "body": _hint(
+                    "modules_path",
+                    "Each module points at a path. Switch modules to pull sample lines from different log files.",
+                ),
+            },
+        ],
+        "draft": [
+            {
+                "title": "Capture the right severity",
+                "body": _hint("classifier_error_regexes", "Use classifier.error_regexes to flag error patterns."),
+            },
+            {
+                "title": "Ignore the noise",
+                "body": _hint("classifier_ignore_regexes", "Add noisy patterns to classifier.ignore_regexes so they are skipped."),
+            },
+        ],
+        "test": [
+            {
+                "title": "Chunking matters",
+                "body": _hint(
+                    "grouping_type",
+                    "Grouping controls how lines are chunked before classification; marker regexes split multi-line entries.",
+                ),
+            },
+            {
+                "title": "Context windows",
+                "body": _hint(
+                    "modules_llm_context_prefix_lines",
+                    "Context prefix lines influence what the LLM sees alongside a match when enabled.",
+                ),
+            },
+        ],
+        "save": [
+            {
+                "title": "Pipelines own the rules",
+                "body": _hint("pipelines_classifier", "Pipelines carry classifier regex lists shared across modules."),
+            },
+            {
+                "title": "Name ties it together",
+                "body": _hint(
+                    "pipelines_name",
+                    "modules.pipeline points at the pipeline name that will receive the saved regex.",
+                ),
+            },
+        ],
+    }
+
+    return mapping.get(step, mapping["pick"])
+
+
+def _build_all_regex_hints() -> Dict[str, List[Dict[str, str]]]:
+    return {step: _regex_step_hints(step) for step, _ in REGEX_WIZARD_STEPS}
+
+
+def _evaluate_regex_against_lines(regex_value: str, sample_lines: List[str]) -> tuple[list[int], Optional[str]]:
+    matches: List[int] = []
+    error_msg: Optional[str] = None
+    if not regex_value:
+        return matches, error_msg
+
+    try:
+        pattern = re.compile(regex_value)
+        matches = [idx for idx, line in enumerate(sample_lines) if pattern.search(line)]
+    except re.error as e:
+        error_msg = f"Regex error: {e}"
+
+    return matches, error_msg
 
 
 def get_settings() -> WebUISettings:
@@ -806,6 +947,11 @@ async def regex_lab(
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
+    stored_state = _get_regex_state(request)
+    module = module or stored_state.get("module")
+    safe_sample_source = sample_source if sample_source in {"errors", "tail"} else stored_state.get("sample_source", "tail")
+    safe_sample_source = safe_sample_source if safe_sample_source in {"errors", "tail"} else "tail"
+
     modules = _build_modules_from_config()
     stats = get_module_stats(modules)
     ingestion_status = _derive_ingestion_status(modules) if modules else None
@@ -824,6 +970,18 @@ async def regex_lab(
             module_obj, safe_sample_source, max_lines=200
         )
 
+    matches, evaluation_error = _evaluate_regex_against_lines(stored_state.get("regex_value", ""), sample_lines)
+    active_step = stored_state.get("step", "pick")
+    _update_regex_state(
+        request,
+        module=module_obj.name if module_obj else None,
+        sample_source=safe_sample_source,
+        matches=matches,
+        step=active_step,
+    )
+
+    wizard = _regex_wizard_metadata(active_step)
+    step_hints = _build_all_regex_hints()
     return templates.TemplateResponse(
         "regex.html",
         _regex_context(
@@ -1825,13 +1983,17 @@ async def change_password(
     )
 
 
-def _tail_lines(path: Path, max_lines: int = 200) -> List[str]:
+def _tail_lines(path: Path, max_lines: int = 200, *, max_chars_per_line: int = 4000) -> List[str]:
     if not path.exists() or not path.is_file():
         return []
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
-            return [ln.rstrip("\n") for ln in lines[-max_lines:]]
+            trimmed = []
+            for ln in lines[-max_lines:]:
+                normalized = ln.rstrip("\n")
+                trimmed.append(normalized[:max_chars_per_line])
+            return trimmed
     except Exception:
         return []
 
@@ -2001,6 +2163,7 @@ async def regex_test(
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     modules = _build_modules_from_config()
+    safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
@@ -2010,16 +2173,21 @@ async def regex_test(
             module_obj, safe_sample_source, max_lines=200
         )
 
-    error_msg = None
+    regex_issues = _lint_regex_input(regex_value)
     matches: List[int] = []
-    try:
-        pattern = re.compile(regex_value)
-        for idx, line in enumerate(sample_lines):
-            if pattern.search(line):
-                matches.append(idx)
-    except re.error as e:
-        error_msg = f"Regex error: {e}"
+    compiled, compile_error = (None, None)
+    if not regex_issues:
+        compiled, compile_error = _compile_regex_with_feedback(regex_value)
+        if compile_error:
+            regex_issues.append(compile_error)
 
+    if compiled:
+        for entry in prepared_lines:
+            if compiled.search(entry.get("full", "")):
+                matches.append(entry.get("index", 0))
+
+    wizard = _regex_wizard_metadata("test")
+    step_hints = _build_all_regex_hints()
     return templates.TemplateResponse(
         "regex.html",
         _regex_context(
@@ -2042,7 +2210,7 @@ async def regex_test(
 async def regex_suggest(
     request: Request,
     module: str = Form(...),
-    sample_line: str = Form(...),
+    sample_index: int = Form(0),
     regex_kind: str = Form("error"),
     sample_source: str = Form("tail"),
 ):
@@ -2051,6 +2219,7 @@ async def regex_suggest(
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     modules = _build_modules_from_config()
+    safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
@@ -2100,6 +2269,29 @@ async def regex_save(
     module_obj = next((m for m in modules if m.name == module), None)
     if module_obj is None:
         return RedirectResponse(url=app.url_path_for("regex_lab"), status_code=status.HTTP_303_SEE_OTHER)
+
+    prepared_lines = _prepare_sample_lines(
+        _tail_lines(Path(module_obj.path), max_lines=200)
+    )
+    regex_issues = _lint_regex_input(regex_value)
+    if regex_issues:
+        return templates.TemplateResponse(
+            "regex.html",
+            {
+                "request": request,
+                "username": username,
+                "modules": modules,
+                "current_module": module_obj,
+                "sample_lines": prepared_lines,
+                "regex_value": regex_value,
+                "regex_kind": regex_kind,
+                "matches": [],
+                "error": "Resolve the regex issues before saving.",
+                "regex_issues": regex_issues,
+                "message": None,
+                "sample_source": safe_sample_source,
+            },
+        )
 
     if not getattr(module_obj, "pipeline_name", None):
         return templates.TemplateResponse(
@@ -2210,8 +2402,6 @@ async def regex_save(
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
     _refresh_llm_defaults()
-
-    sample_lines = _tail_lines(Path(module_obj.path), max_lines=200)
 
     return templates.TemplateResponse(
         "regex.html",
