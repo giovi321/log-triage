@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block header %}
+  <div class="lt-topbar">
+    <div class="lt-topbar__brand">
+      <img class="lt-topbar__logo" src="{{ base_url }}/assets/log-triage-logo.svg" alt="log-triage logo" loading="lazy" />
+      <div class="lt-topbar__text">
+        <div class="lt-topbar__title">{{ config.site_name }}</div>
+        {% if config.extra and config.extra.version %}
+        <div class="lt-topbar__version">Version {{ config.extra.version }}</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="lt-topbar__links">
+      {% if config.repo_url %}
+      <a class="lt-topbar__repo" href="{{ config.repo_url }}" target="_blank" rel="noopener">
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" role="img">
+          <path fill="currentColor" d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.29 9.4 7.86 10.93.58.1.79-.25.79-.56 0-.27-.01-1.15-.02-2.08-3.2.69-3.88-1.37-3.88-1.37-.53-1.35-1.28-1.71-1.28-1.71-1.05-.72.08-.71.08-.71 1.16.08 1.78 1.2 1.78 1.2 1.04 1.78 2.74 1.27 3.41.97.11-.76.41-1.27.75-1.56-2.55-.29-5.23-1.28-5.23-5.7 0-1.26.45-2.28 1.19-3.08-.12-.29-.52-1.45.11-3.02 0 0 .97-.31 3.18 1.18a11.01 11.01 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.64 1.57.24 2.73.12 3.02.74.8 1.18 1.82 1.18 3.08 0 4.43-2.69 5.4-5.25 5.69.42.36.8 1.08.8 2.17 0 1.56-.01 2.81-.01 3.19 0 .31.21.67.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"/>
+        </svg>
+        GitHub
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  {{ super() }}
+{% endblock %}

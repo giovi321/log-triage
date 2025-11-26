@@ -6,11 +6,18 @@ repo_name: giovi321/log-triage
 
 theme:
   name: material
+  logo: assets/log-triage-logo.svg
+  favicon: assets/log-triage-logo.svg
+  custom_dir: docs/overrides
   features:
     - navigation.sections
     - navigation.tracking
+    - navigation.expand
     - content.code.copy
     - toc.integrate
+
+extra:
+  version: v0.0.1
 
 nav:
   - Overview: index.md
@@ -18,6 +25,9 @@ nav:
   - Configuration: configuration.md
   - Web UI: web-ui.md
   - Deployment: deployment.md
+
+extra_css:
+  - styles/extra.css
 
 markdown_extensions:
   - admonition
