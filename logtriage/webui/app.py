@@ -94,7 +94,7 @@ def _init_database(raw: Dict[str, Any]):
 def _load_context_hints() -> Dict[str, str]:
     """Load context hints for the config editor.
     We try a couple of locations and also repair common escape issues
-    (like unescaped `\.` in regex examples inside JSON strings).
+    (like unescaped `\\.` in regex examples inside JSON strings).
     """
     candidates = [
         BASE_DIR / "context_hints.json",
@@ -540,7 +540,6 @@ def _regex_context(
     error: Optional[str],
     message: Optional[str],
     sample_source: str,
-    *,
     regex_issues: Optional[List[str]] = None,
     active_step: str = "pick",
     wizard: Optional[Dict[str, Any]] = None,
