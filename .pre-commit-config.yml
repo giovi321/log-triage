@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: update-docs-version
+        name: Update docs version
+        entry: python scripts/update_docs_version.py
+        language: system
+        pass_filenames: false
+        stages: [commit]
