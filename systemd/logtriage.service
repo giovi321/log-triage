@@ -1,0 +1,20 @@
+[Unit]
+Description=Log Triage main service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/logtriage
+Environment=LOGTRIAGE_CONFIG=/etc/logtriage/config.yaml
+ExecStart=/opt/logtriage/venv/python3 -m logtriage --config /etc/logtriage/config.yaml --reload-on-change
+Restart=on-failure
+RestartSec=5s
+StateDirectory=logtriage
+RuntimeDirectory=logtriage
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

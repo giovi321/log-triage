@@ -1,0 +1,32 @@
+[
+  {
+    "label": "Errors: HTTP 5xx responses",
+    "pattern": "\\s5\\d{2}\\s",
+    "kind": "error"
+  },
+  {
+    "label": "Errors: Tracebacks",
+    "pattern": "Traceback (most recent call last):",
+    "kind": "error"
+  },
+  {
+    "label": "Warnings: Timeouts or slowness",
+    "pattern": "(?i)(timeout|slow query|degraded)",
+    "kind": "warning"
+  },
+  {
+    "label": "Warnings: Deprecation notices",
+    "pattern": "(?i)deprecated|sunsetted",
+    "kind": "warning"
+  },
+  {
+    "label": "Ignore: Health/status checks",
+    "pattern": "(?i)\\b(health(check)?|status|metrics)\\b",
+    "kind": "ignore"
+  },
+  {
+    "label": "Ignore: Cache refresh noise",
+    "pattern": "Cache refresh completed in \\d+ms",
+    "kind": "ignore"
+  }
+]
