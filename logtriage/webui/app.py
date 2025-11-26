@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import html
 import json
 import os
 import re
@@ -38,6 +37,7 @@ from .db import (
 )
 from .regex_utils import (
     _compile_regex_with_feedback,
+    _filter_finding_intro_lines,
     _lint_regex_input,
     _prepare_sample_lines,
 )
@@ -568,34 +568,6 @@ def _regex_context(
     }
 
 
-@app.get("/docs/regex-tour", name="regex_tour")
-async def regex_tour():
-    readme_path = ROOT_DIR / "README.md"
-    if not readme_path.exists():
-        return HTMLResponse("README.md not found", status_code=status.HTTP_404_NOT_FOUND)
-
-    try:
-        content = readme_path.read_text(encoding="utf-8")
-    except Exception as exc:
-        return HTMLResponse(
-            f"Failed to load README.md: {exc}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    escaped = html.escape(content)
-    body = (
-        "<html><body style='font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;"
-        " background:#0d0d0f; color:#e8ecf2; padding:1.25rem;'>"
-        "<h2 style='margin-top:0;'>README.md</h2>"
-        "<pre style='white-space:pre-wrap; font-family:monospace; background:#0f1624;"
-        " padding:1rem; border-radius:0.65rem; border:1px solid #2b3242;'>"
-        f"{escaped}"
-        "</pre>"
-        "</body></html>"
-    )
-    return HTMLResponse(body)
-
-
 @app.middleware("http")
 async def ip_allowlist_middleware(request: Request, call_next):
     s = settings
@@ -978,8 +950,11 @@ async def regex_lab(
             module_obj, safe_sample_source, max_lines=200
         )
 
-    prepared_lines = _prepare_sample_lines(raw_sample_lines)
-    matches, evaluation_error = _evaluate_regex_against_lines(stored_state.get("regex_value", ""), raw_sample_lines)
+    filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
+    prepared_lines = _prepare_sample_lines(filtered_sample_lines)
+    matches, evaluation_error = _evaluate_regex_against_lines(
+        stored_state.get("regex_value", ""), filtered_sample_lines
+    )
     active_step = stored_state.get("step", "pick")
     _update_regex_state(
         request,
@@ -2186,7 +2161,8 @@ async def regex_test(
         raw_sample_lines, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
-    prepared_lines = _prepare_sample_lines(raw_sample_lines)
+    filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
+    prepared_lines = _prepare_sample_lines(filtered_sample_lines)
 
     regex_issues = _lint_regex_input(regex_value)
     matches: List[int] = []
@@ -2241,7 +2217,7 @@ async def regex_test(
 async def regex_suggest(
     request: Request,
     module: str = Form(...),
-    sample_index: int = Form(0),
+    sample_selection: str = Form(""),
     regex_kind: str = Form("error"),
     sample_source: str = Form("tail"),
 ):
@@ -2260,9 +2236,44 @@ async def regex_suggest(
             module_obj, safe_sample_source, max_lines=200
         )
 
-    prepared_lines = _prepare_sample_lines(raw_sample_lines)
-    sample_line = raw_sample_lines[sample_index] if sample_index < len(raw_sample_lines) else ""
-    suggestion = _suggest_regex_from_line(sample_line)
+    filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
+    prepared_lines = _prepare_sample_lines(filtered_sample_lines)
+    selection = (sample_selection or "").strip()
+
+    if not selection:
+        wizard = _regex_wizard_metadata("pick")
+        step_hints = _build_all_regex_hints()
+        _update_regex_state(
+            request,
+            module=module_obj.name if module_obj else None,
+            sample_source=safe_sample_source,
+            regex_value=sample_selection,
+            regex_kind=regex_kind,
+            matches=[],
+            step="pick",
+        )
+
+        return templates.TemplateResponse(
+            "regex.html",
+            _regex_context(
+                request,
+                username,
+                modules,
+                module_obj,
+                sample_lines=prepared_lines,
+                regex_value=sample_selection,
+                regex_kind=regex_kind,
+                matches=[],
+                error=sample_error or "Highlight sample text to draft a regex.",
+                message=None,
+                sample_source=safe_sample_source,
+                wizard=wizard,
+                step_hints=step_hints,
+                active_step="pick",
+            ),
+        )
+
+    suggestion = _suggest_regex_from_line(selection)
     wizard = _regex_wizard_metadata("draft")
     step_hints = _build_all_regex_hints()
     _update_regex_state(
@@ -2287,7 +2298,7 @@ async def regex_suggest(
             regex_kind=regex_kind,
             matches=[],
             error=sample_error,
-            message="Suggested regex generated from selected line.",
+            message="Suggested regex generated from selected text.",
             sample_source=safe_sample_source,
             wizard=wizard,
             step_hints=step_hints,
@@ -2318,7 +2329,7 @@ async def regex_save(
         return RedirectResponse(url=app.url_path_for("regex_lab"), status_code=status.HTTP_303_SEE_OTHER)
 
     prepared_lines = _prepare_sample_lines(
-        _tail_lines(Path(module_obj.path), max_lines=200)
+        _filter_finding_intro_lines(_tail_lines(Path(module_obj.path), max_lines=200))
     )
     wizard = _regex_wizard_metadata("save")
     step_hints = _build_all_regex_hints()

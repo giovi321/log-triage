@@ -83,3 +83,15 @@ def _prepare_sample_lines(
         )
 
     return prepared
+
+
+def _filter_finding_intro_lines(sample_lines: List[str]) -> List[str]:
+    """Drop lines that are auto-generated finding headers.
+
+    Regex lab users usually want to target the actual log lines rather than
+    the synthetic "[ERROR] finding #123 @ …" headers. Filtering them out keeps
+    the sample list focused on actionable content.
+    """
+
+    finding_header = re.compile(r"^\[[A-Z]+\]\s+finding #\d+\s+@", re.IGNORECASE)
+    return [line for line in sample_lines if not finding_header.match(str(line).strip())]

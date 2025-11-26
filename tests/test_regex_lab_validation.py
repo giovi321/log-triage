@@ -2,6 +2,7 @@ import unittest
 
 from logtriage.webui.regex_utils import (
     _compile_regex_with_feedback,
+    _filter_finding_intro_lines,
     _lint_regex_input,
     _prepare_sample_lines,
 )
@@ -38,6 +39,14 @@ class RegexLabValidationTests(unittest.TestCase):
         prepared = _prepare_sample_lines([very_long_line], max_full_chars=1000)
         self.assertTrue(prepared[0]["was_clipped"])
         self.assertEqual(len(prepared[0]["full"]), 1000)
+
+    def test_filter_finding_intro_lines_strips_headers(self):
+        lines = [
+            "[ERROR] finding #211 @ 2025-11-26 01:31:24 CET",
+            "Actual log content",
+        ]
+        filtered = _filter_finding_intro_lines(lines)
+        self.assertEqual(filtered, ["Actual log content"])
 
 
 if __name__ == "__main__":
