@@ -48,7 +48,7 @@
   .llm-fixed-response { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
   .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
   .false-positive-overlay { position:fixed; inset:0; background:rgba(4,7,12,0.78); display:none; align-items:center; justify-content:center; z-index:5000; padding:1.5rem; }
-  .false-positive-panel { background:#0e131d; border:1px solid #1f2a3c; border-radius:0.85rem; padding:1rem; width:min(1200px, 96vw); max-height:88vh; overflow:auto; box-shadow:0 18px 48px rgba(0,0,0,0.45); display:flex; flex-direction:column; gap:0.85rem; }
+  .false-positive-panel { background:#0e131d; border:1px solid #1f2a3c; border-radius:0.85rem; padding:1rem; width:min(1320px, 98vw); max-height:88vh; overflow:auto; box-shadow:0 18px 48px rgba(0,0,0,0.45); display:flex; flex-direction:column; gap:0.85rem; }
   .false-positive-grid { display:grid; grid-template-columns:1.1fr 0.9fr; gap:0.85rem; align-items:start; }
   @media (max-width: 980px) { .false-positive-grid { grid-template-columns:1fr; } }
   .false-positive-line { border:1px solid #1d2738; border-radius:0.65rem; padding:0.65rem; background:#0c1119; font-family:monospace; white-space:pre-wrap; word-break:break-word; min-height:72px; }
@@ -365,8 +365,9 @@
     </div>
     <div class="false-positive-grid">
       <div>
-        <div class="helper-text" style="margin-bottom:0.35rem;">Line to ignore</div>
+        <div class="helper-text" style="margin-bottom:0.35rem;">Lines to ignore</div>
         <div id="false-positive-line" class="false-positive-line" data-full-line=""></div>
+        <button type="button" class="secondary" style="margin-top:0.45rem;" onclick="useHighlightedTextForRegex()">Use highlighted text to build regex</button>
       </div>
       <div>
         <div style="display:flex; flex-direction:column; gap:0.35rem;">
@@ -444,6 +445,40 @@
         });
         presetsRoot.appendChild(btn);
       });
+  }
+
+  function getSelectionWithin(element) {
+    const selection = window.getSelection();
+    if (!element || !selection || selection.rangeCount === 0) return '';
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer instanceof Element
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+
+    if (!container || !element.contains(container)) return '';
+    return selection.toString().trim();
+  }
+
+  function useHighlightedTextForRegex() {
+    const lineBox = document.getElementById('false-positive-line');
+    const regexField = document.getElementById('false-positive-regex');
+    const resultBox = document.getElementById('false-positive-test-result');
+    if (!lineBox || !regexField) return;
+
+    const selection = getSelectionWithin(lineBox);
+    if (!selection) {
+      if (resultBox) {
+        resultBox.textContent = 'Highlight part of the lines above to build a regex from that selection.';
+      }
+      return;
+    }
+
+    regexField.value = buildRegexSuggestionFromLine(selection);
+    regexField.focus();
+    if (resultBox) {
+      resultBox.textContent = 'Drafted regex from highlighted text. Test to confirm the match.';
+    }
+    testFalsePositiveRegex();
   }
 
   function launchFalsePositiveFlow(form) {
