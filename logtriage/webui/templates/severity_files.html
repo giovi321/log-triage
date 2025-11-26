@@ -58,12 +58,6 @@
   <p class="helper-text">
     Baseline state files record recent error and warning counts for anomaly detection. Choose a file, review the JSON payload, and save changes atomically.
   </p>
-  {% if error %}
-    <p style="color:#ff6b6b;">{{ error }}</p>
-  {% endif %}
-  {% if message %}
-    <p style="color:#81c784;">{{ message }}</p>
-  {% endif %}
 
   {% if baseline_files %}
     <form id="file-select-form" method="get" action="{{ url_for('severity_files') }}" style="margin-bottom:1rem; display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">

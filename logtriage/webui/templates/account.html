@@ -3,12 +3,6 @@
 <div class="grid two-col">
   <div class="card" style="grid-column: span 2;">
     <p class="helper-text">Update your bcrypt hash inside <code>webui.admin_users</code>. A backup of <code>config.yaml</code> will be written.</p>
-    {% if error %}
-      <p style="color:#ff6b6b;">{{ error }}</p>
-    {% endif %}
-    {% if message %}
-      <p style="color:#81c784;">{{ message }}</p>
-    {% endif %}
     <form method="post" action="{{ url_for('change_password') }}" style="display:grid; gap:0.75rem; max-width:520px;">
       <label>
         <span class="muted" style="display:block; margin-bottom:0.25rem;">Current password</span>

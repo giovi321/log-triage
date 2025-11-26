@@ -197,6 +197,11 @@
       .cm-s-default .cm-comment { color:#676e8a; font-style:italic; }
       .cm-s-default .cm-def { color:#82aaff; }
       .cm-s-default .cm-property { color:#ffcb6b; }
+      .flash-region { display:flex; flex-direction:column; gap:0.4rem; margin-bottom:1rem; }
+      .flash-banner { padding:0.55rem 0.75rem; border-radius:0.6rem; border:1px solid transparent; background:#101621; color:#dfe7f4; box-shadow:0 10px 26px rgba(0,0,0,0.25); transition:opacity 0.25s ease, transform 0.25s ease; }
+      .flash-banner.success { border-color:#2e4735; background:#142018; color:#b7e6c5; }
+      .flash-banner.error { border-color:#5c2f2f; background:#1c1114; color:#ffcdd2; }
+      .flash-banner.hide { opacity:0; transform:translateY(-6px); pointer-events:none; }
     </style>
 </head>
 <body>
@@ -226,7 +231,28 @@
     </div>
   </header>
   <main class="container">
+    {% if message or error %}
+      <div class="flash-region" aria-live="polite">
+        {% if message %}
+          <div class="flash-banner success" role="status">{{ message }}</div>
+        {% endif %}
+        {% if error %}
+          <div class="flash-banner error" role="alert">{{ error }}</div>
+        {% endif %}
+      </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
+  <script>
+    const flashBanners = document.querySelectorAll('.flash-banner');
+    if (flashBanners.length) {
+      setTimeout(() => {
+        flashBanners.forEach(banner => {
+          banner.classList.add('hide');
+          setTimeout(() => banner.remove(), 400);
+        });
+      }, 4500);
+    }
+  </script>
 </body>
 </html>

@@ -19,15 +19,16 @@
   .regex-line .line-content { display:flex; flex-direction:column; gap:0.35rem; width:100%; }
   .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
   .match-line { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
-  .editor-shell { border:1px solid #1f2530; border-radius:0.75rem; padding:0.9rem; background:#0f131e; }
+  .editor-shell { border:none; border-radius:0.75rem; padding:0.9rem; background:#0f131e; box-shadow:0 12px 28px rgba(0,0,0,0.35); }
   .editor-header { display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; }
   .editor-actions { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
   .save-actions { display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
   .save-actions button { min-width:110px; }
   .badge { background:#1f2f4b; color:#cfe1ff; border-radius:999px; padding:0.1rem 0.5rem; font-size:0.85rem; }
+  .section-header { display:flex; justify-content:space-between; align-items:center; gap:0.65rem; flex-wrap:wrap; }
+  .match-pill { display:flex; align-items:center; gap:0.4rem; font-weight:700; color:#e6ecf7; }
 </style>
 <div class="card">
-  <p class="helper-text">Pick a module and test regexes against identified findings, the raw log tail, or curated sample logs.</p>
   <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
     <label style="display:block;">Module:
       <select name="module" onchange="this.form.submit()">
@@ -45,15 +46,8 @@
         {% endfor %}
       </select>
     </label>
-    <div class="helper-text" style="max-width:420px;">Tip: sample logs live in <code>baseline/samples</code> so you can experiment without touching production data.</div>
   </form>
 
-  {% if error %}
-    <p style="color:#ff6b6b;">{{ error }}</p>
-  {% endif %}
-  {% if message %}
-    <p style="color:#81c784;">{{ message }}</p>
-  {% endif %}
   {% if ingestion_status %}
     <p class="helper-text" style="margin-top:0.25rem;">Log ingestion: {{ ingestion_status.message }}</p>
   {% endif %}
@@ -61,9 +55,14 @@
   {% if current_module %}
     <div class="lab-layout">
       <div style="flex:1 1 50%; min-width:260px;">
-        <h3>Sample lines ({{ sample_source_label }})</h3>
+        <div class="section-header">
+          <h3 style="margin:0;">Sample lines ({{ sample_source_label }})</h3>
+          {% if sample_lines %}
+            <button type="submit" form="draft-form" class="secondary">Use highlighted text to draft regex</button>
+          {% endif %}
+        </div>
         {% if sample_lines %}
-          <form method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
+          <form id="draft-form" method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
@@ -84,51 +83,25 @@
                 {% endfor %}
               </div>
             </div>
-            <div style="margin-top:0.5rem;">
-              <button type="submit" class="secondary">Use highlighted text to draft regex</button>
-            </div>
           </form>
           {% else %}
             <p class="helper-text">No lines read from log file.</p>
           {% endif %}
-        <div class="hint-stack" aria-label="Pick sample tips">
-          {% for hint in step_hints.get('pick', []) %}
-            <div class="hint-card">
-              <h4>{{ hint.title }}</h4>
-              <p>{{ hint.body }}</p>
-            </div>
-          {% endfor %}
-        </div>
       </div>
 
       <div style="flex:1 1 40%; min-width:260px;">
         <div class="editor-shell">
             <div class="editor-header">
-              <div style="display:flex; flex-direction:column; gap:0.25rem;">
-                <h3 style="margin:0;">Regex editor</h3>
-                <div class="helper-text">Matched lines: <span class="badge">{{ matches|length }}</span></div>
-              </div>
-              <div class="editor-actions">
-                <button type="submit" form="regex-test-form" class="secondary">Test against sample</button>
-                <form id="regex-save-form" method="post" action="{{ url_for('regex_save') }}" class="inline-controls">
-                  <input type="hidden" name="module" value="{{ current_module.name }}">
-                  <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                  <input type="hidden" name="regex_value" value="{{ regex_value }}">
-                  <div class="save-actions">
-                    <button type="submit" name="regex_kind" value="error">Save as error</button>
-                    <button type="submit" name="regex_kind" value="warning">Save as warning</button>
-                    <button type="submit" name="regex_kind" value="ignore">Save as ignore</button>
-                  </div>
-                </form>
-              </div>
+              <h3 style="margin:0;">Regex editor</h3>
+              <div class="match-pill">Matched lines <span class="badge">{{ matches|length }}</span></div>
             </div>
 
-          <form id="regex-test-form" method="post" action="{{ url_for('regex_test') }}">
+          <form id="regex-test-form" method="post" action="{{ url_for('regex_test') }}" style="margin-top:0.65rem;">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <div style="margin-bottom:0.5rem;">
-              <textarea name="regex_value" rows="4" style="width:95%; font-family:monospace;">{{ regex_value }}</textarea>
+              <textarea name="regex_value" rows="4" style="width:100%; font-family:monospace;">{{ regex_value }}</textarea>
               {% if regex_issues %}
                 <ul class="inline-errors">
                   {% for issue in regex_issues %}
@@ -137,22 +110,20 @@
                 </ul>
               {% endif %}
             </div>
+            <div class="editor-actions">
+              <button type="submit" class="secondary">Test against sample</button>
+            </div>
           </form>
-
-          <div class="hint-stack" aria-label="Test tips">
-            {% for hint in step_hints.get('test', []) %}
-              <div class="hint-card">
-                <h4>{{ hint.title }}</h4>
-                <p>{{ hint.body }}</p>
-              </div>
-            {% endfor %}
-            {% for hint in step_hints.get('save', []) %}
-              <div class="hint-card">
-                <h4>{{ hint.title }}</h4>
-                <p>{{ hint.body }}</p>
-              </div>
-            {% endfor %}
-          </div>
+          <form id="regex-save-form" method="post" action="{{ url_for('regex_save') }}" class="inline-controls" style="margin-top:0.45rem;">
+            <input type="hidden" name="module" value="{{ current_module.name }}">
+            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+            <input type="hidden" name="regex_value" value="{{ regex_value }}">
+            <div class="save-actions">
+              <button type="submit" name="regex_kind" value="error">Save as error</button>
+              <button type="submit" name="regex_kind" value="warning">Save as warning</button>
+              <button type="submit" name="regex_kind" value="ignore">Save as ignore</button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
