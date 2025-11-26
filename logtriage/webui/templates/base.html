@@ -217,7 +217,7 @@
         <a href="{{ ai_logs_url }}" class="{% if current_path.startswith(ai_logs_url) %}active{% endif %}">AI logs explorer</a>
         <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Config editor</a>
         <a href="{{ severity_files_url }}" class="{% if current_path.startswith(severity_files_url) %}active{% endif %}">Baseline editor</a>
-        <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
+        <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab{% if active_step_label %} <span class="pill">{{ active_step_label }}</span>{% endif %}</a>
         <a href="{{ account_url }}" class="{% if current_path.startswith(account_url) %}active{% endif %}">Password</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
