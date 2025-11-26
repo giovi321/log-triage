@@ -15,10 +15,17 @@
     {% else %}
       <span class="status-chip warn">Database URL not set</span>
     {% endif %}
-    {% if latest_finding_at %}
-      <span class="status-chip">Latest finding: {{ latest_finding_at|localtime }}</span>
-    {% else %}
-      <span class="status-chip warn">No findings recorded yet</span>
+    {% if ingestion_status %}
+      <span class="status-chip traffic {{ ingestion_status.state_class }}">
+        <span class="traffic-dot"></span>
+        <span>{{ ingestion_status.message }}</span>
+        {% if ingestion_status.stale_modules %}
+          <span class="muted">Stale: {{ ingestion_status.stale_modules|join(', ') }}</span>
+        {% endif %}
+      </span>
+      {% if ingestion_status.latest_seen %}
+        <span class="status-chip">Latest log activity: {{ ingestion_status.latest_seen|localtime }}</span>
+      {% endif %}
     {% endif %}
     {% if page_rendered_at %}
       <span class="status-chip">Page last updated: {{ page_rendered_at|localtime }}</span>
