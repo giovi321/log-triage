@@ -6,6 +6,17 @@
 
 `log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM. The current toolkit version is **v0.0.1**.
 
+## Documentation
+
+Full documentation is available at [https://giovi321.github.io/log-triage/](https://giovi321.github.io/log-triage/) and is built with MkDocs. To preview locally:
+
+```bash
+python -m pip install mkdocs mkdocs-material
+mkdocs serve
+```
+
+Then open [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
 It works per *module* defined in a YAML config file. Each module describes:
 
 - which log file or directory to read
