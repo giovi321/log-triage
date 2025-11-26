@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from ..config import build_llm_config, build_modules, load_config
 from ..models import GlobalLLMConfig, ModuleConfig, Severity, Finding
 from ..llm_client import _call_chat_completion
+from ..version import __version__
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
@@ -52,6 +53,7 @@ ASSETS_DIR = BASE_DIR / "assets"
 ASSETS_DIR.mkdir(exist_ok=True)
 SAMPLE_LOG_DIR = ROOT_DIR / "baseline" / "samples"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals.update({"app_version": __version__})
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
 

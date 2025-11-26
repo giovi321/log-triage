@@ -43,6 +43,25 @@
       .brand span {
         color: #8ab4f8;
       }
+      .brand .version-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.2rem 0.55rem;
+        border-radius: 0.6rem;
+        border: 1px solid #2b3242;
+        background: #101521;
+        color: #cfe1ff;
+        font-size: 0.85rem;
+        letter-spacing: 0.02em;
+      }
+      .brand .version-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #7a8fe7;
+        box-shadow: 0 0 8px rgba(122, 143, 231, 0.5);
+      }
       a {
         color: #8ab4f8;
         text-decoration: none;
@@ -208,6 +227,12 @@
   <header>
     <div class="brand">
       <img src="{{ url_for('assets', path='logo.svg') }}" alt="logo" class="logo" loading="lazy" onerror="this.style.display='none'">
+      {% if app_version %}
+        <span class="version-badge" aria-label="Application version {{ app_version }}">
+          <span class="version-dot" aria-hidden="true"></span>
+          {{ app_version }}
+        </span>
+      {% endif %}
     </div>
     <div class="topnav-links">
       {% if username %}
