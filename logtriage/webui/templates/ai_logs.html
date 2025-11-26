@@ -47,6 +47,16 @@
   .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; height:100%; }
   .llm-fixed-response { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
   .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
+  .false-positive-overlay { position:fixed; inset:0; background:rgba(4,7,12,0.78); display:none; align-items:center; justify-content:center; z-index:5000; padding:1.5rem; }
+  .false-positive-panel { background:#0e131d; border:1px solid #1f2a3c; border-radius:0.85rem; padding:1rem; width:min(1200px, 96vw); max-height:88vh; overflow:auto; box-shadow:0 18px 48px rgba(0,0,0,0.45); display:flex; flex-direction:column; gap:0.85rem; }
+  .false-positive-grid { display:grid; grid-template-columns:1.1fr 0.9fr; gap:0.85rem; align-items:start; }
+  @media (max-width: 980px) { .false-positive-grid { grid-template-columns:1fr; } }
+  .false-positive-line { border:1px solid #1d2738; border-radius:0.65rem; padding:0.65rem; background:#0c1119; font-family:monospace; white-space:pre-wrap; word-break:break-word; min-height:72px; }
+  .false-positive-line.regex-match { box-shadow:0 0 0 1px #3c6acb; background:#101a2c; }
+  .false-positive-presets { display:flex; flex-wrap:wrap; gap:0.35rem; }
+  .false-positive-presets button { background:#162237; border:1px solid #2d3c56; box-shadow:none; color:#e7ecf4; }
+  .false-positive-presets button:hover { background:#1f2f4d; }
+  .false-positive-actions { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; }
 </style>
   <div class="card">
     {% if message %}
@@ -213,14 +223,14 @@
                       {% if section.finding %}
                         <div class="finding-controls">
                           {% set finding_example = (finding_examples.get(section.finding.id) if finding_examples else None) %}
-                          <form method="post" action="{{ url_for('mark_false_positive') }}">
+                          <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
                             <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
                             <input type="hidden" name="module" value="{{ current_module.name }}">
                             <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
                             <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
                             <input type="hidden" name="sample_line" value="{{ (finding_example or section.finding.reason)|e }}">
                             <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                            <button type="submit" class="secondary">False positive</button>
+                            <button type="button" class="secondary" onclick="launchFalsePositiveFlow(this.form)">False positive</button>
                           </form>
                           <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ section.finding.id }}">
                             <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
@@ -344,22 +354,217 @@
         </div>
       </div>
     </div>
-    {% else %}
-      <p class="muted">No providers configured. Update config.yaml to add entries under llm.providers.</p>
-    {% endif %}
+  {% else %}
+    <p class="muted">No providers configured. Update config.yaml to add entries under llm.providers.</p>
   {% endif %}
+{% endif %}
 </div>
+
+<div id="false-positive-overlay" class="false-positive-overlay" aria-hidden="true">
+  <div class="false-positive-panel" role="dialog" aria-modal="true" aria-labelledby="false-positive-title">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; flex-wrap:wrap;">
+      <div>
+        <h3 id="false-positive-title" style="margin:0;">Mark finding as false positive</h3>
+        <p id="false-positive-guidance" class="helper-text" style="margin:0.2rem 0 0;">We will add a regex to the classifier's ignore list and remove this finding from the feed.</p>
+      </div>
+      <button type="button" class="secondary" onclick="closeFalsePositiveFlow()">Close</button>
+    </div>
+    <div class="false-positive-grid">
+      <div>
+        <div class="helper-text" style="margin-bottom:0.35rem;">Line to ignore</div>
+        <div id="false-positive-line" class="false-positive-line" data-full-line=""></div>
+      </div>
+      <div>
+        <div style="display:flex; flex-direction:column; gap:0.35rem;">
+          <label style="margin:0; display:flex; flex-direction:column; gap:0.25rem;">
+            <span class="helper-text">Build your ignore regex</span>
+            <textarea id="false-positive-regex" rows="4" style="width:100%; font-family:monospace;"></textarea>
+          </label>
+          <div class="false-positive-presets" id="false-positive-presets"></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-top:0.45rem;">
+          <div id="false-positive-test-result" class="helper-text" style="margin:0;"></div>
+          <button type="button" class="secondary" onclick="testFalsePositiveRegex()">Test against this line</button>
+        </div>
+      </div>
+    </div>
+    <div class="false-positive-actions">
+      <div id="false-positive-next" class="helper-text">Saving will remove the finding and store the ignore regex in your classifier config.</div>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; align-items:center;">
+        <button type="button" class="secondary" onclick="closeFalsePositiveFlow()">Cancel</button>
+        <button type="button" onclick="submitFalsePositive()">Save ignore rule</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<form id="false-positive-hidden-form" method="post" action="{{ url_for('mark_false_positive') }}" style="display:none;">
+  <input type="hidden" name="finding_id">
+  <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+  <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+  <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+  <input type="hidden" name="sample_source" value="{{ sample_source }}">
+  <input type="hidden" name="sample_line">
+  <input type="hidden" name="regex_value">
+</form>
 
 <script>
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
   const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
+  const regexPresets = {{ regex_presets|tojson }};
   {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
   const recordedSummaries = {};
   const CONTEXT_LINE_COUNT = 3;
 
   const contextDirections = new Set();
   let lastLLMData = null;
+  let activeFalsePositiveForm = null;
+
+  function buildRegexSuggestionFromLine(line) {
+    if (!line) return '';
+    const escaped = line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escaped.replace(/\\d+/g, '\\\\d+').replace(/[A-Fa-f0-9]{6,}/g, '[A-Fa-f0-9]+');
+  }
+
+  function renderFalsePositivePresets() {
+    const presetsRoot = document.getElementById('false-positive-presets');
+    if (!presetsRoot) return;
+    presetsRoot.innerHTML = '';
+    const presets = Array.isArray(regexPresets) ? regexPresets : [];
+    presets
+      .filter(p => !p.kind || p.kind === 'ignore')
+      .forEach(preset => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'secondary';
+        btn.textContent = preset.name || 'Preset';
+        btn.addEventListener('click', () => {
+          const field = document.getElementById('false-positive-regex');
+          if (!field) return;
+          const existing = field.value.trim();
+          const addition = preset.pattern || '';
+          field.value = existing ? `${existing}${addition}` : addition;
+          field.focus();
+          testFalsePositiveRegex();
+        });
+        presetsRoot.appendChild(btn);
+      });
+  }
+
+  function launchFalsePositiveFlow(form) {
+    const overlay = document.getElementById('false-positive-overlay');
+    const lineBox = document.getElementById('false-positive-line');
+    const regexField = document.getElementById('false-positive-regex');
+    const testResult = document.getElementById('false-positive-test-result');
+    if (!overlay) {
+      form?.submit();
+      return;
+    }
+    activeFalsePositiveForm = form;
+
+    const sampleInput = form?.querySelector('input[name="sample_line"]');
+    const findingInput = form?.querySelector('input[name="finding_id"]');
+    const sampleLine = sampleInput ? sampleInput.value : '';
+    const suggestedRegex = buildRegexSuggestionFromLine(sampleLine);
+
+    if (lineBox) {
+      lineBox.textContent = sampleLine || 'No sample line captured for this finding.';
+      lineBox.dataset.fullLine = sampleLine || '';
+      lineBox.classList.remove('regex-match');
+    }
+    if (regexField) {
+      regexField.value = suggestedRegex;
+    }
+    if (testResult) {
+      const msg = findingInput?.value
+        ? `Finding #${findingInput.value} will be removed after saving.`
+        : 'Marking this as false positive will remove the finding.';
+      testResult.textContent = msg;
+    }
+
+    renderFalsePositivePresets();
+    if (overlay) {
+      overlay.style.display = 'flex';
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+    setTimeout(() => {
+      if (regexField) regexField.focus();
+      testFalsePositiveRegex();
+    }, 30);
+  }
+
+  function closeFalsePositiveFlow() {
+    const overlay = document.getElementById('false-positive-overlay');
+    const lineBox = document.getElementById('false-positive-line');
+    const testResult = document.getElementById('false-positive-test-result');
+    activeFalsePositiveForm = null;
+    if (overlay) {
+      overlay.style.display = 'none';
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+    if (lineBox) {
+      lineBox.textContent = '';
+      lineBox.dataset.fullLine = '';
+      lineBox.classList.remove('regex-match');
+    }
+    if (testResult) {
+      testResult.textContent = '';
+    }
+  }
+
+  function testFalsePositiveRegex() {
+    const regexField = document.getElementById('false-positive-regex');
+    const lineBox = document.getElementById('false-positive-line');
+    const resultBox = document.getElementById('false-positive-test-result');
+    if (!regexField || !lineBox || !resultBox) return false;
+    const raw = regexField.value.trim();
+    const lineText = lineBox.dataset.fullLine || lineBox.textContent || '';
+    if (!raw) {
+      resultBox.textContent = 'Enter a regex to test against this line.';
+      lineBox.classList.remove('regex-match');
+      return false;
+    }
+    try {
+      const re = new RegExp(raw);
+      const matched = re.test(lineText);
+      resultBox.textContent = matched
+        ? 'Great! This regex matches the line and will be added to ignore rules.'
+        : 'No match yet—consider generalizing the pattern.';
+      lineBox.classList.toggle('regex-match', matched);
+      return matched;
+    } catch (err) {
+      resultBox.textContent = err?.message || 'Invalid regex pattern.';
+      lineBox.classList.remove('regex-match');
+      return false;
+    }
+  }
+
+  function submitFalsePositive() {
+    const form = document.getElementById('false-positive-hidden-form');
+    const regexField = document.getElementById('false-positive-regex');
+    const resultBox = document.getElementById('false-positive-test-result');
+    if (!form || !activeFalsePositiveForm) return;
+    const regexValue = regexField ? regexField.value.trim() : '';
+    if (!regexValue) {
+      if (resultBox) resultBox.textContent = 'Add a regex before saving.';
+      return;
+    }
+    const activeInputs = name => activeFalsePositiveForm.querySelector(`input[name="${name}"]`);
+    const targetInputs = name => form.querySelector(`input[name="${name}"]`);
+    ['finding_id', 'module', 'tail_filter', 'issue_filter', 'sample_source', 'sample_line'].forEach(name => {
+      const src = activeInputs(name);
+      const dest = targetInputs(name);
+      if (dest) {
+        dest.value = src ? src.value : dest.value;
+      }
+    });
+    const regexDest = form.querySelector('input[name="regex_value"]');
+    if (regexDest) {
+      regexDest.value = regexValue;
+    }
+    form.submit();
+  }
 
   function buildLineLookup() {
     const lookup = new Map();
@@ -871,6 +1076,7 @@
     if (event.key === 'Escape') {
       closeSeverityMenu();
       closeAllFindingSeverityMenus();
+      closeFalsePositiveFlow();
     }
   });
 
