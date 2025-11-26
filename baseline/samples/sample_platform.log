@@ -1,0 +1,8 @@
+2024-05-12T08:18:02Z scheduler INFO job=nightly-backup state=started target=object-store
+2024-05-12T08:18:03Z scheduler WARN job=nightly-backup state=delayed reason="waiting for lock"
+2024-05-12T08:18:05Z scheduler INFO job=nightly-backup state=running window=eu-central-1
+2024-05-12T08:18:06Z backup-worker WARN volume=fileset-a step=checksum msg="slow disk read" host=storage-03
+2024-05-12T08:18:07Z backup-worker ERROR volume=fileset-a step=upload msg="remote closed connection" host=storage-03
+2024-05-12T08:18:09Z backup-worker WARN volume=fileset-a step=upload msg="retry #1 succeeded" host=storage-03
+2024-05-12T08:18:12Z backup-worker INFO volume=fileset-a step=verify msg="object count matched" host=storage-03
+2024-05-12T08:18:14Z scheduler INFO job=nightly-backup state=finished duration_ms=11876

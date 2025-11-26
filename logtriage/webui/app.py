@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import html
 import json
 import os
 import re
@@ -40,8 +41,10 @@ from .db import (
 app = FastAPI(title="log-triage Web UI")
 
 BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 ASSETS_DIR.mkdir(exist_ok=True)
+SAMPLE_LOG_DIR = ROOT_DIR / "baseline" / "samples"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 
@@ -117,6 +120,83 @@ def _load_context_hints() -> Dict[str, str]:
     }
 
 
+def _load_regex_presets() -> List[Dict[str, str]]:
+    candidates = [
+        BASE_DIR / "regex_presets.json",
+        ASSETS_DIR / "regex_presets.json",
+    ]
+
+    for path in candidates:
+        try:
+            if not path.exists():
+                continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, list):
+                continue
+
+            presets: List[Dict[str, str]] = []
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                label = str(entry.get("label", "")).strip()
+                pattern = str(entry.get("pattern", "")).strip()
+                if not label or not pattern:
+                    continue
+                kind = str(entry.get("kind", "error")).lower()
+                if kind not in {"error", "warning", "ignore"}:
+                    kind = "error"
+                presets.append({"label": label, "pattern": pattern, "kind": kind})
+
+            if presets:
+                return presets
+        except Exception:
+            continue
+
+    return []
+
+
+def _available_sample_logs() -> List[Dict[str, Any]]:
+    if not SAMPLE_LOG_DIR.exists():
+        return []
+
+    entries: List[Dict[str, Any]] = []
+    for path in sorted(SAMPLE_LOG_DIR.iterdir()):
+        if not path.is_file():
+            continue
+        label = path.stem.replace("_", " ").title()
+        entries.append(
+            {"value": f"sample:{path.stem}", "label": label, "path": path}
+        )
+    return entries
+
+
+def _sample_source_options() -> List[Dict[str, str]]:
+    options: List[Dict[str, str]] = [
+        {"value": "tail", "label": "Log tail (live)"},
+        {"value": "errors", "label": "Identified errors"},
+    ]
+    for entry in _available_sample_logs():
+        options.append(
+            {
+                "value": entry.get("value"),
+                "label": f"Sample log: {entry.get('label', 'unknown')}",
+            }
+        )
+    return options
+
+
+def _normalize_sample_source(value: str) -> str:
+    allowed = {opt.get("value") for opt in _sample_source_options()}
+    return value if value in allowed else "tail"
+
+
+def _sample_source_label(value: str) -> str:
+    for opt in _sample_source_options():
+        if opt.get("value") == value:
+            return opt.get("label", value)
+    return "Log tail (live)"
+
+
 def _load_summary_prompt_template() -> Optional[str]:
     path = getattr(llm_defaults, "summary_prompt_path", None)
     if not path:
@@ -139,6 +219,7 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
 settings, raw_config, CONFIG_PATH = _load_settings_and_config()
 llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 context_hints = _load_context_hints()
+regex_presets = _load_regex_presets()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
 
 
@@ -303,6 +384,67 @@ def _render_severity_editor(
         },
         status_code=status_code,
     )
+
+
+def _regex_context(
+    request: Request,
+    username: str,
+    modules: List[ModuleConfig],
+    module_obj,
+    *,
+    sample_lines: List[str],
+    regex_value: str,
+    regex_kind: str,
+    matches: List[int],
+    error: Optional[str],
+    message: Optional[str],
+    sample_source: str,
+):
+    normalized_source = _normalize_sample_source(sample_source)
+    return {
+        "request": request,
+        "username": username,
+        "modules": modules,
+        "current_module": module_obj,
+        "sample_lines": sample_lines,
+        "regex_value": regex_value,
+        "regex_kind": regex_kind,
+        "matches": matches,
+        "error": error,
+        "message": message,
+        "sample_source": normalized_source,
+        "sample_source_label": _sample_source_label(normalized_source),
+        "sample_options": _sample_source_options(),
+        "regex_presets": regex_presets,
+    }
+
+
+@app.get("/docs/regex-tour", name="regex_tour")
+async def regex_tour():
+    readme_path = ROOT_DIR / "README.md"
+    if not readme_path.exists():
+        return HTMLResponse("README.md not found", status_code=status.HTTP_404_NOT_FOUND)
+
+    try:
+        content = readme_path.read_text(encoding="utf-8")
+    except Exception as exc:
+        return HTMLResponse(
+            f"Failed to load README.md: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    escaped = html.escape(content)
+    body = (
+        "<html><body style='font-family:system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;"
+        " background:#0d0d0f; color:#e8ecf2; padding:1.25rem;'>"
+        "<h2 style='margin-top:0;'>README.md</h2>"
+        "<pre style='white-space:pre-wrap; font-family:monospace; background:#0f1624;"
+        " padding:1rem; border-radius:0.65rem; border:1px solid #2b3242;'>"
+        f"{escaped}"
+        "</pre>"
+        "</body></html>"
+    )
+    return HTMLResponse(body)
 
 
 @app.middleware("http")
@@ -676,24 +818,27 @@ async def regex_lab(
 
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
+    safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        sample_lines, sample_error = _get_sample_lines_for_module(module_obj, sample_source, max_lines=200)
+        sample_lines, sample_error = _get_sample_lines_for_module(
+            module_obj, safe_sample_source, max_lines=200
+        )
 
     return templates.TemplateResponse(
         "regex.html",
-        {
-            "request": request,
-            "username": username,
-            "modules": modules,
-            "current_module": module_obj,
-            "sample_lines": sample_lines,
-            "regex_value": "",
-            "regex_kind": "error",
-            "matches": [],
-            "error": sample_error,
-            "message": None,
-            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
-        },
+        _regex_context(
+            request,
+            username,
+            modules,
+            module_obj,
+            sample_lines=sample_lines,
+            regex_value="",
+            regex_kind="error",
+            matches=[],
+            error=sample_error,
+            message=None,
+            sample_source=safe_sample_source,
+        ),
     )
 
 
@@ -813,6 +958,7 @@ async def ai_logs(
     modules = _build_modules_from_config()
     stats = get_module_stats(modules)
     ingestion_status = _derive_ingestion_status(modules) if modules else None
+    safe_sample_source = _normalize_sample_source(sample_source)
     module_obj = None
     if modules:
         if module:
@@ -821,7 +967,7 @@ async def ai_logs(
             module_obj = modules[0]
 
     sample_lines, sample_error = _get_sample_lines_for_module(
-        module_obj, sample_source, max_lines=400
+        module_obj, safe_sample_source, max_lines=400
     )
     log_state = _build_log_view_state(
         module_obj, tail_filter, issue_filter, sample_lines_override=sample_lines
@@ -871,7 +1017,7 @@ async def ai_logs(
             "seed_prompt": seed_prompt,
             "module_prompt_template": module_prompt_template,
             "summary_prompt_template": summary_prompt_template,
-            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
+            "sample_source": safe_sample_source,
             "stats": stats,
             "ingestion_status": ingestion_status,
         },
@@ -1723,11 +1869,21 @@ def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int 
     if module_obj is None:
         return [], None
 
-    source = sample_source if sample_source in {"errors", "tail"} else "tail"
+    source = _normalize_sample_source(sample_source)
     if source == "errors":
         if not db_status.get("connected"):
             return [], "Database not connected; cannot load identified errors."
         return _error_lines_from_findings(module_obj, max_lines=max_lines), None
+
+    if source.startswith("sample:"):
+        sample_logs = _available_sample_logs()
+        entry = next((item for item in sample_logs if item.get("value") == source), None)
+        if entry is None:
+            return [], "Sample log not found on disk."
+        lines = _tail_lines(entry["path"], max_lines=max_lines)
+        if not lines:
+            return [], "Sample log is empty or unreadable."
+        return lines, None
 
     return _tail_lines(Path(module_obj.path), max_lines=max_lines), None
 
@@ -1848,8 +2004,11 @@ async def regex_test(
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
+    safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        sample_lines, sample_error = _get_sample_lines_for_module(module_obj, sample_source, max_lines=200)
+        sample_lines, sample_error = _get_sample_lines_for_module(
+            module_obj, safe_sample_source, max_lines=200
+        )
 
     error_msg = None
     matches: List[int] = []
@@ -1863,19 +2022,19 @@ async def regex_test(
 
     return templates.TemplateResponse(
         "regex.html",
-        {
-            "request": request,
-            "username": username,
-            "modules": modules,
-            "current_module": module_obj,
-            "sample_lines": sample_lines,
-            "regex_value": regex_value,
-            "regex_kind": regex_kind,
-            "matches": matches,
-            "error": error_msg or sample_error,
-            "message": None,
-            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
-        },
+        _regex_context(
+            request,
+            username,
+            modules,
+            module_obj,
+            sample_lines=sample_lines,
+            regex_value=regex_value,
+            regex_kind=regex_kind,
+            matches=matches,
+            error=error_msg or sample_error,
+            message=None,
+            sample_source=safe_sample_source,
+        ),
     )
 
 
@@ -1895,26 +2054,29 @@ async def regex_suggest(
     module_obj = next((m for m in modules if m.name == module), None)
     sample_lines: List[str] = []
     sample_error: Optional[str] = None
+    safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        sample_lines, sample_error = _get_sample_lines_for_module(module_obj, sample_source, max_lines=200)
+        sample_lines, sample_error = _get_sample_lines_for_module(
+            module_obj, safe_sample_source, max_lines=200
+        )
 
     suggestion = _suggest_regex_from_line(sample_line)
 
     return templates.TemplateResponse(
         "regex.html",
-        {
-            "request": request,
-            "username": username,
-            "modules": modules,
-            "current_module": module_obj,
-            "sample_lines": sample_lines,
-            "regex_value": suggestion,
-            "regex_kind": regex_kind,
-            "matches": [],
-            "error": sample_error,
-            "message": "Suggested regex generated from selected line.",
-            "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
-        },
+        _regex_context(
+            request,
+            username,
+            modules,
+            module_obj,
+            sample_lines=sample_lines,
+            regex_value=suggestion,
+            regex_kind=regex_kind,
+            matches=[],
+            error=sample_error,
+            message="Suggested regex generated from selected line.",
+            sample_source=safe_sample_source,
+        ),
     )
 
 
@@ -1928,7 +2090,7 @@ async def regex_save(
 ):
     global raw_config, settings, llm_defaults
 
-    safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
+    safe_sample_source = _normalize_sample_source(sample_source)
 
     username = get_current_user(request, settings)
     if not username:
@@ -1942,19 +2104,19 @@ async def regex_save(
     if not getattr(module_obj, "pipeline_name", None):
         return templates.TemplateResponse(
             "regex.html",
-            {
-                "request": request,
-                "username": username,
-                "modules": modules,
-                "current_module": module_obj,
-                "sample_lines": _tail_lines(Path(module_obj.path), max_lines=200),
-                "regex_value": regex_value,
-                "regex_kind": regex_kind,
-                "matches": [],
-                "error": "Module has no explicit pipeline; cannot save regex automatically.",
-                "message": None,
-                "sample_source": safe_sample_source,
-            },
+            _regex_context(
+                request,
+                username,
+                modules,
+                module_obj,
+                sample_lines=_tail_lines(Path(module_obj.path), max_lines=200),
+                regex_value=regex_value,
+                regex_kind=regex_kind,
+                matches=[],
+                error="Module has no explicit pipeline; cannot save regex automatically.",
+                message=None,
+                sample_source=safe_sample_source,
+            ),
         )
 
     try:
@@ -1962,19 +2124,19 @@ async def regex_save(
     except Exception as e:
         return templates.TemplateResponse(
             "regex.html",
-            {
-                "request": request,
-                "username": username,
-                "modules": modules,
-                "current_module": module_obj,
-                "sample_lines": _tail_lines(Path(module_obj.path), max_lines=200),
-                "regex_value": regex_value,
-                "regex_kind": regex_kind,
-                "matches": [],
-                "error": f"Failed to read config: {e}",
-                "message": None,
-                "sample_source": safe_sample_source,
-            },
+            _regex_context(
+                request,
+                username,
+                modules,
+                module_obj,
+                sample_lines=_tail_lines(Path(module_obj.path), max_lines=200),
+                regex_value=regex_value,
+                regex_kind=regex_kind,
+                matches=[],
+                error=f"Failed to read config: {e}",
+                message=None,
+                sample_source=safe_sample_source,
+            ),
         )
 
     pipelines = cfg_dict.get("pipelines", []) or []
@@ -1987,19 +2149,19 @@ async def regex_save(
     if pipeline_dict is None:
         return templates.TemplateResponse(
             "regex.html",
-            {
-                "request": request,
-                "username": username,
-                "modules": modules,
-                "current_module": module_obj,
-                "sample_lines": _tail_lines(Path(module_obj.path), max_lines=200),
-                "regex_value": regex_value,
-                "regex_kind": regex_kind,
-                "matches": [],
-                "error": f"Pipeline {module_obj.pipeline_name} not found in config.",
-                "message": None,
-                "sample_source": safe_sample_source,
-            },
+            _regex_context(
+                request,
+                username,
+                modules,
+                module_obj,
+                sample_lines=_tail_lines(Path(module_obj.path), max_lines=200),
+                regex_value=regex_value,
+                regex_kind=regex_kind,
+                matches=[],
+                error=f"Pipeline {module_obj.pipeline_name} not found in config.",
+                message=None,
+                sample_source=safe_sample_source,
+            ),
         )
 
     classifier = pipeline_dict.setdefault("classifier", {})
@@ -2028,19 +2190,19 @@ async def regex_save(
     except Exception as e:
         return templates.TemplateResponse(
             "regex.html",
-            {
-                "request": request,
-                "username": username,
-                "modules": modules,
-                "current_module": module_obj,
-                "sample_lines": _tail_lines(Path(module_obj.path), max_lines=200),
-                "regex_value": regex_value,
-                "regex_kind": regex_kind,
-                "matches": [],
-                "error": f"Failed to write config: {e}",
-                "message": None,
-                "sample_source": safe_sample_source,
-            },
+            _regex_context(
+                request,
+                username,
+                modules,
+                module_obj,
+                sample_lines=_tail_lines(Path(module_obj.path), max_lines=200),
+                regex_value=regex_value,
+                regex_kind=regex_kind,
+                matches=[],
+                error=f"Failed to write config: {e}",
+                message=None,
+                sample_source=safe_sample_source,
+            ),
         )
 
     from .config import parse_webui_settings  # avoid cycle
@@ -2053,18 +2215,18 @@ async def regex_save(
 
     return templates.TemplateResponse(
         "regex.html",
-        {
-            "request": request,
-            "username": username,
-            "modules": modules,
-            "current_module": module_obj,
-            "sample_lines": sample_lines,
-            "regex_value": regex_value,
-            "regex_kind": regex_kind,
-            "matches": [],
-            "error": None,
-            "message": f"Regex added to classifier.{key} for pipeline {module_obj.pipeline_name}.",
-            "sample_source": safe_sample_source,
-        },
+        _regex_context(
+            request,
+            username,
+            modules,
+            module_obj,
+            sample_lines=sample_lines,
+            regex_value=regex_value,
+            regex_kind=regex_kind,
+            matches=[],
+            error=None,
+            message=f"Regex added to classifier.{key} for pipeline {module_obj.pipeline_name}.",
+            sample_source=safe_sample_source,
+        ),
     )
 

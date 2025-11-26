@@ -36,6 +36,22 @@ pip install --upgrade pip
 pip install '.[webui,mqtt]'
 ```
 
+## 5-minute regex lab tour
+
+Use the Regex Lab in the Web UI to try patterns quickly, using either live data or the bundled sample logs under `baseline/samples/`.
+
+1. Open the **Regex Lab** from the top navigation (or the **Regex lab tour** link to jump straight to these instructions).
+2. Pick a module and choose a sample source: live log tail, identified errors, or the anonymized sample files in `baseline/samples/`.
+3. Scroll the sample lines, select one, and click **Suggest regex** for an auto-escaped starter.
+4. Use the **preset snippet** buttons to drop common error/warning/ignore patterns from `logtriage/webui/regex_presets.json` into the editor, then tweak as needed.
+5. Click **Test against sample** to highlight matches; when satisfied, save to the classifier to persist the rule in `config.yaml`.
+
+Screenshots:
+
+![Regex Lab sample sources](logtriage/webui/assets/regex-lab-sources.svg)
+
+![Regex Lab preset snippets](logtriage/webui/assets/regex-lab-presets.svg)
+
 ## Features
 
 - YAML configuration for both pipelines and modules
