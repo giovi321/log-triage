@@ -302,6 +302,9 @@ def get_module_stats(modules: Optional[Iterable["ModuleConfig"]] = None) -> Dict
             elif sev == "WARNING":
                 s.warnings_24h += 1
             s.last_severity = row.severity
+            if row.created_at:
+                if s.last_log_update is None or row.created_at > s.last_log_update:
+                    s.last_log_update = row.created_at
     finally:
         sess.close()
 
