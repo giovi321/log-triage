@@ -160,14 +160,14 @@ INGESTION_STALENESS_MINUTES = int(os.getenv("LOGTRIAGE_INGESTION_STALENESS_MINUT
 
 def _derive_ingestion_status(
     modules: List[ModuleConfig],
-    stats: Dict[str, Any],
     now: Optional[datetime.datetime] = None,
     freshness_minutes: int = INGESTION_STALENESS_MINUTES,
 ) -> Dict[str, Any]:
     """Compute a traffic-light style indicator for log ingestion freshness.
 
-    We rely on module activity heartbeats (last_seen) rather than findings so that
-    modules without recent findings still contribute to freshness.
+    The indicator is based on the last modification time of each module's log
+    file. If a module's log file is missing or stale beyond the configured
+    window, it is marked as stale.
     """
 
     now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -181,30 +181,32 @@ def _derive_ingestion_status(
             "state_class": "warn",
             "message": "No enabled modules",
             "stale_modules": [],
-            "latest_seen": None,
+            "latest_log_update": None,
         }
 
-    latest_seen: Optional[datetime.datetime] = None
+    latest_update: Optional[datetime.datetime] = None
     stale_modules: List[str] = []
 
-    for mod_name in enabled_modules:
-        mod_stats = stats.get(mod_name)
-        last_seen = getattr(mod_stats, "last_seen", None)
-        if last_seen and last_seen.tzinfo is None:
-            last_seen = last_seen.replace(tzinfo=datetime.timezone.utc)
+    for mod in modules:
+        if not mod.enabled:
+            continue
+        try:
+            mtime = datetime.datetime.fromtimestamp(mod.path.stat().st_mtime, tz=datetime.timezone.utc)
+        except FileNotFoundError:
+            mtime = None
 
-        if last_seen and (latest_seen is None or last_seen > latest_seen):
-            latest_seen = last_seen
+        if mtime and (latest_update is None or mtime > latest_update):
+            latest_update = mtime
 
-        if last_seen is None or (now - last_seen) > freshness_window:
-            stale_modules.append(mod_name)
+        if mtime is None or (now - mtime) > freshness_window:
+            stale_modules.append(mod.name)
 
-    if latest_seen is None:
+    if latest_update is None:
         return {
             "state_class": "error",
-            "message": "No log activity recorded",
+            "message": "No log file activity detected",
             "stale_modules": enabled_modules,
-            "latest_seen": None,
+            "latest_log_update": None,
         }
 
     if not stale_modules:
@@ -221,7 +223,7 @@ def _derive_ingestion_status(
         "state_class": state_class,
         "message": message,
         "stale_modules": stale_modules,
-        "latest_seen": latest_seen,
+        "latest_log_update": latest_update,
     }
 
 
@@ -347,9 +349,9 @@ async def dashboard(request: Request):
         _build_modules_from_config(),
         key=lambda m: (not m.enabled, m.name.lower()),
     )
-    stats = get_module_stats()
+    stats = get_module_stats(modules)
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
-    ingestion_status = _derive_ingestion_status(modules, stats, now=page_rendered_at)
+    ingestion_status = _derive_ingestion_status(modules, now=page_rendered_at)
     return templates.TemplateResponse(
         "dashboard.html",
         {

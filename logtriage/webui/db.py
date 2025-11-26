@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import importlib.util
 from dataclasses import dataclass
-from typing import Optional, Dict, List, Iterable
+from typing import Iterable, Optional, Dict, List, TYPE_CHECKING
 
 _sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
 if _sqlalchemy_spec is None:
@@ -32,6 +32,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False) if sessionmaker e
 
 _engine = None
 _db_url: Optional[str] = None
+
+if TYPE_CHECKING:  # pragma: no cover
+    from ..models import ModuleConfig
 
 
 def _ensure_llm_columns(engine):
@@ -121,33 +124,6 @@ if Base is not None:
             return 1 if sev == "WARNING" else 0
 
 
-    class ModuleActivity(Base):
-        __tablename__ = "module_activity"
-
-        module_name = Column(String(128), primary_key=True)
-        last_seen = Column(
-            DateTime(timezone=True),
-            nullable=False,
-            default=lambda: datetime.datetime.now(datetime.timezone.utc),
-            index=True,
-        )
-
-        @property
-        def llm_response(self):
-            try:
-                from ..models import LLMResponse
-
-                if not self.llm_response_content and not self.llm_provider:
-                    return None
-                return LLMResponse(
-                    provider=self.llm_provider or "",
-                    model=self.llm_model or "",
-                    content=self.llm_response_content or "",
-                    prompt_tokens=self.llm_prompt_tokens,
-                    completion_tokens=self.llm_completion_tokens,
-                )
-            except Exception:
-                return None
 else:  # pragma: no cover - used when sqlalchemy is absent
     class FindingRecord:
         pass
@@ -157,7 +133,7 @@ else:  # pragma: no cover - used when sqlalchemy is absent
 class ModuleStats:
     module_name: str
     last_severity: Optional[str]
-    last_seen: Optional[datetime.datetime]
+    last_log_update: Optional[datetime.datetime]
     errors_24h: int
     warnings_24h: int
 
@@ -265,92 +241,71 @@ def cleanup_old_findings(retention_days: int):
         sess.close()
 
 
-def get_module_stats() -> Dict[str, ModuleStats]:
-    """Return basic stats per module for the last 24h and last finding."""
-    sess = get_session()
-    if sess is None:
-        return {}
+def _collect_file_activity(modules: Optional[Iterable["ModuleConfig"]]) -> Dict[str, ModuleStats]:
+    """Build initial stats from module file mtimes."""
 
-    now = datetime.datetime.now(datetime.timezone.utc)
-    window_start = now - datetime.timedelta(days=1)
     stats: Dict[str, ModuleStats] = {}
+    if not modules:
+        return stats
 
-    try:
+    for mod in modules:
+        mtime: Optional[datetime.datetime] = None
         try:
-            activity_rows = sess.query(ModuleActivity).all()
-            activities = {row.module_name: row.last_seen for row in activity_rows}
-        except Exception:
-            activities = {}
-
-        try:
-            rows = (
-                sess.query(FindingRecord)
-                .filter(FindingRecord.created_at >= window_start)
-                .order_by(FindingRecord.module_name, FindingRecord.created_at.asc())
-                .all()
-            )
-            for row in rows:
-                s = stats.get(row.module_name)
-                if s is None:
-                    s = ModuleStats(
-                        module_name=row.module_name,
-                        last_severity=None,
-                        last_seen=None,
-                        errors_24h=0,
-                        warnings_24h=0,
-                    )
-                    stats[row.module_name] = s
-                sev = (row.severity or "").upper()
-                if sev in ("ERROR", "CRITICAL"):
-                    s.errors_24h += 1
-                elif sev == "WARNING":
-                    s.warnings_24h += 1
-                s.last_severity = row.severity
-                if row.created_at and (s.last_seen is None or row.created_at > s.last_seen):
-                    s.last_seen = row.created_at
-        except Exception:
-            pass
-
-        for mod_name, seen_at in activities.items():
-            s = stats.get(mod_name)
-            if s is None:
-                s = ModuleStats(
-                    module_name=mod_name,
-                    last_severity=None,
-                    last_seen=seen_at,
-                    errors_24h=0,
-                    warnings_24h=0,
-                )
-                stats[mod_name] = s
-            else:
-                if s.last_seen is None or (seen_at and seen_at > s.last_seen):
-                    s.last_seen = seen_at
-    finally:
-        sess.close()
+            st = mod.path.stat()
+            mtime = datetime.datetime.fromtimestamp(st.st_mtime, tz=datetime.timezone.utc)
+        except FileNotFoundError:
+            mtime = None
+        stats[mod.name] = ModuleStats(
+            module_name=mod.name,
+            last_severity=None,
+            last_log_update=mtime,
+            errors_24h=0,
+            warnings_24h=0,
+        )
 
     return stats
 
 
-def update_module_last_seen(module_name: str, seen_at: Optional[datetime.datetime] = None):
+def get_module_stats(modules: Optional[Iterable["ModuleConfig"]] = None) -> Dict[str, ModuleStats]:
+    """Return basic stats per module for the last 24h and last log update."""
+
+    stats = _collect_file_activity(modules)
+
     sess = get_session()
     if sess is None:
-        return
+        return stats
 
-    seen_at = seen_at or datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    window_start = now - datetime.timedelta(days=1)
 
     try:
-        row = sess.query(ModuleActivity).filter(ModuleActivity.module_name == module_name).first()
-        if row is None:
-            row = ModuleActivity(module_name=module_name, last_seen=seen_at)
-            sess.add(row)
-        else:
-            if row.last_seen is None or seen_at > row.last_seen:
-                row.last_seen = seen_at
-        sess.commit()
-    except Exception:
-        sess.rollback()
+        rows = (
+            sess.query(FindingRecord)
+            .filter(FindingRecord.created_at >= window_start)
+            .order_by(FindingRecord.module_name, FindingRecord.created_at.asc())
+            .all()
+        )
+        for row in rows:
+            s = stats.get(row.module_name)
+            if s is None:
+                s = ModuleStats(
+                    module_name=row.module_name,
+                    last_severity=None,
+                    last_log_update=None,
+                    errors_24h=0,
+                    warnings_24h=0,
+                )
+                stats[row.module_name] = s
+            sev = (row.severity or "").upper()
+            if sev in ("ERROR", "CRITICAL"):
+                s.errors_24h += 1
+            elif sev == "WARNING":
+                s.warnings_24h += 1
+            s.last_severity = row.severity
     finally:
         sess.close()
+
+    return stats
 
 
 def get_latest_finding_time():
