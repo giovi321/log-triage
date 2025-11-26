@@ -25,6 +25,7 @@ from .db import (
     delete_all_findings,
     delete_findings_for_module,
     delete_findings_by_ids,
+    delete_findings_matching_regex,
     delete_finding_by_id,
     get_finding_by_id,
     get_module_stats,
@@ -1692,28 +1693,49 @@ async def mark_false_positive(
     _refresh_llm_defaults()
 
     try:
-        deleted = delete_finding_by_id(finding_id)
+        removed_count = delete_findings_matching_regex(regex_value, pipeline_name=pipeline_name)
     except Exception as exc:
         return _logs_redirect(
             module,
-            error=f"Ignore rule saved, but failed to remove finding: {exc}",
+            error=f"Ignore rule saved, but failed to remove matching findings: {exc}",
             tail_filter=tail_filter,
             issue_filter=issue_filter,
             sample_source=sample_source,
         )
 
-    if not deleted:
-        return _logs_redirect(
-            module,
-            error="Ignore rule saved, but finding was not removed.",
-            tail_filter=tail_filter,
-            issue_filter=issue_filter,
-            sample_source=sample_source,
+    if not removed_count:
+        try:
+            deleted = delete_finding_by_id(finding_id)
+        except Exception as exc:
+            return _logs_redirect(
+                module,
+                error=f"Ignore rule saved, but failed to remove finding: {exc}",
+                tail_filter=tail_filter,
+                issue_filter=issue_filter,
+                sample_source=sample_source,
+            )
+
+        if not deleted:
+            return _logs_redirect(
+                module,
+                error="Ignore rule saved, but finding was not removed.",
+                tail_filter=tail_filter,
+                issue_filter=issue_filter,
+                sample_source=sample_source,
+            )
+
+    success_message = (
+        "Marked as false positive, removed from findings, and added to ignore rules."
+    )
+    if removed_count:
+        success_message = (
+            f"Marked as false positive, removed {removed_count} finding(s) matching the "
+            "ignore rule, and added it to ignore rules."
         )
 
     return _logs_redirect(
         module,
-        message="Marked as false positive, removed from findings, and added to ignore rules.",
+        message=success_message,
         tail_filter=tail_filter,
         issue_filter=issue_filter,
         sample_source=sample_source,
