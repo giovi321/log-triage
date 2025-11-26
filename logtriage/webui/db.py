@@ -267,6 +267,14 @@ def _collect_file_activity(modules: Optional[Iterable["ModuleConfig"]]) -> Dict[
     return stats
 
 
+def _ensure_tzaware(dt: datetime.datetime) -> datetime.datetime:
+    """Guarantee a datetime has timezone info, assuming UTC when missing."""
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
+
+
 def get_module_stats(modules: Optional[Iterable["ModuleConfig"]] = None) -> Dict[str, ModuleStats]:
     """Return basic stats per module for the last 24h and last log update."""
 
@@ -304,8 +312,10 @@ def get_module_stats(modules: Optional[Iterable["ModuleConfig"]] = None) -> Dict
                 s.warnings_24h += 1
             s.last_severity = row.severity
             if row.created_at:
-                if s.last_log_update is None or row.created_at > s.last_log_update:
-                    s.last_log_update = row.created_at
+                row_ts = _ensure_tzaware(row.created_at)
+                last_ts = _ensure_tzaware(s.last_log_update) if s.last_log_update else None
+                if last_ts is None or row_ts > last_ts:
+                    s.last_log_update = row_ts
     finally:
         sess.close()
 
