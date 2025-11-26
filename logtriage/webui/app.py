@@ -155,11 +155,14 @@ def _build_modules_from_config() -> List[ModuleConfig]:
     return build_modules(raw_config, llm_defaults)
 
 
+INGESTION_STALENESS_MINUTES = int(os.getenv("LOGTRIAGE_INGESTION_STALENESS_MINUTES", "60"))
+
+
 def _derive_ingestion_status(
     modules: List[ModuleConfig],
     stats: Dict[str, Any],
     now: Optional[datetime.datetime] = None,
-    freshness_minutes: int = 10,
+    freshness_minutes: int = INGESTION_STALENESS_MINUTES,
 ) -> Dict[str, Any]:
     """Compute a traffic-light style indicator for log ingestion freshness.
 
