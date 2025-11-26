@@ -84,6 +84,7 @@ class ModuleConfig:
     llm: "ModuleLLMConfig"
     stream_from_beginning: bool
     stream_interval: float
+    stale_after_minutes: Optional[int] = None
     alert_mqtt: Optional[AlertMQTTConfig] = None
     alert_webhook: Optional[AlertWebhookConfig] = None
     baseline: Optional[BaselineConfig] = None

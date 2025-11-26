@@ -167,13 +167,13 @@ def _derive_ingestion_status(
 
     The indicator is based on the last modification time of each module's log
     file. If a module's log file is missing or stale beyond the configured
-    window, it is marked as stale.
+    window (per-module `stale_after_minutes` or the default), it is marked as
+    stale.
     """
 
     now = now or datetime.datetime.now(datetime.timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=datetime.timezone.utc)
-    freshness_window = datetime.timedelta(minutes=freshness_minutes)
 
     enabled_modules = [m.name for m in modules if m.enabled]
     if not enabled_modules:
@@ -186,10 +186,14 @@ def _derive_ingestion_status(
 
     latest_update: Optional[datetime.datetime] = None
     stale_modules: List[str] = []
+    freshness_windows: set[int] = set()
 
     for mod in modules:
         if not mod.enabled:
             continue
+        mod_freshness_minutes = getattr(mod, "stale_after_minutes", None) or freshness_minutes
+        freshness_windows.add(mod_freshness_minutes)
+        freshness_window = datetime.timedelta(minutes=mod_freshness_minutes)
         try:
             mtime = datetime.datetime.fromtimestamp(mod.path.stat().st_mtime, tz=datetime.timezone.utc)
         except FileNotFoundError:
@@ -201,6 +205,15 @@ def _derive_ingestion_status(
         if mtime is None or (now - mtime) > freshness_window:
             stale_modules.append(mod.name)
 
+    if not freshness_windows:
+        freshness_windows.add(freshness_minutes)
+
+    window_hint = (
+        f"{next(iter(freshness_windows))}m"
+        if len(freshness_windows) == 1
+        else "their configured windows"
+    )
+
     if latest_update is None:
         return {
             "state_class": "error",
@@ -211,13 +224,13 @@ def _derive_ingestion_status(
 
     if not stale_modules:
         state_class = "ok"
-        message = f"Logs updating (within {freshness_minutes}m)"
+        message = f"Logs updating (within {window_hint})"
     elif len(stale_modules) == len(enabled_modules):
         state_class = "error"
-        message = f"No recent log updates (> {freshness_minutes}m)"
+        message = f"No recent log updates (> {window_hint})"
     else:
         state_class = "warn"
-        message = f"Some modules stale (> {freshness_minutes}m)"
+        message = f"Some modules stale (> {window_hint})"
 
     return {
         "state_class": state_class,
@@ -652,6 +665,8 @@ async def regex_lab(
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     modules = _build_modules_from_config()
+    stats = get_module_stats(modules)
+    ingestion_status = _derive_ingestion_status(modules) if modules else None
     module_obj = None
     if modules:
         if module:
@@ -796,6 +811,8 @@ async def ai_logs(
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     modules = _build_modules_from_config()
+    stats = get_module_stats(modules)
+    ingestion_status = _derive_ingestion_status(modules) if modules else None
     module_obj = None
     if modules:
         if module:
@@ -855,6 +872,8 @@ async def ai_logs(
             "module_prompt_template": module_prompt_template,
             "summary_prompt_template": summary_prompt_template,
             "sample_source": sample_source if sample_source in {"errors", "tail"} else "tail",
+            "stats": stats,
+            "ingestion_status": ingestion_status,
         },
     )
 

@@ -139,6 +139,7 @@ modules:
   pipeline: rsnapshot
   output_format: json
   min_print_severity: WARNING
+  stale_after_minutes: 120
   llm:
     enabled: false
     provider: local_vllm
@@ -175,6 +176,7 @@ modules:
   pipeline: homeassistant
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 60
   llm:
     enabled: false
     provider: local_vllm
@@ -200,6 +202,7 @@ modules:
   pipeline: nextcloud
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 60
   llm:
     enabled: false
     provider: local_vllm
@@ -225,6 +228,7 @@ modules:
   pipeline: apache2_access
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 60
   llm:
     provider: local_vllm
     enabled: false
@@ -243,6 +247,7 @@ modules:
   pipeline: apache2_error
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 60
   llm:
     provider: local_vllm
     enabled: true
@@ -261,6 +266,7 @@ modules:
   pipeline: authentik
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 60
   llm:
     provider: local_vllm
     enabled: false
@@ -286,6 +292,7 @@ modules:
   pipeline: jellyfin
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 90
   llm:
     provider: local_vllm
     enabled: false
@@ -311,6 +318,7 @@ modules:
   pipeline: rmfakecloud
   output_format: text
   min_print_severity: WARNING
+  stale_after_minutes: 60
   llm:
     provider: local_vllm
     enabled: false

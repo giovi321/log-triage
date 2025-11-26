@@ -176,6 +176,20 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
 
         min_sev = Severity.from_string(item.get("min_print_severity", "WARNING"))
 
+        stale_after_raw = item.get("stale_after_minutes")
+        stale_after_minutes = None
+        if stale_after_raw is not None:
+            try:
+                stale_after_minutes = int(stale_after_raw)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"Module {name}: invalid stale_after_minutes {stale_after_raw} (expected integer)"
+                )
+            if stale_after_minutes <= 0:
+                raise ValueError(
+                    f"Module {name}: stale_after_minutes must be positive (got {stale_after_minutes})"
+                )
+
         llm_cfg = item.get("llm", {}) or {}
         llm_enabled = bool(llm_cfg.get("enabled", llm_defaults.enabled))
         llm_min_sev = Severity.from_string(
@@ -303,6 +317,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
                 llm=module_llm_cfg,
                 stream_from_beginning=stream_from_beginning,
                 stream_interval=stream_interval,
+                stale_after_minutes=stale_after_minutes,
                 alert_mqtt=alert_mqtt_cfg,
                 alert_webhook=alert_webhook_cfg,
                 baseline=baseline_cfg,
