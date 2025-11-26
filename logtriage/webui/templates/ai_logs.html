@@ -53,6 +53,7 @@
   @media (max-width: 980px) { .false-positive-grid { grid-template-columns:1fr; } }
   .false-positive-line { border:1px solid #1d2738; border-radius:0.65rem; padding:0.65rem; background:#0c1119; font-family:monospace; white-space:pre-wrap; word-break:break-word; min-height:72px; }
   .false-positive-line.regex-match { box-shadow:0 0 0 1px #3c6acb; background:#101a2c; }
+  .false-positive-line .match-highlight { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
   .false-positive-presets { display:flex; flex-wrap:wrap; gap:0.35rem; }
   .false-positive-presets button { background:#162237; border:1px solid #2d3c56; box-shadow:none; color:#e7ecf4; }
   .false-positive-presets button:hover { background:#1f2f4d; }
@@ -459,6 +460,59 @@
     return selection.toString().trim();
   }
 
+  function escapeHtml(text) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return (text || '').replace(/[&<>"']/g, m => map[m] || m);
+  }
+
+  function renderFalsePositiveLine(lineBox, text) {
+    if (!lineBox) return;
+    lineBox.innerHTML = escapeHtml(text || '');
+  }
+
+  function highlightFalsePositiveMatches(lineBox, regex) {
+    if (!lineBox) return;
+    const lineText = lineBox.dataset.fullLine || '';
+    const fallbackText = lineBox.textContent || '';
+    const targetText = lineText || fallbackText;
+    if (!(regex instanceof RegExp) || !lineText) {
+      renderFalsePositiveLine(lineBox, targetText);
+      return;
+    }
+
+    const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+    const globalRe = new RegExp(regex.source, flags);
+    let match;
+    let cursor = 0;
+    let html = '';
+    let hasMatch = false;
+
+    while ((match = globalRe.exec(lineText)) !== null) {
+      const [segment] = match;
+      if (!segment) {
+        globalRe.lastIndex += 1;
+        continue;
+      }
+      const start = match.index;
+      const end = start + segment.length;
+      html += escapeHtml(lineText.slice(cursor, start));
+      html += `<span class="match-highlight">${escapeHtml(segment)}</span>`;
+      cursor = end;
+      hasMatch = true;
+      if (globalRe.lastIndex === match.index) {
+        globalRe.lastIndex += 1;
+      }
+    }
+
+    if (!hasMatch) {
+      renderFalsePositiveLine(lineBox, lineText);
+      return;
+    }
+
+    html += escapeHtml(lineText.slice(cursor));
+    lineBox.innerHTML = html;
+  }
+
   function useHighlightedTextForRegex() {
     const lineBox = document.getElementById('false-positive-line');
     const regexField = document.getElementById('false-positive-regex');
@@ -498,8 +552,8 @@
     const suggestedRegex = buildRegexSuggestionFromLine(sampleLine);
 
     if (lineBox) {
-      lineBox.textContent = sampleLine || 'No sample line captured for this finding.';
       lineBox.dataset.fullLine = sampleLine || '';
+      renderFalsePositiveLine(lineBox, sampleLine || 'No sample line captured for this finding.');
       lineBox.classList.remove('regex-match');
     }
     if (regexField) {
@@ -533,7 +587,7 @@
       overlay.setAttribute('aria-hidden', 'true');
     }
     if (lineBox) {
-      lineBox.textContent = '';
+      renderFalsePositiveLine(lineBox, '');
       lineBox.dataset.fullLine = '';
       lineBox.classList.remove('regex-match');
     }
@@ -552,6 +606,7 @@
     if (!raw) {
       resultBox.textContent = 'Enter a regex to test against this line.';
       lineBox.classList.remove('regex-match');
+      highlightFalsePositiveMatches(lineBox, null);
       return false;
     }
     try {
@@ -561,10 +616,12 @@
         ? 'Great! This regex matches the line and will be added to ignore rules.'
         : 'No match yet—consider generalizing the pattern.';
       lineBox.classList.toggle('regex-match', matched);
+      highlightFalsePositiveMatches(lineBox, matched ? re : null);
       return matched;
     } catch (err) {
       resultBox.textContent = err?.message || 'Invalid regex pattern.';
       lineBox.classList.remove('regex-match');
+      highlightFalsePositiveMatches(lineBox, null);
       return false;
     }
   }
