@@ -99,19 +99,14 @@
           {% set status = "WARNING" %}
         {% endif %}
       {% endif %}
-      <div style="display:flex; flex-direction:column; gap:0.3rem; align-items:flex-end; min-width:240px;">
-        <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-          <span class="muted">Status</span>
-          <span class="status-badge sev-{{ status }}">{{ status }}</span>
-        </div>
-        <div style="display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-          <span class="muted">Last log update</span>
-          {% if st and st.last_log_update %}
-            <span class="status-chip">{{ st.last_log_update|localtime }}</span>
-          {% else %}
-            <span class="muted">n/a</span>
-          {% endif %}
-        </div>
+      <div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; min-width:240px;">
+        <span class="muted">Last log update</span>
+        {% if st and st.last_log_update %}
+          <span class="status-chip">{{ st.last_log_update|localtime }}</span>
+        {% else %}
+          <span class="muted">n/a</span>
+        {% endif %}
+        <span class="status-badge sev-{{ status }}">{{ status }}</span>
       </div>
     {% endif %}
   </div>
