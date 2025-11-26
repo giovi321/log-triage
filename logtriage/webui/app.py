@@ -1113,6 +1113,7 @@ async def ai_logs(
             "seed_prompt": seed_prompt,
             "module_prompt_template": module_prompt_template,
             "summary_prompt_template": summary_prompt_template,
+            "regex_presets": regex_presets,
             "sample_source": safe_sample_source,
             "stats": stats,
             "ingestion_status": ingestion_status,
@@ -1659,6 +1660,7 @@ async def mark_false_positive(
     issue_filter: str = Form("all"),
     sample_source: str = Form("tail"),
     sample_line: Optional[str] = Form(None),
+    regex_value: Optional[str] = Form(None),
 ):
     global raw_config, settings, llm_defaults
 
@@ -1686,12 +1688,24 @@ async def mark_false_positive(
         )
 
     regex_source = sample_line or getattr(finding, "reason", "") or ""
-    regex_value = _suggest_regex_from_line(regex_source) if regex_source else None
+    regex_value = (regex_value or "").strip() or (
+        _suggest_regex_from_line(regex_source) if regex_source else None
+    )
 
     if not regex_value:
         return _logs_redirect(
             module,
             error="No sample available to build an ignore rule.",
+            tail_filter=tail_filter,
+            issue_filter=issue_filter,
+            sample_source=sample_source,
+        )
+
+    regex_issues = _lint_regex_input(regex_value)
+    if regex_issues:
+        return _logs_redirect(
+            module,
+            error=" ".join(regex_issues),
             tail_filter=tail_filter,
             issue_filter=issue_filter,
             sample_source=sample_source,
