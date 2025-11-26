@@ -20,7 +20,7 @@
 
 ## Installation
 
-Create a virtual environment and install the CLI, MQTT alerts, and Web UI extras:
+Create a virtual environment and install the dependencies:
 
 ```bash
 python3 -m venv .venv
@@ -32,9 +32,7 @@ pip install '.[webui,mqtt]'
 For a manual, explicit install, you can install the core packages and add the optional extras individually:
 
 ```bash
-pip install pyyaml
-pip install paho-mqtt
-pip install fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous
+pip install pyyaml fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous paho-mqtt
 pip install --upgrade --force-reinstall "bcrypt>=4.0,<4.1"
 ```
 
