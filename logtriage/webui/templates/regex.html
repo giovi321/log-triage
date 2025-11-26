@@ -57,9 +57,6 @@
       <div style="flex:1 1 50%; min-width:260px;">
         <div class="section-header">
           <h3 style="margin:0;">Sample lines ({{ sample_source_label }})</h3>
-          {% if sample_lines %}
-            <button type="submit" form="draft-form" class="secondary">Use highlighted text to draft regex</button>
-          {% endif %}
         </div>
         {% if sample_lines %}
           <form id="draft-form" method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
@@ -111,6 +108,9 @@
               {% endif %}
             </div>
             <div class="editor-actions">
+              {% if sample_lines %}
+                <button type="submit" form="draft-form" class="secondary">Use highlighted text to draft regex</button>
+              {% endif %}
               <button type="submit" class="secondary">Test against sample</button>
             </div>
           </form>
