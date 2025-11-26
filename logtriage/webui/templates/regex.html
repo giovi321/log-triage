@@ -16,8 +16,8 @@
   .step-body { display:grid; grid-template-columns: minmax(0, 2.4fr) minmax(260px, 1fr); gap:1rem; align-items:start; }
   @media (max-width: 900px) { .step-body { grid-template-columns: 1fr; } }
   .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.35rem 0.4rem; border-radius:0.4rem; transition:background 0.15s ease, border 0.15s ease; }
-  .regex-line input[type="radio"] { margin-top:0.2rem; }
-  .regex-line.selected { background:#182233; border:1px solid #2c3a55; }
+  .regex-line:hover { background:#182233; border:1px solid #2c3a55; }
+  .regex-line .line-number { min-width:3.25rem; color:#9fb1d3; display:inline-block; }
   .regex-line .line-content { display:flex; flex-direction:column; gap:0.35rem; width:100%; }
   .regex-kind { display:flex; flex-wrap:wrap; gap:0.4rem 0.75rem; }
   .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; }
@@ -65,16 +65,16 @@
       <div style="flex:1 1 50%; min-width:260px;">
         <h3>Sample lines ({{ sample_source_label }})</h3>
         {% if sample_lines %}
-          <form method="post" action="{{ url_for('regex_suggest') }}">
+          <form method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
-            <div style="max-height:320px; overflow:auto; border:1px solid #333; padding:0.35rem; border-radius:0.5rem;" aria-label="Sample lines">
+            <input type="hidden" name="sample_selection" value="">
+            <div id="sample-lines" style="max-height:320px; overflow:auto; border:1px solid #333; padding:0.35rem; border-radius:0.5rem;" aria-label="Sample lines">
               <div class="regex-lines">
                 {% for entry in sample_lines %}
                   <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
-                    <input type="radio" name="sample_index" value="{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
-                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ entry.index }}:</span>
+                    <span class="line-number">{{ entry.index }}:</span>
                     <div class="line-content">
                       <span class="line-preview {% if matches and (entry.index in matches) %}match-line{% endif %}" data-preview="{{ entry.preview }}" data-full="{{ entry.full }}" data-clipped="{{ entry.was_clipped }}">{{ entry.preview }}</span>
                       {% if entry.is_preview_truncated or entry.was_clipped %}
@@ -87,7 +87,7 @@
               </div>
             </div>
             <div style="margin-top:0.5rem;">
-              <button type="submit" class="secondary">Use selected line to draft regex</button>
+              <button type="submit" class="secondary">Use highlighted text to draft regex</button>
             </div>
           </form>
           {% else %}
@@ -192,20 +192,40 @@
   {% endif %}
 </div>
 <script>
-  function highlightSelectedLine() {
-    document.querySelectorAll('.regex-line').forEach(el => el.classList.remove('selected'));
-    const selected = document.querySelector('input[name="sample_index"]:checked');
-    if (selected) {
-      const row = selected.closest('.regex-line');
-      if (row) row.classList.add('selected');
-    }
-  }
-
-  document.querySelectorAll('input[name="sample_index"]').forEach(input => {
-    input.addEventListener('change', highlightSelectedLine);
+  document.querySelectorAll('[data-toggle-full]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const full = btn.nextElementSibling;
+      if (!full) return;
+      const isHidden = full.style.display === 'none' || !full.style.display;
+      full.style.display = isHidden ? 'block' : 'none';
+      btn.textContent = isHidden ? 'Hide full line' : 'View full line';
+    });
   });
 
-  highlightSelectedLine();
+  const draftForm = document.querySelector('[data-draft-form]');
+  const selectionInput = draftForm?.querySelector('input[name="sample_selection"]');
+  const sampleLines = document.getElementById('sample-lines');
+
+  if (draftForm && selectionInput) {
+    draftForm.addEventListener('submit', () => {
+      const selection = window.getSelection();
+      let selectedText = '';
+
+      if (selection && selection.rangeCount > 0) {
+        selectedText = selection.toString().trim();
+        const range = selection.getRangeAt(0);
+        const container = range.commonAncestorContainer instanceof Element
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer.parentElement;
+
+        if (sampleLines && container && !sampleLines.contains(container)) {
+          selectedText = '';
+        }
+      }
+
+      selectionInput.value = selectedText;
+    });
+  }
 
   document.querySelectorAll('.preset-btn').forEach(btn => {
     btn.addEventListener('click', () => {
