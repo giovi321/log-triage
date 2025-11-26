@@ -1,0 +1,1172 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
+  .log-line input[type="checkbox"] { margin-top:0.15rem; }
+  .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
+  .log-section { border-left:3px solid #2f4261; border-radius:0.35rem; margin-bottom:0.65rem; padding:0.35rem 0.5rem; background:#0e121b; }
+  .log-section-header { display:flex; gap:0.6rem; align-items:flex-start; justify-content:space-between; padding-bottom:0.25rem; }
+  .log-section-body { padding:0.1rem 0; display:flex; flex-direction:column; gap:0.05rem; }
+  .log-section.collapsed .log-section-body { display:none; }
+  .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .log-section.highlighted-finding { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
+  .finding-response { border-left:3px solid #35517c; border-radius:0.35rem; padding:0.5rem 0.6rem; background:#0f131b; display:flex; flex-direction:column; gap:0.3rem; }
+  .finding-response + .finding-response { margin-top:0.65rem; }
+  .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
+  .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
+  .synced-shell { border:1px solid #1a2232; border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
+  .synced-head { display:grid; grid-template-columns:1.1fr 1fr; gap:0.75rem; align-items:flex-end; margin-bottom:0.45rem; }
+  .synced-scroll { display:flex; flex-direction:column; gap:0.6rem; max-height:560px; overflow-y:auto; padding-right:0.25rem; }
+  .synced-row { display:grid; grid-template-columns:1.1fr 1fr; gap:0.75rem; align-items:start; }
+  .synced-pane { border:1px solid #1b2332; border-radius:0.55rem; background:#0f131b; padding:0.65rem; }
+  .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
+  .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
+  .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
+  .finding-controls select { min-width:120px; }
+  .log-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-bottom:0.35rem; }
+  .log-actions { align-items:center; flex-wrap:nowrap; overflow-x:auto; overflow-y:visible; padding-bottom:0.15rem; position:relative; z-index:950; }
+  .log-actions > * { white-space:nowrap; }
+  .context-toggle { display:flex; align-items:center; gap:0.35rem; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
+  .context-toggle .chip-group { display:inline-flex; gap:0.3rem; }
+  .context-toggle button { padding:0.3rem 0.6rem; border-radius:0.4rem; background:#182033; border:1px solid #27324a; color:#dfe7f4; }
+  .context-toggle button.active { background:#2e4472; border-color:#3c5c98; }
+  .selection-box { display:flex; align-items:center; gap:0.35rem; position:relative; z-index:1100; padding:0.25rem 0.45rem; background:#0f131b; border:1px solid #1f2635; border-radius:0.45rem; }
+  .selection-box .muted { font-size:0.9rem; }
+  .action-menu { position:relative; z-index:1200; }
+  .action-menu button.menu-trigger { display:inline-flex; align-items:center; gap:0.35rem; }
+  .action-menu .menu-panel { position:fixed; right:0; top:0; background:#0f131b; border:1px solid #2b3242; border-radius:0.4rem; padding:0.35rem; box-shadow:0 10px 26px rgba(0,0,0,0.35); min-width:0; display:none; z-index:1800; }
+  .action-menu.open .menu-panel { display:flex; flex-wrap:wrap; gap:0.3rem; }
+  .action-menu .menu-panel button { flex:1 1 auto; min-width:90px; justify-content:center; background:transparent; border:1px solid #2b3242; color:#e8ecf2; box-shadow:none; }
+  .action-menu .menu-panel button:hover { background:#1b2234; }
+  .action-menu .menu-panel button:focus { outline:none; box-shadow:0 0 0 1px #2f3b53; }
+  button.danger { background:#7d3434; border:1px solid #a35f5f; color:#f8eaea; box-shadow:none; }
+  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
+  .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
+  .prompt-grid textarea { height:240px; }
+  .prompt-panel { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; display:flex; flex-direction:column; gap:0.4rem; height:100%; }
+  .prompt-shell { display:flex; flex-direction:column; gap:0.35rem; height:100%; }
+  .llm-fixed-response { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; height:240px; overflow-y:auto; white-space:pre-wrap; }
+  .prompt-title { display:flex; align-items:center; justify-content:space-between; font-weight:600; margin:0; }
+  .false-positive-overlay { position:fixed; inset:0; background:rgba(4,7,12,0.78); display:none; align-items:center; justify-content:center; z-index:5000; padding:1.5rem; }
+  .false-positive-panel { background:#0e131d; border:1px solid #1f2a3c; border-radius:0.85rem; padding:1rem; width:min(1320px, 98vw); max-height:88vh; overflow:auto; box-shadow:0 18px 48px rgba(0,0,0,0.45); display:flex; flex-direction:column; gap:0.85rem; }
+  .false-positive-grid { display:grid; grid-template-columns:1.1fr 0.9fr; gap:0.85rem; align-items:start; }
+  @media (max-width: 980px) { .false-positive-grid { grid-template-columns:1fr; } }
+  .false-positive-line { border:1px solid #1d2738; border-radius:0.65rem; padding:0.65rem; background:#0c1119; font-family:monospace; white-space:pre-wrap; word-break:break-word; min-height:72px; }
+  .false-positive-line.regex-match { box-shadow:0 0 0 1px #3c6acb; background:#101a2c; }
+  .false-positive-line .match-highlight { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
+  .false-positive-presets { display:flex; flex-wrap:wrap; gap:0.35rem; }
+  .false-positive-presets button { background:#162237; border:1px solid #2d3c56; box-shadow:none; color:#e7ecf4; }
+  .false-positive-presets button:hover { background:#1f2f4d; }
+  .false-positive-actions { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; }
+</style>
+  <div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+    <form method="get" action="{{ url_for('ai_logs') }}" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+      <label>Module:
+        <select name="module" onchange="this.form.submit()">
+          {% for m in modules %}
+            <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Tail view:
+        <select name="tail_filter" onchange="this.form.submit()">
+          <option value="all" {% if tail_filter == 'ALL' %}selected{% endif %}>All lines</option>
+          {% for sev in tail_severities %}
+            <option value="{{ sev }}" {% if tail_filter == sev %}selected{% endif %}>{{ sev }} only</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Issues:
+        <select name="issue_filter" onchange="this.form.submit()">
+          <option value="all" {% if issue_filter == 'ALL' %}selected{% endif %}>All</option>
+          <option value="active" {% if issue_filter == 'ACTIVE' %}selected{% endif %}>Active</option>
+        </select>
+      </label>
+      <input type="hidden" name="sample_source" value="{{ sample_source }}">
+      <span class="muted">Path: {{ current_module.path if current_module else '-' }}</span>
+    </form>
+    {% if current_module %}
+      {% set st = stats.get(current_module.name) if stats else None %}
+      {% set status = "OK" %}
+      {% if ingestion_status and current_module.name in ingestion_status.stale_modules %}
+        {% set status = "STALE" %}
+      {% elif st %}
+        {% set sev_upper = (st.last_severity or "")|upper %}
+        {% if st.errors_24h > 0 or sev_upper in ("ERROR", "CRITICAL") %}
+          {% set status = "ERROR" if sev_upper != "CRITICAL" else "CRITICAL" %}
+        {% elif st.warnings_24h > 0 or sev_upper == "WARNING" %}
+          {% set status = "WARNING" %}
+        {% endif %}
+      {% endif %}
+      <div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; min-width:240px;">
+        <span class="muted">Last log update</span>
+        {% if st and st.last_log_update %}
+          <span class="status-chip">{{ st.last_log_update|localtime }}</span>
+        {% else %}
+          <span class="muted">n/a</span>
+        {% endif %}
+        <span class="status-badge sev-{{ status }}">{{ status }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if not modules %}
+    <p class="muted">No modules configured yet.</p>
+  {% elif not current_module %}
+    <p class="muted">Select a module to view its logs.</p>
+  {% else %}
+      <div class="log-actions" style="margin-bottom:0.6rem;">
+        <div class="selection-box">
+          <span class="muted">Selected:</span>
+          <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
+          <button type="button" class="secondary" onclick="copySelectedLines()">Copy</button>
+          <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
+          <div class="action-menu" id="mark-finding-menu">
+            <button type="button" class="secondary menu-trigger" id="mark-finding-trigger" aria-haspopup="true" aria-expanded="false" onclick="toggleSeverityMenu()" {% if not current_module or not db_status.connected %}disabled{% endif %}>
+              <span id="mark-finding-label">Mark as finding</span>
+            </button>
+            <div class="menu-panel" id="mark-finding-panel" role="menu" aria-label="Choose severity">
+              {% for sev in severity_choices %}
+                <button type="button" class="secondary" role="menuitem" onclick="submitManualFinding('{{ sev }}')">{{ sev }}</button>
+              {% endfor %}
+              {% if not severity_choices %}
+                <button type="button" class="secondary" role="menuitem" onclick="submitManualFinding('ERROR')">ERROR</button>
+              {% endif %}
+            </div>
+          </div>
+          <button type="button" class="danger" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
+        </div>
+        <form id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}" style="display:none;">
+          <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
+          <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+          <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+          <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+          <input type="hidden" name="sample_source" value="{{ sample_source }}">
+          <input type="hidden" name="lines" id="manual-finding-lines">
+          <input type="hidden" name="line_indexes" id="manual-finding-indexes">
+        </form>
+        <div class="context-toggle" id="context-toggle">
+          <span class="muted" style="font-size:0.92rem;">Include 3</span>
+          <div class="chip-group">
+          <button type="button" class="secondary" data-context-direction="before" onclick="toggleContextDirection('before')">preceding</button>
+          <button type="button" class="secondary" data-context-direction="after" onclick="toggleContextDirection('after')">following</button>
+          </div>
+          <span class="muted" style="font-size:0.92rem;">lines to prompt</span>
+        </div>
+      {% if issue_filter != 'ALL' %}
+        <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
+      {% endif %}
+      {% if tail_filter != 'ALL' %}
+        <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if issue_filter %}&issue_filter={{ issue_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset tail filter</a>
+      {% endif %}
+    </div>
+    <form id="delete-selected-findings-form" method="post" action="{{ url_for('delete_selected_findings') }}" style="display:none;">
+      <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+      <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+      <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+      <input type="hidden" name="sample_source" value="{{ sample_source }}">
+      <input type="hidden" name="finding_ids" id="selected-finding-ids">
+    </form>
+    <div class="synced-shell">
+      <div class="synced-head">
+        <div class="sync-title">
+          <h3 style="margin:0;">Findings</h3>
+        </div>
+        <div class="sync-title">
+          <div>
+            <h3 style="margin:0;">AI opinion</h3>
+          </div>
+        </div>
+      </div>
+      <div class="synced-scroll" id="synced-scroll">
+        {% if sample_lines %}
+          {% if finding_tail %}
+            {% for section in finding_tail %}
+              <div class="synced-row">
+                <div class="synced-pane tail-pane">
+                  <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
+                    <div class="log-section-header">
+                      {% if section.finding %}
+                        <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap;">
+                          <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
+                          <div style="display:flex; flex-direction:column; gap:0.15rem; min-width:12rem;">
+                            <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
+                            <span class="helper-text" style="margin:0;">{{ section.finding.reason }}</span>
+                          </div>
+                        </div>
+                        <div class="section-actions">
+                          <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
+                        </div>
+                      {% else %}
+                        <div class="muted">Tail lines</div>
+                      {% endif %}
+                    </div>
+                    <div class="log-section-body">
+                      {% for line in section.lines %}
+                        <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
+                          <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
+                          <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                          <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                        </div>
+                      {% endfor %}
+                      {% if section.finding %}
+                        <div class="finding-controls">
+                          {% set finding_example = (finding_examples.get(section.finding.id) if finding_examples else None) %}
+                          <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
+                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
+                            <input type="hidden" name="module" value="{{ current_module.name }}">
+                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                            <input type="hidden" name="sample_line" value="{{ (finding_example or section.finding.reason)|e }}">
+                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                            <button type="button" class="secondary" onclick="launchFalsePositiveFlow(this.form)">False positive</button>
+                          </form>
+                          <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ section.finding.id }}">
+                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
+                            <input type="hidden" name="module" value="{{ current_module.name }}">
+                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                            <input type="hidden" name="severity" id="finding-severity-value-{{ section.finding.id }}" value="{{ section.finding.severity if section.finding.severity in severity_choices else (severity_choices[0] if severity_choices else 'ERROR') }}">
+                            <div class="action-menu finding-severity-menu" id="finding-sev-menu-{{ section.finding.id }}" data-finding-id="{{ section.finding.id }}">
+                              <button type="button" class="secondary menu-trigger" id="finding-sev-trigger-{{ section.finding.id }}" aria-haspopup="true" aria-expanded="false" onclick="toggleFindingSeverityMenu('{{ section.finding.id }}')">
+                                Update severity
+                              </button>
+                              <div class="menu-panel" id="finding-sev-panel-{{ section.finding.id }}" role="menu" aria-label="Choose severity for finding {{ section.finding.finding_index }}">
+                                {% for sev in severity_choices %}
+                                  <button type="button" class="secondary" role="menuitem" onclick="submitFindingSeverity('{{ section.finding.id }}', '{{ sev }}')">{{ sev }}</button>
+                                {% endfor %}
+                              </div>
+                            </div>
+                          </form>
+                        </div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+                <div class="synced-pane ai-pane">
+                  {% if not db_status.connected %}
+                    <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
+                  {% elif not section.finding %}
+                    <p class="muted" style="margin:0;">No finding associated with these lines.</p>
+                  {% else %}
+                    {% set response_obj = section.finding|attr('llm_response') %}
+                    {% set response_content = response_obj.content if response_obj else section.finding|attr('llm_response_content') %}
+                    {% set response_provider = response_obj.provider if response_obj else section.finding|attr('llm_provider') %}
+                    {% set response_model = response_obj.model if response_obj else section.finding|attr('llm_model') %}
+                    <div class="finding-response" data-finding-summary="true" data-finding-id="{{ section.finding.id }}">
+                      <div class="helper-text" style="margin:0;">AI opinion for finding #{{ section.finding.finding_index }}</div>
+                      {% if response_provider or response_model %}
+                        <div class="helper-text" style="margin:0;">Source: {{ response_provider or 'Unknown provider' }}{% if response_model %} · {{ response_model }}{% endif %}</div>
+                      {% endif %}
+                      {% if response_content %}
+                        <div class="llm-body">{{ response_content }}</div>
+                      {% else %}
+                        <p class="muted" style="margin:0;">No AI opinion saved for this finding.</p>
+                      {% endif %}
+                      <div class="recorded-summary muted" data-summary-for="{{ section.finding.id }}" style="display:none;"></div>
+                    </div>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          {% elif had_finding_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
+            <div class="synced-row">
+              <div class="synced-pane tail-pane">
+                <p class="muted">No log sections matched the current filters.</p>
+              </div>
+              <div class="synced-pane ai-pane"></div>
+            </div>
+          {% else %}
+            <div class="synced-row">
+              <div class="synced-pane tail-pane">
+                {% for line in sample_lines %}
+                  <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
+                    <input type="checkbox" name="selected_line" data-line-index="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e }}">
+                    <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line }}</span>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="synced-pane ai-pane">
+                {% if not db_status.connected %}
+                  <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
+                {% else %}
+                  <p class="muted" style="margin:0;">AI opinions will appear once findings are available.</p>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="synced-row">
+            <div class="synced-pane tail-pane">
+              <p class="muted">No lines read from this log path.</p>
+            </div>
+            <div class="synced-pane ai-pane"></div>
+          </div>
+        {% endif %}
+      </div>
+      </div>
+    </div>
+
+    {% if providers %}
+    <div class="llm-workbench">
+      <div class="grid prompt-grid">
+        <div class="prompt-panel">
+          <div class="prompt-shell">
+            <div class="prompt-title">
+              <span>Prompt builder</span>
+              <span id="llm-status" class="muted"></span>
+            </div>
+            <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}">{{ seed_prompt or '' }}</textarea>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
+              <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
+              <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
+            </div>
+            <label style="margin-top:0.35rem;">Provider
+              <select id="llm-provider">
+                {% for p in providers %}
+                  <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
+                {% endfor %}
+              </select>
+            </label>
+            <div id="provider-hints" class="helper-text"></div>
+          </div>
+        </div>
+        <div class="prompt-panel">
+          <div class="prompt-title" style="margin-bottom:0.3rem;">AI opinion</div>
+          <div id="llm-response" class="llm-fixed-response muted">No AI opinion yet.</div>
+          <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
+            <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
+            <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <p class="muted">No providers configured. Update config.yaml to add entries under llm.providers.</p>
+  {% endif %}
+{% endif %}
+</div>
+
+<div id="false-positive-overlay" class="false-positive-overlay" aria-hidden="true">
+  <div class="false-positive-panel" role="dialog" aria-modal="true" aria-labelledby="false-positive-title">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.75rem; flex-wrap:wrap;">
+      <div>
+        <h3 id="false-positive-title" style="margin:0;">Mark finding as false positive</h3>
+        <p id="false-positive-guidance" class="helper-text" style="margin:0.2rem 0 0;">We will add a regex to the classifier's ignore list and remove this finding from the feed.</p>
+      </div>
+      <button type="button" class="secondary" onclick="closeFalsePositiveFlow()">Close</button>
+    </div>
+    <div class="false-positive-grid">
+      <div>
+        <div class="helper-text" style="margin-bottom:0.35rem;">Lines to ignore</div>
+        <div id="false-positive-line" class="false-positive-line" data-full-line=""></div>
+        <button type="button" class="secondary" style="margin-top:0.45rem;" onclick="useHighlightedTextForRegex()">Use highlighted text to build regex</button>
+      </div>
+      <div>
+        <div style="display:flex; flex-direction:column; gap:0.35rem;">
+          <label style="margin:0; display:flex; flex-direction:column; gap:0.25rem;">
+            <span class="helper-text">Build your ignore regex</span>
+            <textarea id="false-positive-regex" rows="4" style="width:100%; font-family:monospace;"></textarea>
+          </label>
+          <div class="false-positive-presets" id="false-positive-presets"></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.65rem; flex-wrap:wrap; margin-top:0.45rem;">
+          <div id="false-positive-test-result" class="helper-text" style="margin:0;"></div>
+          <button type="button" class="secondary" onclick="testFalsePositiveRegex()">Test against this line</button>
+        </div>
+      </div>
+    </div>
+    <div class="false-positive-actions">
+      <div id="false-positive-next" class="helper-text">Saving will remove the finding and store the ignore regex in your classifier config.</div>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; align-items:center;">
+        <button type="button" class="secondary" onclick="closeFalsePositiveFlow()">Cancel</button>
+        <button type="button" onclick="submitFalsePositive()">Save ignore rule</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<form id="false-positive-hidden-form" method="post" action="{{ url_for('mark_false_positive') }}" style="display:none;">
+  <input type="hidden" name="finding_id">
+  <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+  <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+  <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+  <input type="hidden" name="sample_source" value="{{ sample_source }}">
+  <input type="hidden" name="sample_line">
+  <input type="hidden" name="regex_value">
+</form>
+
+<script>
+  const providerSettings = {{ provider_settings|tojson }};
+  const modulePromptTemplate = {{ module_prompt_template|tojson }};
+  const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
+  const regexPresets = {{ regex_presets|tojson }};
+  {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
+  const recordedSummaries = {};
+  const CONTEXT_LINE_COUNT = 3;
+
+  const contextDirections = new Set();
+  let lastLLMData = null;
+  let activeFalsePositiveForm = null;
+
+  function buildRegexSuggestionFromLine(line) {
+    if (!line) return '';
+    const escaped = line.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return escaped.replace(/\\d+/g, '\\\\d+').replace(/[A-Fa-f0-9]{6,}/g, '[A-Fa-f0-9]+');
+  }
+
+  function renderFalsePositivePresets() {
+    const presetsRoot = document.getElementById('false-positive-presets');
+    if (!presetsRoot) return;
+    presetsRoot.innerHTML = '';
+    const presets = Array.isArray(regexPresets) ? regexPresets : [];
+    presets
+      .filter(p => !p.kind || p.kind === 'ignore')
+      .forEach(preset => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'secondary';
+        btn.textContent = preset.name || 'Preset';
+        btn.addEventListener('click', () => {
+          const field = document.getElementById('false-positive-regex');
+          if (!field) return;
+          const existing = field.value.trim();
+          const addition = preset.pattern || '';
+          field.value = existing ? `${existing}${addition}` : addition;
+          field.focus();
+          testFalsePositiveRegex();
+        });
+        presetsRoot.appendChild(btn);
+      });
+  }
+
+  function getSelectionWithin(element) {
+    const selection = window.getSelection();
+    if (!element || !selection || selection.rangeCount === 0) return '';
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer instanceof Element
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+
+    if (!container || !element.contains(container)) return '';
+    return selection.toString().trim();
+  }
+
+  function escapeHtml(text) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return (text || '').replace(/[&<>"']/g, m => map[m] || m);
+  }
+
+  function renderFalsePositiveLine(lineBox, text) {
+    if (!lineBox) return;
+    lineBox.innerHTML = escapeHtml(text || '');
+  }
+
+  function highlightFalsePositiveMatches(lineBox, regex) {
+    if (!lineBox) return;
+    const lineText = lineBox.dataset.fullLine || '';
+    const fallbackText = lineBox.textContent || '';
+    const targetText = lineText || fallbackText;
+    if (!(regex instanceof RegExp) || !lineText) {
+      renderFalsePositiveLine(lineBox, targetText);
+      return;
+    }
+
+    const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+    const globalRe = new RegExp(regex.source, flags);
+    let match;
+    let cursor = 0;
+    let html = '';
+    let hasMatch = false;
+
+    while ((match = globalRe.exec(lineText)) !== null) {
+      const [segment] = match;
+      if (!segment) {
+        globalRe.lastIndex += 1;
+        continue;
+      }
+      const start = match.index;
+      const end = start + segment.length;
+      html += escapeHtml(lineText.slice(cursor, start));
+      html += `<span class="match-highlight">${escapeHtml(segment)}</span>`;
+      cursor = end;
+      hasMatch = true;
+      if (globalRe.lastIndex === match.index) {
+        globalRe.lastIndex += 1;
+      }
+    }
+
+    if (!hasMatch) {
+      renderFalsePositiveLine(lineBox, lineText);
+      return;
+    }
+
+    html += escapeHtml(lineText.slice(cursor));
+    lineBox.innerHTML = html;
+  }
+
+  function useHighlightedTextForRegex() {
+    const lineBox = document.getElementById('false-positive-line');
+    const regexField = document.getElementById('false-positive-regex');
+    const resultBox = document.getElementById('false-positive-test-result');
+    if (!lineBox || !regexField) return;
+
+    const selection = getSelectionWithin(lineBox);
+    if (!selection) {
+      if (resultBox) {
+        resultBox.textContent = 'Highlight part of the lines above to build a regex from that selection.';
+      }
+      return;
+    }
+
+    regexField.value = buildRegexSuggestionFromLine(selection);
+    regexField.focus();
+    if (resultBox) {
+      resultBox.textContent = 'Drafted regex from highlighted text. Test to confirm the match.';
+    }
+    testFalsePositiveRegex();
+  }
+
+  function launchFalsePositiveFlow(form) {
+    const overlay = document.getElementById('false-positive-overlay');
+    const lineBox = document.getElementById('false-positive-line');
+    const regexField = document.getElementById('false-positive-regex');
+    const testResult = document.getElementById('false-positive-test-result');
+    if (!overlay) {
+      form?.submit();
+      return;
+    }
+    activeFalsePositiveForm = form;
+
+    const sampleInput = form?.querySelector('input[name="sample_line"]');
+    const findingInput = form?.querySelector('input[name="finding_id"]');
+    const sampleLine = sampleInput ? sampleInput.value : '';
+    const suggestedRegex = buildRegexSuggestionFromLine(sampleLine);
+
+    if (lineBox) {
+      lineBox.dataset.fullLine = sampleLine || '';
+      renderFalsePositiveLine(lineBox, sampleLine || 'No sample line captured for this finding.');
+      lineBox.classList.remove('regex-match');
+    }
+    if (regexField) {
+      regexField.value = suggestedRegex;
+    }
+    if (testResult) {
+      const msg = findingInput?.value
+        ? `Finding #${findingInput.value} will be removed after saving.`
+        : 'Marking this as false positive will remove the finding.';
+      testResult.textContent = msg;
+    }
+
+    renderFalsePositivePresets();
+    if (overlay) {
+      overlay.style.display = 'flex';
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+    setTimeout(() => {
+      if (regexField) regexField.focus();
+      testFalsePositiveRegex();
+    }, 30);
+  }
+
+  function closeFalsePositiveFlow() {
+    const overlay = document.getElementById('false-positive-overlay');
+    const lineBox = document.getElementById('false-positive-line');
+    const testResult = document.getElementById('false-positive-test-result');
+    activeFalsePositiveForm = null;
+    if (overlay) {
+      overlay.style.display = 'none';
+      overlay.setAttribute('aria-hidden', 'true');
+    }
+    if (lineBox) {
+      renderFalsePositiveLine(lineBox, '');
+      lineBox.dataset.fullLine = '';
+      lineBox.classList.remove('regex-match');
+    }
+    if (testResult) {
+      testResult.textContent = '';
+    }
+  }
+
+  function testFalsePositiveRegex() {
+    const regexField = document.getElementById('false-positive-regex');
+    const lineBox = document.getElementById('false-positive-line');
+    const resultBox = document.getElementById('false-positive-test-result');
+    if (!regexField || !lineBox || !resultBox) return false;
+    const raw = regexField.value.trim();
+    const lineText = lineBox.dataset.fullLine || lineBox.textContent || '';
+    if (!raw) {
+      resultBox.textContent = 'Enter a regex to test against this line.';
+      lineBox.classList.remove('regex-match');
+      highlightFalsePositiveMatches(lineBox, null);
+      return false;
+    }
+    try {
+      const re = new RegExp(raw);
+      const matched = re.test(lineText);
+      resultBox.textContent = matched
+        ? 'Regex matches the line.'
+        : 'No match yet—consider generalizing the pattern.';
+      lineBox.classList.toggle('regex-match', matched);
+      highlightFalsePositiveMatches(lineBox, matched ? re : null);
+      return matched;
+    } catch (err) {
+      resultBox.textContent = err?.message || 'Invalid regex pattern.';
+      lineBox.classList.remove('regex-match');
+      highlightFalsePositiveMatches(lineBox, null);
+      return false;
+    }
+  }
+
+  function submitFalsePositive() {
+    const form = document.getElementById('false-positive-hidden-form');
+    const regexField = document.getElementById('false-positive-regex');
+    const resultBox = document.getElementById('false-positive-test-result');
+    if (!form || !activeFalsePositiveForm) return;
+    const regexValue = regexField ? regexField.value.trim() : '';
+    if (!regexValue) {
+      if (resultBox) resultBox.textContent = 'Add a regex before saving.';
+      return;
+    }
+    const activeInputs = name => activeFalsePositiveForm.querySelector(`input[name="${name}"]`);
+    const targetInputs = name => form.querySelector(`input[name="${name}"]`);
+    ['finding_id', 'module', 'tail_filter', 'issue_filter', 'sample_source', 'sample_line'].forEach(name => {
+      const src = activeInputs(name);
+      const dest = targetInputs(name);
+      if (dest) {
+        dest.value = src ? src.value : dest.value;
+      }
+    });
+    const regexDest = form.querySelector('input[name="regex_value"]');
+    if (regexDest) {
+      regexDest.value = regexValue;
+    }
+    form.submit();
+  }
+
+  function buildLineLookup() {
+    const lookup = new Map();
+    document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+      const idxRaw = cb.dataset.lineIndex || cb.value;
+      const idx = Number.parseInt(idxRaw, 10);
+      const text = cb.dataset.line;
+      if (!Number.isNaN(idx) && typeof text !== 'undefined') {
+        lookup.set(idx, text);
+      }
+    });
+    return lookup;
+  }
+
+  function collectSelectedLines(directions = null) {
+    const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
+    if (!directions) {
+      return selected.map(cb => cb.dataset.line).filter(Boolean);
+    }
+
+    const lookup = buildLineLookup();
+    const indexes = new Set();
+    const fallbackTexts = [];
+
+    const dirSet = new Set(Array.isArray(directions) || directions instanceof Set ? Array.from(directions) : [directions].filter(Boolean));
+
+    selected.forEach(cb => {
+      const text = cb.dataset.line;
+      const idxRaw = cb.dataset.lineIndex || cb.value;
+      const idx = Number.parseInt(idxRaw, 10);
+      if (!Number.isNaN(idx)) {
+        if (dirSet.has('before')) {
+          for (let i = CONTEXT_LINE_COUNT; i >= 1; i -= 1) {
+            indexes.add(idx - i);
+          }
+        }
+        if (dirSet.has('after')) {
+          for (let i = 1; i <= CONTEXT_LINE_COUNT; i += 1) {
+            indexes.add(idx + i);
+          }
+        }
+        indexes.add(idx);
+      } else if (text) {
+        fallbackTexts.push(text);
+      }
+    });
+
+    const orderedIndexes = Array.from(indexes)
+      .filter(idx => lookup.has(idx))
+      .sort((a, b) => a - b);
+
+    const seen = new Set();
+    const contextual = [];
+    orderedIndexes.forEach(idx => {
+      const text = lookup.get(idx);
+      if (!text) return;
+      const key = `${idx}:${text}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      contextual.push(text);
+    });
+
+    fallbackTexts.forEach(text => {
+      if (!text) return;
+      const key = `x:${text}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      contextual.push(text);
+    });
+
+    return contextual;
+  }
+
+  function toggleContextDirection(direction) {
+    if (contextDirections.has(direction)) {
+      contextDirections.delete(direction);
+    } else {
+      contextDirections.add(direction);
+    }
+    refreshContextButtons();
+  }
+
+  function refreshContextButtons() {
+    document.querySelectorAll('[data-context-direction]').forEach(btn => {
+      const dir = btn.dataset.contextDirection;
+      btn.classList.toggle('active', contextDirections.has(dir));
+    });
+  }
+
+  function copyText(text) {
+    if (!navigator.clipboard) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } else {
+      navigator.clipboard.writeText(text);
+    }
+  }
+
+  function copySelectedLines() {
+    const selected = collectSelectedLines();
+    copyText(selected.join('\n'));
+  }
+
+  function appendSelectedToPrompt() {
+    const selected = collectSelectedLines(contextDirections);
+    if (!selected.length) return;
+    appendToPrompt(selected.join('\n'));
+  }
+
+  function appendToPrompt(text) {
+    const prompt = document.getElementById('llm-prompt');
+    if (!prompt || !text) return;
+    prompt.value = prompt.value ? `${prompt.value}\n${text}` : text;
+    prompt.focus();
+  }
+
+  function refreshSelectedHighlights() {
+    document.querySelectorAll('.log-line').forEach(row => {
+      const cb = row.querySelector('input[name="selected_line"]');
+      row.classList.toggle('selected', cb && cb.checked);
+    });
+    updateSelectAllButtonLabel();
+    updateManualFindingSeed();
+  }
+
+  document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+    cb.addEventListener('change', refreshSelectedHighlights);
+  });
+  refreshSelectedHighlights();
+  refreshContextButtons();
+
+  function toggleSelectAllLines() {
+    const boxes = Array.from(document.querySelectorAll('input[name="selected_line"]'));
+    if (!boxes.length) return;
+    const shouldSelectAll = boxes.some(cb => !cb.checked);
+    boxes.forEach(cb => {
+      cb.checked = shouldSelectAll;
+    });
+    refreshSelectedHighlights();
+  }
+
+  function updateSelectAllButtonLabel() {
+    const btn = document.getElementById('select-all-lines');
+    if (!btn) return;
+    const boxes = Array.from(document.querySelectorAll('input[name="selected_line"]'));
+    if (!boxes.length) {
+      btn.textContent = 'Select all';
+      return;
+    }
+    const allChecked = boxes.every(cb => cb.checked);
+    btn.textContent = allChecked ? 'Deselect all' : 'Select all';
+  }
+
+  function positionFloatingPanel(panel, trigger) {
+    if (!panel || !trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const gutter = 8;
+    const rightOffset = Math.max(gutter, window.innerWidth - rect.right);
+
+    panel.style.top = `${rect.bottom + gutter}px`;
+    panel.style.right = `${rightOffset}px`;
+    panel.style.left = 'auto';
+  }
+
+  function positionSeverityMenu() {
+    positionFloatingPanel(
+      document.getElementById('mark-finding-panel'),
+      document.getElementById('mark-finding-trigger'),
+    );
+  }
+
+  function toggleSeverityMenu(forceState = null) {
+    const menu = document.getElementById('mark-finding-menu');
+    const panel = document.getElementById('mark-finding-panel');
+    const trigger = document.getElementById('mark-finding-trigger');
+    if (!menu || !panel || !trigger || trigger.disabled) return;
+    const shouldOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+
+    if (shouldOpen) {
+      panel.style.display = 'flex';
+      positionSeverityMenu();
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  function closeSeverityMenu() {
+    toggleSeverityMenu(false);
+  }
+
+  function positionFindingSeverityMenu(findingId) {
+    const panel = document.getElementById(`finding-sev-panel-${findingId}`);
+    const trigger = document.getElementById(`finding-sev-trigger-${findingId}`);
+    positionFloatingPanel(panel, trigger);
+  }
+
+  function toggleFindingSeverityMenu(findingId, forceState = null) {
+    const menu = document.getElementById(`finding-sev-menu-${findingId}`);
+    const panel = document.getElementById(`finding-sev-panel-${findingId}`);
+    const trigger = document.getElementById(`finding-sev-trigger-${findingId}`);
+    if (!menu || !panel || !trigger) return;
+
+    const shouldOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+
+    if (shouldOpen) {
+      panel.style.display = 'flex';
+      positionFindingSeverityMenu(findingId);
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  function closeAllFindingSeverityMenus() {
+    document.querySelectorAll('.finding-severity-menu').forEach(menu => {
+      const fid = menu.dataset.findingId;
+      if (fid) toggleFindingSeverityMenu(fid, false);
+    });
+  }
+
+  ['scroll', 'resize'].forEach(evt => {
+    window.addEventListener(evt, () => {
+      const menu = document.getElementById('mark-finding-menu');
+      if (menu && menu.classList.contains('open')) {
+        positionSeverityMenu();
+      }
+      document.querySelectorAll('.finding-severity-menu.open').forEach(menu => {
+        const fid = menu.dataset.findingId;
+        if (fid) positionFindingSeverityMenu(fid);
+      });
+    }, true);
+  });
+
+  function setManualFindingLabel() {
+    const label = document.getElementById('mark-finding-label');
+    if (label) {
+      label.textContent = 'Mark as finding';
+    }
+  }
+
+  function toggleSection(btn) {
+    const idx = btn.dataset.sectionIndex;
+    const sections = document.querySelectorAll('.log-section');
+    const section = sections[idx];
+    if (section) {
+      section.classList.toggle('collapsed');
+      btn.textContent = section.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+    }
+  }
+
+  function loadPredefinedPrompt() {
+    if (!modulePromptTemplate) return;
+    const prompt = document.getElementById('llm-prompt');
+    if (!prompt) return;
+    prompt.value = modulePromptTemplate;
+    prompt.focus();
+  }
+
+  function updateProviderHints() {
+    const select = document.getElementById('llm-provider');
+    const hints = document.getElementById('provider-hints');
+    if (!select || !hints) return;
+    const cfg = providerSettings[select.value];
+    if (!cfg) {
+      hints.textContent = '';
+      return;
+    }
+    hints.textContent = `max_excerpt_lines ${cfg.max_excerpt_lines}, max_tokens ${cfg.max_output_tokens}, temp ${cfg.temperature}, top_p ${cfg.top_p}`;
+  }
+
+  async function callLLM(promptText) {
+    const provider = document.getElementById('llm-provider');
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const usage = document.getElementById('llm-usage');
+    if (!provider || !respBox) return null;
+
+    if (!promptText) {
+      if (status) status.textContent = 'Enter a prompt to query the LLM.';
+      return null;
+    }
+
+    if (status) status.textContent = 'Sending...';
+    respBox.textContent = '';
+    if (usage) usage.textContent = '';
+
+    const formData = new FormData();
+    formData.append('provider', provider.value);
+    formData.append('prompt', promptText);
+
+    let responseData;
+    try {
+      const resp = await fetch('{{ url_for('llm_query') }}', { method: 'POST', body: formData });
+      responseData = await resp.json();
+      if (!resp.ok) {
+        throw new Error(responseData.error || 'Request failed');
+      }
+    } catch (err) {
+      if (status) status.textContent = err.message || 'Failed to reach LLM provider';
+      respBox.textContent = '';
+      return null;
+    }
+
+    if (status) status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
+    respBox.textContent = responseData.content || '(empty response)';
+    if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
+      if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
+    }
+    lastLLMData = responseData;
+    return responseData;
+  }
+
+  async function sendLLMPrompt() {
+    const prompt = document.getElementById('llm-prompt');
+    if (!prompt) return;
+    await callLLM(prompt.value.trim());
+  }
+
+  async function summarizeAndRecord() {
+    const respBox = document.getElementById('llm-response');
+    const status = document.getElementById('llm-status');
+    const targetFinding = getSelectedFindingId();
+    const responseText = respBox ? respBox.textContent.trim() : '';
+    if (!responseText) {
+      if (status) status.textContent = 'No AI opinion to summarize yet.';
+      return;
+    }
+    const template = typeof summaryPromptTemplate === 'string' && summaryPromptTemplate.trim()
+      ? summaryPromptTemplate
+      : `Write a short, concise summary that explains the error described in the following AI opinion and how to address it.\n\n${SUMMARY_PLACEHOLDER}`;
+    const summaryPrompt = template.includes(SUMMARY_PLACEHOLDER)
+      ? template.replace(SUMMARY_PLACEHOLDER, responseText)
+      : `${template.trim()}\n\n${responseText}`;
+    const data = await callLLM(summaryPrompt);
+    if (!data) return;
+    if (!targetFinding) {
+      if (status) status.textContent = 'Summary created. Select a finding line to record it.';
+      return;
+    }
+    recordedSummaries[targetFinding] = data.content || '';
+    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
+    if (summaryEl) {
+      summaryEl.textContent = `Recorded summary: ${recordedSummaries[targetFinding]}`;
+      summaryEl.style.display = 'block';
+    }
+    await persistOpinionToFinding(targetFinding, data);
+    if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
+  }
+
+  function getSelectedFindingIds() {
+    const ids = new Set();
+    const checked = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
+    checked.forEach(cb => {
+      const section = cb.closest('[data-finding-section="true"]');
+      if (section && section.dataset.findingId) {
+        ids.add(section.dataset.findingId);
+      }
+    });
+    return Array.from(ids);
+  }
+
+  function getSelectedFindingId() {
+    const ids = getSelectedFindingIds();
+    return ids.length ? ids[0] : '';
+  }
+
+  function deleteSelectedFindings() {
+    const form = document.getElementById('delete-selected-findings-form');
+    const idsInput = document.getElementById('selected-finding-ids');
+    if (!form || !idsInput) return;
+    const ids = getSelectedFindingIds();
+    if (!ids.length) {
+      alert('Select at least one finding entry to delete.');
+      return;
+    }
+    const confirmed = confirm(`Delete ${ids.length} selected finding(s)?`);
+    if (!confirmed) return;
+    idsInput.value = ids.join(',');
+    form.submit();
+  }
+
+  async function attachOpinionToSelectedFinding() {
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const targetFinding = getSelectedFindingId();
+    const responseText = respBox ? respBox.textContent.trim() : '';
+    if (!targetFinding) {
+      if (status) status.textContent = 'Select a finding line to attach the AI opinion.';
+      return;
+    }
+    if (!responseText || responseText === 'No AI opinion yet.') {
+      if (status) status.textContent = 'Run an AI query before attaching.';
+      return;
+    }
+    recordedSummaries[targetFinding] = responseText;
+    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
+    if (summaryEl) {
+      summaryEl.textContent = `Recorded AI opinion: ${responseText}`;
+      summaryEl.style.display = 'block';
+    }
+    await persistOpinionToFinding(targetFinding, lastLLMData || { content: responseText });
+    if (status) status.textContent = 'AI opinion attached to finding #' + targetFinding;
+  }
+
+  async function persistOpinionToFinding(findingId, data = {}) {
+    const status = document.getElementById('llm-status');
+    const payload = new FormData();
+    payload.append('finding_id', findingId);
+    payload.append('provider', data.provider || '');
+    payload.append('model', data.model || '');
+    payload.append('content', data.content || '');
+    if (data.usage) {
+      if (typeof data.usage.prompt_tokens !== 'undefined') {
+        payload.append('prompt_tokens', data.usage.prompt_tokens ?? '');
+      }
+      if (typeof data.usage.completion_tokens !== 'undefined') {
+        payload.append('completion_tokens', data.usage.completion_tokens ?? '');
+      }
+    }
+
+    try {
+      const resp = await fetch('{{ url_for('record_finding_opinion') }}', { method: 'POST', body: payload });
+      const dataResp = await resp.json();
+      if (!resp.ok) {
+        throw new Error(dataResp.error || 'Failed to store AI opinion.');
+      }
+      if (status) status.textContent = dataResp.message || 'AI opinion stored.';
+      return true;
+    } catch (err) {
+      if (status) status.textContent = err.message || 'Failed to store AI opinion.';
+      return false;
+    }
+  }
+
+  function getSelectedLineData() {
+    return Array.from(document.querySelectorAll('input[name="selected_line"]:checked')).map(cb => ({
+      index: cb.dataset.lineIndex || cb.value,
+      text: cb.dataset.line,
+    }));
+  }
+
+  function submitManualFinding(severity = null) {
+    const form = document.getElementById('manual-finding-form');
+    if (!form) return;
+    const selected = getSelectedLineData();
+    if (!selected.length) {
+      alert('Select at least one log line to record a finding.');
+      return;
+    }
+    const lines = selected.map(item => item.text).filter(Boolean);
+    if (!lines.length) {
+      alert('Selected lines did not include any content.');
+      return;
+    }
+    const severityField = document.getElementById('manual-finding-severity');
+    if (severityField && severity) {
+      severityField.value = severity;
+      setManualFindingLabel();
+    }
+    const indexes = selected
+      .map(item => Number.parseInt(item.index, 10))
+      .filter(idx => !Number.isNaN(idx));
+
+    const linesField = document.getElementById('manual-finding-lines');
+    const indexesField = document.getElementById('manual-finding-indexes');
+    if (linesField) linesField.value = lines.join('\n');
+    if (indexesField) indexesField.value = indexes.join(',');
+    closeSeverityMenu();
+    form.submit();
+  }
+
+  function submitFindingSeverity(findingId, severity) {
+    const form = document.getElementById(`finding-severity-form-${findingId}`);
+    const severityField = document.getElementById(`finding-severity-value-${findingId}`);
+    if (!form || !severityField) return;
+
+    if (severity) {
+      severityField.value = severity;
+    }
+    closeAllFindingSeverityMenus();
+    form.submit();
+  }
+
+  function updateManualFindingSeed() {
+    setManualFindingLabel();
+  }
+
+  document.addEventListener('click', event => {
+    const markMenu = document.getElementById('mark-finding-menu');
+    if (markMenu && !markMenu.contains(event.target)) {
+      closeSeverityMenu();
+    }
+
+    const findingMenu = event.target.closest('.finding-severity-menu');
+    if (!findingMenu) {
+      closeAllFindingSeverityMenus();
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      closeSeverityMenu();
+      closeAllFindingSeverityMenus();
+      closeFalsePositiveFlow();
+    }
+  });
+
+  updateManualFindingSeed();
+
+  updateProviderHints();
+  const providerSelect = document.getElementById('llm-provider');
+  if (providerSelect) {
+    providerSelect.addEventListener('change', updateProviderHints);
+  }
+</script>
+{% endblock %}

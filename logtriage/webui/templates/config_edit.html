@@ -1,0 +1,564 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .config-editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(320px, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+
+  @media (max-width: 1080px) {
+    .config-editor-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .config-editor .CodeMirror {
+    height: 60vh;
+    min-height: 300px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    border-radius: 0.75rem;
+    box-shadow: inset 0 0 0 1px #222a38;
+    background: #0b1020;
+    font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.98rem;
+  }
+
+  .config-editor .CodeMirror-scroll {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .hint-panel {
+    position: sticky;
+    top: 1.5rem;
+  }
+
+  #config-text {
+    width: 95%;
+    min-height: 300px;
+  }
+
+  .editor-pane {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .hint-panel .hint-body {
+    white-space: pre-wrap;
+  }
+
+  .editor-surface {
+    position: relative;
+  }
+
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    padding: 0.35rem 0.5rem;
+    margin-bottom: 0.5rem;
+    background: #0f1424;
+    border: 1px solid #1f2a3d;
+    border-radius: 0.55rem;
+  }
+
+  .search-row label {
+    font-size: 0.85rem;
+    color: #cfd7e6;
+    margin-right: 0.25rem;
+  }
+
+  .search-row input {
+    width: 180px;
+  }
+
+  .search-row .search-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: nowrap;
+  }
+
+  .search-status {
+    color: #9fb1d3;
+    font-size: 0.85rem;
+    margin-left: auto;
+    min-height: 1rem;
+  }
+
+  .search-highlight {
+    background: #2f4d92;
+    color: #fff;
+  }
+
+  .client-error {
+    color: #ffb4b4;
+    background: #2d1a1d;
+    border: 1px solid #42232a;
+    border-radius: 0.5rem;
+    padding: 0.65rem 0.75rem;
+    margin-top: 0.6rem;
+    display: none;
+  }
+
+  .config-editor button[disabled] {
+    opacity: 0.65;
+    cursor: not-allowed;
+    box-shadow: none;
+    background: linear-gradient(120deg, #3a4670, #5f6e9c);
+  }
+
+  .cm-s-material-darker .cm-keyword,
+  .cm-s-material-darker .cm-atom { color: #c792ea; }
+  .cm-s-material-darker .cm-number { color: #f78c6c; }
+  .cm-s-material-darker .cm-string { color: #c3e88d; }
+  .cm-s-material-darker .cm-comment { color: #676e8a; font-style: italic; }
+  .cm-s-material-darker .cm-def { color: #82aaff; }
+  .cm-s-material-darker .cm-property { color: #ffcb6b; }
+  .cm-s-material-darker .cm-meta { color: #89ddff; }
+  .cm-error-line { background: #3a1a1a !important; }
+</style>
+<div class="card">
+  <p class="helper-text">
+    Changes are validated as YAML and saved atomically. A <code>.bak</code> backup is written before replacing the file.
+  </p>
+  <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor">
+    <div class="config-editor-grid">
+      <div class="editor-pane">
+        <div class="editor-surface">
+          <div class="search-row" role="search">
+            <label for="find-text">Find</label>
+            <input id="find-text" type="text" placeholder="Search" autocomplete="off">
+            <div class="search-actions">
+              <button id="find-prev" type="button" class="secondary" aria-label="Find previous match">Prev</button>
+              <button id="find-next" type="button" class="secondary" aria-label="Find next match">Next</button>
+            </div>
+            <label for="replace-text">Replace</label>
+            <input id="replace-text" type="text" placeholder="With" autocomplete="off">
+            <div class="search-actions">
+              <button id="replace-one" type="button" class="secondary" aria-label="Replace the current match">Replace</button>
+              <button id="replace-all" type="button" class="secondary" aria-label="Replace all matches">Replace all</button>
+            </div>
+            <div class="search-status" id="search-status" aria-live="polite"></div>
+          </div>
+          <textarea id="config-text"
+                    name="config_text"
+                    rows="28"
+                    wrap="off"
+                    spellcheck="false"
+                    aria-label="config.yaml editor">{{ config_text }}</textarea>
+        </div>
+        <div id="client-error" class="client-error" role="alert"></div>
+        <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+          <button id="save-button" type="submit">Save</button>
+          <button type="submit"
+                  form="config-reload-form"
+                  formmethod="post"
+                  formaction="{{ url_for('reload_config') }}"
+                  aria-label="Reload configuration from disk">
+            Reload from disk
+          </button>
+          <button type="button" class="secondary" onclick="window.location.href='{{ url_for('dashboard') }}'">Cancel</button>
+          <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
+        </div>
+      </div>
+      <div class="hint-panel" id="hint-panel">
+        <h3>Context hints</h3>
+        <div class="hint-body" id="hint-body">
+          {{ context_hints.root or "Top-level sections mirror the README. Move the cursor to a section to see details." }}
+        </div>
+      </div>
+    </div>
+  </form>
+  <form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true"></form>
+</div>
+
+{# Local assets: put the files into logtriage/webui/assets #}
+<link rel="stylesheet" href="{{ url_for('assets', path='codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('assets', path='material-darker.min.css') }}">
+<script src="{{ url_for('assets', path='codemirror.min.js') }}"></script>
+<script src="{{ url_for('assets', path='mode-yaml.min.js') }}"></script>
+<script src="{{ url_for('assets', path='js-yaml.min.js') }}"></script>
+
+<script>
+  const textarea = document.getElementById('config-text');
+  const editor = CodeMirror.fromTextArea(textarea, {
+    mode: 'text/x-yaml',
+    lineNumbers: true,
+    lineWrapping: false,
+    tabSize: 2,
+    indentUnit: 2,
+    theme: 'material-darker',
+  });
+
+  editor.getInputField().setAttribute('spellcheck', 'false');
+  editor.getInputField().setAttribute('autocorrect', 'off');
+  editor.getWrapperElement().style.marginRight = '0';
+  editor.getWrapperElement().style.minHeight = '300px';
+
+  const hintBody = document.getElementById('hint-body');
+  const errorBox = document.getElementById('client-error');
+  const saveButton = document.getElementById('save-button');
+  const findInput = document.getElementById('find-text');
+  const replaceInput = document.getElementById('replace-text');
+  const searchStatus = document.getElementById('search-status');
+  const findPrevButton = document.getElementById('find-prev');
+  const findNextButton = document.getElementById('find-next');
+  const replaceOneButton = document.getElementById('replace-one');
+  const replaceAllButton = document.getElementById('replace-all');
+
+  const hintTexts = {{ context_hints | tojson | safe }} || {};
+  const hintsLoaded = Object.keys(hintTexts).length > 0;
+  const defaultHint = hintTexts.root || 'Top-level settings for logtriage.';
+  let errorLineHandle = null;
+  let lastSearchDirection = 'next';
+  let currentSearchMarker = null;
+
+  function debounce(fn, delay = 250) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delay);
+    };
+  }
+
+  function showClientError(text) {
+    errorBox.textContent = text;
+    errorBox.style.display = text ? 'block' : 'none';
+  }
+
+  function clearErrorHighlight() {
+    if (errorLineHandle !== null) {
+      editor.removeLineClass(errorLineHandle, 'background', 'cm-error-line');
+      errorLineHandle = null;
+    }
+  }
+
+  function setHint(text) {
+    hintBody.textContent = text;
+  }
+
+  function setSearchStatus(text) {
+    if (searchStatus) {
+      searchStatus.textContent = text || '';
+    }
+  }
+
+  function clearSearchHighlight() {
+    if (currentSearchMarker) {
+      currentSearchMarker.clear();
+      currentSearchMarker = null;
+    }
+  }
+
+  function normalizeSegment(raw) {
+    return raw.replace(/[^A-Za-z0-9_-]/g, '');
+  }
+
+  function pathForCursor(doc, lineNumber) {
+    const lines = doc.getValue().split('\n');
+    const stack = [];
+    for (let i = 0; i <= lineNumber && i < lines.length; i++) {
+      const raw = lines[i];
+      const indentMatch = raw.match(/^(\s*)/);
+      const indent = indentMatch ? indentMatch[1].length : 0;
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+
+      const isListItem = /^-\s*/.test(trimmed);
+      const keyPart = isListItem ? trimmed.replace(/^-\s*/, '') : trimmed;
+      const effectiveIndent = indent + (isListItem ? 1 : 0);
+
+      const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
+      if (!keyMatch) continue;
+      const key = normalizeSegment(keyMatch[1]);
+
+      while (stack.length && stack[stack.length - 1].indent >= effectiveIndent) {
+        stack.pop();
+      }
+      stack.push({ key, indent: effectiveIndent });
+    }
+    return stack.map(s => s.key);
+  }
+
+  function firstWordForLine(line) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return null;
+    const withoutDash = trimmed.replace(/^-\s*/, '');
+    const match = withoutDash.match(/^([A-Za-z0-9_-]+)/);
+    return match ? normalizeSegment(match[1]) : null;
+  }
+
+  function hintForLine(line) {
+    const pos = editor.getCursor();
+    const ancestors = pathForCursor(editor, pos.line);
+    const firstWord = firstWordForLine(line);
+
+    const candidates = [];
+    if (firstWord) {
+      const normalizedAncestors = ancestors.map(normalizeSegment).filter(Boolean);
+
+      // Most specific: full path with ancestors and current key
+      for (let i = normalizedAncestors.length; i >= 0; i--) {
+        const joined = [...normalizedAncestors.slice(0, i), normalizeSegment(firstWord)]
+          .filter(Boolean)
+          .join('_');
+        if (joined) {
+          candidates.push(joined);
+        }
+      }
+    }
+
+    // Backwards compatibility with older hint keys like "modules_name"
+    if (firstWord) {
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const prefix = normalizeSegment(ancestors[i]);
+        if (prefix) {
+          candidates.push(`${prefix}_${firstWord}`);
+        }
+      }
+      candidates.push(firstWord);
+    }
+
+    // Exact matches first
+    for (const key of candidates) {
+      if (key && hintTexts[key]) {
+        return hintTexts[key];
+      }
+    }
+
+    // Wildcard matches (e.g., llm_providers_*_api_base)
+    const wildcardKeys = Object.keys(hintTexts).filter((key) => key.includes('*'));
+    for (const candidate of candidates) {
+      for (const wildcard of wildcardKeys) {
+        const regex = new RegExp('^' + wildcard.replace(/\*/g, '[^_]+') + '$');
+        if (regex.test(candidate)) {
+          return hintTexts[wildcard];
+        }
+      }
+    }
+
+    return hintTexts.root || defaultHint;
+  }
+
+  function validateYaml() {
+    const value = editor.getValue();
+    clearErrorHighlight();
+    try {
+      jsyaml.load(value);
+      showClientError('');
+      if (saveButton) {
+        saveButton.disabled = false;
+      }
+      return true;
+    } catch (err) {
+      if (err && err.mark && typeof err.mark.line === 'number') {
+        errorLineHandle = editor.addLineClass(err.mark.line, 'background', 'cm-error-line');
+      }
+      showClientError(`YAML error: ${err.message}`);
+      if (saveButton) {
+        saveButton.disabled = true;
+      }
+      return false;
+    }
+  }
+
+  function updateHint() {
+    try {
+      const lineText = editor.getLine(editor.getCursor().line) || '';
+      const hint = hintForLine(lineText);
+      if (hint) {
+        setHint(hint);
+      } else {
+        setHint(hintsLoaded
+          ? 'No hint available for this section yet.'
+          : 'Loading context hints...');
+      }
+    } catch (err) {
+      console.error('Hint update error', err);
+      setHint(defaultHint);
+    }
+  }
+
+  function searchInEditor(direction = 'next') {
+    const query = (findInput?.value || '').trim();
+    if (!query) {
+      setSearchStatus('Enter text to find');
+      clearSearchHighlight();
+      return null;
+    }
+
+    const doc = editor.getDoc();
+    const fullText = doc.getValue();
+    const selection = doc.getSelection();
+    let startIndex = doc.indexFromPos(doc.getCursor(direction === 'next' ? 'to' : 'from'));
+
+    if (selection && selection === query) {
+      startIndex =
+        direction === 'next'
+          ? doc.indexFromPos(doc.getCursor('to'))
+          : doc.indexFromPos(doc.getCursor('from')) - query.length;
+    }
+
+    startIndex = Math.max(0, startIndex);
+    let matchIndex;
+
+    if (direction === 'prev') {
+      matchIndex = fullText.lastIndexOf(query, startIndex - 1);
+      if (matchIndex === -1) {
+        matchIndex = fullText.lastIndexOf(query);
+      }
+    } else {
+      matchIndex = fullText.indexOf(query, startIndex);
+      if (matchIndex === -1) {
+        matchIndex = fullText.indexOf(query);
+      }
+    }
+
+    if (matchIndex === -1) {
+      setSearchStatus('No matches');
+      clearSearchHighlight();
+      return null;
+    }
+
+    const from = doc.posFromIndex(matchIndex);
+    const to = doc.posFromIndex(matchIndex + query.length);
+    clearSearchHighlight();
+    currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
+    doc.setSelection(from, to);
+    editor.scrollIntoView({ from, to });
+    setSearchStatus('');
+    lastSearchDirection = direction;
+    return { from, to };
+  }
+
+  function replaceCurrentMatch() {
+    const query = (findInput?.value || '').trim();
+    if (!query) {
+      setSearchStatus('Enter text to replace');
+      return;
+    }
+
+    const replacement = replaceInput?.value ?? '';
+    const doc = editor.getDoc();
+
+    if (doc.getSelection() === query) {
+      const start = doc.getCursor('from');
+      doc.replaceSelection(replacement, 'around');
+      const end = doc.posFromIndex(doc.indexFromPos(start) + replacement.length);
+      clearSearchHighlight();
+      currentSearchMarker = doc.markText(start, end, { className: 'search-highlight' });
+      doc.setSelection(start, end);
+      editor.scrollIntoView({ from: start, to: end });
+      editor.save();
+      validateYaml();
+      updateHint();
+      setSearchStatus('Replaced selection');
+      return;
+    }
+
+    const match = searchInEditor(lastSearchDirection);
+    if (match) {
+      replaceCurrentMatch();
+    }
+  }
+
+  function replaceAllMatches() {
+    const query = (findInput?.value || '').trim();
+    if (!query) {
+      setSearchStatus('Enter text to replace');
+      return;
+    }
+
+    const replacement = replaceInput?.value ?? '';
+    const doc = editor.getDoc();
+    const text = doc.getValue();
+    const occurrences = text.split(query).length - 1;
+
+    if (occurrences <= 0) {
+      setSearchStatus('No matches');
+      return;
+    }
+
+    const newText = text.split(query).join(replacement);
+    doc.setValue(newText);
+    editor.save();
+    validateYaml();
+    updateHint();
+
+    if (replacement) {
+      const firstIdx = newText.indexOf(replacement);
+      const from = doc.posFromIndex(Math.max(0, firstIdx));
+      const to = doc.posFromIndex(Math.max(0, firstIdx + replacement.length));
+      clearSearchHighlight();
+      currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
+      doc.setSelection(from, to);
+      editor.scrollIntoView({ from, to });
+    }
+
+    setSearchStatus(`Replaced ${occurrences} occurrence${occurrences === 1 ? '' : 's'}`);
+  }
+
+  editor.on('cursorActivity', updateHint);
+  editor.on('changes', debounce(() => {
+    editor.save();
+    validateYaml();
+    updateHint();
+  }, 200));
+
+  if (findNextButton) {
+    findNextButton.addEventListener('click', () => searchInEditor('next'));
+  }
+
+  if (findPrevButton) {
+    findPrevButton.addEventListener('click', () => searchInEditor('prev'));
+  }
+
+  if (replaceOneButton) {
+    replaceOneButton.addEventListener('click', replaceCurrentMatch);
+  }
+
+  if (replaceAllButton) {
+    replaceAllButton.addEventListener('click', replaceAllMatches);
+  }
+
+  if (findInput) {
+    findInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        searchInEditor('next');
+      }
+    });
+  }
+
+  if (replaceInput) {
+    replaceInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        replaceCurrentMatch();
+      }
+    });
+  }
+
+  document
+    .querySelector('.config-editor')
+    .addEventListener('submit', (event) => {
+      const isValid = validateYaml();
+      if (!isValid) {
+        event.preventDefault();
+        return;
+      }
+      editor.save();
+    });
+
+  setSearchStatus('');
+  setHint(defaultHint);
+  validateYaml();
+  updateHint();
+</script>
+{% endblock %}

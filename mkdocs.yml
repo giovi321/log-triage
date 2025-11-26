@@ -1,0 +1,33 @@
+site_name: log-triage
+site_description: Documentation for the log-triage CLI and Web UI
+site_url: https://giovi321.github.io/log-triage/
+repo_url: https://github.com/giovi321/log-triage
+repo_name: giovi321/log-triage
+site_author: giovi321
+
+theme:
+  name: material
+  logo: assets/log-triage-logo.svg
+  favicon: assets/favicon.ico
+  features:
+    - navigation.sections
+    - navigation.tracking
+    - navigation.expand
+    - content.code.copy
+    - toc.integrate
+
+extra:
+  version: v0.1.0
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - def_list
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+  - Getting started: getting-started.md
+  - Configuration: configuration.md
+  - Web UI: web-ui.md
