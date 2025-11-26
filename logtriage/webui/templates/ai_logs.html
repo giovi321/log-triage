@@ -613,7 +613,7 @@
       const re = new RegExp(raw);
       const matched = re.test(lineText);
       resultBox.textContent = matched
-        ? 'Great! This regex matches the line and will be added to ignore rules.'
+        ? 'Regex matches the line.'
         : 'No match yet—consider generalizing the pattern.';
       lineBox.classList.toggle('regex-match', matched);
       highlightFalsePositiveMatches(lineBox, matched ? re : null);
