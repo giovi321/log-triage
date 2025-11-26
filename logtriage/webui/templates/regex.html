@@ -18,20 +18,15 @@
   .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.35rem 0.4rem; border-radius:0.4rem; transition:background 0.15s ease, border 0.15s ease; }
   .regex-line input[type="radio"] { margin-top:0.2rem; }
   .regex-line.selected { background:#182233; border:1px solid #2c3a55; }
+  .regex-line .line-content { display:flex; flex-direction:column; gap:0.35rem; width:100%; }
+  .regex-kind { display:flex; flex-wrap:wrap; gap:0.4rem 0.75rem; }
+  .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; }
   .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
   .match-line { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
-  .inline-controls { display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap; }
-  .hint-stack { display:flex; flex-direction:column; gap:0.5rem; }
-  .hint-card { background:#11141d; border:1px solid #222a38; border-radius:0.65rem; padding:0.6rem 0.75rem; }
-  .hint-card h4 { margin:0 0 0.25rem; font-size:0.95rem; }
-  .hint-card p { margin:0; font-size:0.9rem; color:#cdd6e5; }
-  .pill { display:inline-flex; align-items:center; gap:0.35rem; padding:0.15rem 0.6rem; border-radius:999px; border:1px solid #2b3242; color:#cfe1ff; background:#1b2030; font-size:0.85rem; }
-  .badge { display:inline-flex; align-items:center; padding:0.2rem 0.45rem; border-radius:0.45rem; font-size:0.8rem; border:1px solid #2b3242; color:#cfe1ff; background:#182233; }
-  .sticky-actions { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
-  .helper-kbd { display:inline-flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:#93a3c1; }
-  .helper-kbd kbd { background:#1f2533; padding:0.15rem 0.35rem; border-radius:0.25rem; border:1px solid #2c3650; color:#e8ecf2; }
-  .textarea-row textarea { width:100%; font-family:monospace; min-height:120px; }
-  .copy-feedback { color:#8bc1ff; font-size:0.85rem; display:none; }
+  .inline-errors { margin:0.25rem 0 0 0; padding-left:1.1rem; color:#ff6b6b; }
+  .inline-errors li { margin:0.15rem 0; }
+  .link-button { background:none; border:none; color:#9fb1d3; cursor:pointer; padding:0; align-self:flex-start; }
+  .link-button:hover { text-decoration:underline; }
 </style>
 <div class="card">
   <div style="display:flex; flex-direction:column; gap:0.35rem;">
@@ -96,11 +91,17 @@
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <div style="max-height:320px; overflow:auto; border:1px solid #333; padding:0.35rem; border-radius:0.5rem;" aria-label="Sample lines">
               <div class="regex-lines">
-                {% for line in sample_lines %}
-                  <div class="regex-line" style="font-family:monospace; font-size:0.9rem;">
-                    <input type="radio" name="sample_line" value="{{ line }}" {% if loop.first %}checked{% endif %} tabindex="0">
-                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ loop.index0 }}:</span>
-                    <span style="flex:1; white-space:pre-wrap;" {% if matches and (loop.index0 in matches) %}class="match-line"{% endif %}>{{ line }}</span>
+                {% for entry in sample_lines %}
+                  <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
+                    <input type="radio" name="sample_index" value="{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
+                    <span style="min-width:3.25rem; color:#9fb1d3;">{{ entry.index }}:</span>
+                    <div class="line-content">
+                      <span class="line-preview {% if matches and (entry.index in matches) %}match-line{% endif %}" data-preview="{{ entry.preview }}" data-full="{{ entry.full }}" data-clipped="{{ entry.was_clipped }}">{{ entry.preview }}</span>
+                      {% if entry.is_preview_truncated or entry.was_clipped %}
+                        <button type="button" class="link-button" data-toggle-full>View full line</button>
+                        <div class="line-full" style="display:none; white-space:pre-wrap; word-break:break-word;">{{ entry.full }}{% if entry.was_clipped %}<em style="color:#ccc;"> (clipped preview)</em>{% endif %}</div>
+                      {% endif %}
+                    </div>
                   </div>
                 {% endfor %}
               </div>
@@ -124,44 +125,28 @@
       </div>
     </div>
 
-    <div class="step-section" id="step-draft">
-      <div class="step-title">
-        <h3 style="margin:0;">2. Draft regex</h3>
-        <span class="helper-kbd"><kbd>Tab</kbd> to focus, <kbd>Enter</kbd> to test</span>
-      </div>
-      <div class="step-body">
-        <div>
-          <form id="regex-test-form" method="post" action="{{ url_for('regex_test') }}" class="textarea-row">
-            <input type="hidden" name="module" value="{{ current_module.name }}">
-            <input type="hidden" name="sample_source" value="{{ sample_source }}">
-            <div style="margin-bottom:0.5rem;">
-              <textarea id="regex_value" name="regex_value" rows="4" tabindex="0">{{ regex_value }}</textarea>
-            </div>
-            <div class="inline-controls" style="margin-bottom:0.35rem;">
-              <div class="regex-kind">
-                <label><input type="radio" name="regex_kind" value="error" {% if regex_kind == "error" %}checked{% endif %}> error</label>
-                <label><input type="radio" name="regex_kind" value="warning" {% if regex_kind == "warning" %}checked{% endif %}> warning</label>
-                <label><input type="radio" name="regex_kind" value="ignore" {% if regex_kind == "ignore" %}checked{% endif %}> ignore</label>
-              </div>
-              <div class="sticky-actions">
-                <button type="submit">Run tests</button>
-                <button type="button" class="secondary" id="copy-regex-btn">Copy regex</button>
-                <span class="copy-feedback" id="copy-feedback">Copied!</span>
-              </div>
-            </div>
-            <p class="helper-text" style="margin:0 0 0.35rem;">Press Enter while focused here to run tests without leaving the keyboard.</p>
-          </form>
-        </div>
-        <div class="hint-stack" aria-label="Draft tips">
-          {% for hint in step_hints.get('draft', []) %}
-            <div class="hint-card">
-              <h4>{{ hint.title }}</h4>
-              <p>{{ hint.body }}</p>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
+      <div style="flex:1 1 40%; min-width:260px;">
+        <h3>Regex</h3>
+        <form method="post" action="{{ url_for('regex_test') }}">
+          <input type="hidden" name="module" value="{{ current_module.name }}">
+          <input type="hidden" name="sample_source" value="{{ sample_source }}">
+          <div style="margin-bottom:0.5rem;">
+            <textarea name="regex_value" rows="4" style="width:95%; font-family:monospace;">{{ regex_value }}</textarea>
+            {% if regex_issues %}
+              <ul class="inline-errors">
+                {% for issue in regex_issues %}
+                  <li>{{ issue }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+          <div class="regex-kind" style="margin-bottom:0.5rem;">
+            <label><input type="radio" name="regex_kind" value="error" {% if regex_kind == "error" %}checked{% endif %}> error</label>
+            <label><input type="radio" name="regex_kind" value="warning" {% if regex_kind == "warning" %}checked{% endif %}> warning</label>
+            <label><input type="radio" name="regex_kind" value="ignore" {% if regex_kind == "ignore" %}checked{% endif %}> ignore</label>
+          </div>
+          <button type="submit" class="secondary">Test against sample</button>
+        </form>
 
     <div class="step-section" id="step-test">
       <div class="step-title">
@@ -219,47 +204,31 @@
 <script>
   function highlightSelectedLine() {
     document.querySelectorAll('.regex-line').forEach(el => el.classList.remove('selected'));
-    const selected = document.querySelector('input[name="sample_line"]:checked');
+    const selected = document.querySelector('input[name="sample_index"]:checked');
     if (selected) {
       const row = selected.closest('.regex-line');
       if (row) row.classList.add('selected');
     }
   }
 
-  document.querySelectorAll('input[name="sample_line"]').forEach(input => {
+  document.querySelectorAll('input[name="sample_index"]').forEach(input => {
     input.addEventListener('change', highlightSelectedLine);
   });
 
   highlightSelectedLine();
 
-  const regexTextarea = document.getElementById('regex_value');
-  const testForm = document.getElementById('regex-test-form');
-  if (regexTextarea && testForm) {
-    regexTextarea.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        testForm.submit();
-      }
+  document.querySelectorAll('[data-toggle-full]').forEach(btn => {
+    btn.addEventListener('click', (event) => {
+      const container = event.target.closest('.regex-line');
+      if (!container) return;
+      const preview = container.querySelector('.line-preview');
+      const full = container.querySelector('.line-full');
+      if (!preview || !full) return;
+      const isHidden = full.style.display === 'none' || full.style.display === '';
+      full.style.display = isHidden ? 'block' : 'none';
+      preview.style.display = isHidden ? 'none' : 'inline';
+      event.target.textContent = isHidden ? 'Hide full line' : 'View full line';
     });
-  }
-
-  const copyBtn = document.getElementById('copy-regex-btn');
-  const copyFeedback = document.getElementById('copy-feedback');
-  if (copyBtn && regexTextarea) {
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(regexTextarea.value || '');
-        if (copyFeedback) {
-          copyFeedback.style.display = 'inline-flex';
-          setTimeout(() => copyFeedback.style.display = 'none', 1200);
-        }
-      } catch (err) {
-        if (copyFeedback) {
-          copyFeedback.textContent = 'Copy not available';
-          copyFeedback.style.display = 'inline-flex';
-        }
-      }
-    });
-  }
+  });
 </script>
 {% endblock %}
