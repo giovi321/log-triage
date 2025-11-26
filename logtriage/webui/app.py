@@ -2064,11 +2064,13 @@ def _finding_line_examples(sections: List[Dict[str, Any]]) -> Dict[int, str]:
         if finding_id is None or finding_id in examples:
             continue
         lines = section.get("lines") or []
+        texts: List[str] = []
         for entry in lines:
             text = entry.get("text") if isinstance(entry, dict) else None
             if text:
-                examples[int(finding_id)] = text
-                break
+                texts.append(text)
+        if texts:
+            examples[int(finding_id)] = "\n".join(texts)
     return examples
 
 
