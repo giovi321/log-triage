@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Data plane status</h2>
+  <div class="status-strip">
+    {% if db_status.configured %}
+      {% if db_status.connected %}
+        <span class="status-chip ok">Database connected</span>
+      {% elif db_status.error %}
+        <span class="status-chip error">DB error: {{ db_status.error }}</span>
+      {% else %}
+        <span class="status-chip warn">Database unreachable</span>
+      {% endif %}
+      <span class="status-chip">URL: {{ db_status.url }}</span>
+    {% else %}
+      <span class="status-chip warn">Database URL not set</span>
+    {% endif %}
+    {% if ingestion_status %}
+      <span class="status-chip traffic {{ ingestion_status.state_class }}">
+        <span class="traffic-dot"></span>
+        <span>{{ ingestion_status.message }}</span>
+        {% if ingestion_status.stale_modules %}
+          <span class="muted">Stale: {{ ingestion_status.stale_modules|join(', ') }}</span>
+        {% endif %}
+      </span>
+      {% if ingestion_status.latest_log_update %}
+        <span class="status-chip">Latest log activity: {{ ingestion_status.latest_log_update|localtime }}</span>
+      {% endif %}
+    {% endif %}
+    {% if page_rendered_at %}
+      <span class="status-chip">Page last updated: {{ page_rendered_at|localtime }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <h2>Modules</h2>
+  <p class="helper-text">Live view of configured modules with last log updates and their severities.</p>
+  {% if modules %}
+    <table style="font-size:0.9rem;">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Mode</th>
+          <th>Path</th>
+          <th>Pipeline</th>
+          <th>Enabled</th>
+          <th>Status</th>
+          <th>Last log update</th>
+          <th style="text-align:right;">24h errors</th>
+          <th style="text-align:right;">24h warnings</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in modules %}
+        {% set st = stats.get(m.name) if stats else None %}
+        <tr class="{% if not m.enabled %}module-disabled{% endif %}">
+          <td>{{ m.name }}</td>
+          <td><span class="tag">{{ m.mode }}</span></td>
+          <td style="font-family:monospace; font-size:0.85rem;">{{ m.path }}</td>
+          <td>{{ m.pipeline_name or "-" }}</td>
+          <td>{{ "yes" if m.enabled else "no" }}</td>
+          <td>
+            {% set status = "OK" %}
+            {% if ingestion_status and m.name in ingestion_status.stale_modules %}
+              {% set status = "STALE" %}
+            {% elif st %}
+              {% set sev_upper = (st.last_severity or "")|upper %}
+              {% if st.errors_24h > 0 or sev_upper in ("ERROR", "CRITICAL") %}
+                {% set status = "ERROR" if sev_upper != "CRITICAL" else "CRITICAL" %}
+              {% elif st.warnings_24h > 0 or sev_upper == "WARNING" %}
+                {% set status = "WARNING" %}
+              {% endif %}
+            {% endif %}
+            <span class="status-badge sev-{{ status }}">{{ status }}</span>
+          </td>
+          <td style="font-size:0.85rem;">
+            {% if st and st.last_log_update %}{{ st.last_log_update|localtime }}{% else %}<span class="muted">n/a</span>{% endif %}
+          </td>
+          <td style="text-align:right;">{{ st.errors_24h if st else 0 }}</td>
+          <td style="text-align:right;">{{ st.warnings_24h if st else 0 }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No modules configured.</p>
+  {% endif %}
+</div>
+{% endblock %}

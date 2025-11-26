@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="grid two-col">
+  <div class="card">
+    <p class="helper-text">Current configuration loaded by the running web UI.</p>
+    <div style="border:1px solid #222a38; border-radius:0.5rem; padding:0.75rem; background:#0f131b; max-height:70vh; overflow:auto;">
+      <pre style="white-space:pre-wrap; font-size:0.85rem; margin:0;">{{ config_text }}</pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Editing tips</h2>
+    <ul class="helper-text" style="padding-left:1rem;">
+      <li><strong>modules</strong>: map log files to a <em>pipeline</em>. Each module can be enabled/disabled and points to a path on disk.</li>
+      <li><strong>pipelines</strong>: combine a classifier and grouping/alerting logic. Use the <a href="{{ url_for('regex_lab') }}">regex lab</a> to refine classifier regexes.</li>
+      <li><strong>webui</strong>: controls access. Keep <code>secret_key</code> long and random, and manage <code>admin_users</code> here.</li>
+      <li><strong>alerts</strong>: configure sinks such as Slack, email, or stdout. Make sure credentials are set via environment variables when supported.</li>
+      <li>Use the <a href="{{ url_for('edit_config') }}">config editor</a> to apply changes safely with validation and automatic backups.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
