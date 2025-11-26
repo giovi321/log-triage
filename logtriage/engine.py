@@ -1,5 +1,4 @@
 from pathlib import Path
-from pathlib import Path
 from typing import List, Optional
 
 from .models import Finding, Severity, PipelineConfig, ModuleLLMConfig

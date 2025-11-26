@@ -40,11 +40,6 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
              "If omitted, all enabled follow-mode modules are run.",
     )
     p.add_argument(
-        "--inspect-chunks",
-        action="store_true",
-        help="Deprecated: chunk inspection is disabled in findings-only mode.",
-    )
-    p.add_argument(
         "--reload-on-change",
         action="store_true",
         help="Automatically reload when the config file mtime changes (handy when saving via the Web UI).",
@@ -81,15 +76,6 @@ def print_json_summary(findings: List[Finding]) -> None:
         )
     json.dump(out, sys.stdout, indent=2)
     print()
-
-
-def _filter_only_last_finding(findings: List[Finding]) -> List[Finding]:
-    return findings
-
-
-def inspect_chunks(mod: ModuleConfig, pipelines: List[PipelineConfig]) -> None:
-    print("Chunk inspection deprecated in findings-only mode.", file=sys.stderr)
-    sys.exit(1)
 
 
 def run_module_batch(
@@ -217,15 +203,6 @@ def main(argv: Optional[List[str]] = None) -> None:
         if not modules_to_run:
             print("No enabled follow-mode modules found in config.", file=sys.stderr)
             sys.exit(1)
-
-        # In inspect mode we require exactly one module
-        if args.inspect_chunks:
-            if len(modules_to_run) != 1:
-                print("--inspect-chunks requires exactly one module (use --module).", file=sys.stderr)
-                sys.exit(1)
-            mod = modules_to_run[0]
-            inspect_chunks(mod, pipelines)
-            return
 
         has_follow_module = any(mod.mode == "follow" for mod in modules_to_run)
 

@@ -239,8 +239,6 @@ Run a single module (useful for one systemd service per module):
 python -m logtriage --config config.yaml --module homeassistant_follow
 ```
 
-Inspect mode is deprecated in findings-only mode (`--inspect-chunks` is ignored).
-
 Run the Web UI:
 
 ```bash
