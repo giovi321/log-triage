@@ -1,0 +1,8 @@
+2024-05-12T08:14:03Z api-gateway INFO request_id=1c2f route=/api/cart status=200 latency_ms=42 user=guest
+2024-05-12T08:14:04Z api-gateway WARN request_id=1c2f route=/api/cart status=429 latency_ms=12 user=guest msg="throttled burst client"
+2024-05-12T08:14:05Z api-gateway ERROR request_id=1c2f route=/api/cart status=502 latency_ms=0 user=guest msg="upstream unavailable"
+2024-05-12T08:14:05Z cart-worker INFO job=cart.sync duration_ms=311 status=ok
+2024-05-12T08:14:07Z cart-worker ERROR job=cart.sync duration_ms=0 status=failed msg="sqlstate 40001: serialization failure"
+2024-05-12T08:14:08Z cart-worker WARN job=cart.sync duration_ms=0 status=retried msg="retry in 2s"
+2024-05-12T08:14:10Z cart-worker INFO job=cart.sync duration_ms=287 status=ok msg="backoff cleared"
+2024-05-12T08:14:11Z audit INFO actor=system action=rotate-keys result=success

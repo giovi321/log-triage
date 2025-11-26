@@ -23,32 +23,32 @@
   .regex-kind label { display:inline-flex; align-items:center; gap:0.2rem; }
   .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
   .match-line { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
-  .inline-errors { margin:0.25rem 0 0 0; padding-left:1.1rem; color:#ff6b6b; }
-  .inline-errors li { margin:0.15rem 0; }
-  .link-button { background:none; border:none; color:#9fb1d3; cursor:pointer; padding:0; align-self:flex-start; }
-  .link-button:hover { text-decoration:underline; }
+  .preset-shell { border:1px solid #2b3242; border-radius:0.6rem; padding:0.5rem; background:#101623; margin-bottom:0.5rem; }
+  .preset-grid { display:flex; flex-wrap:wrap; gap:0.4rem; }
+  .preset-grid button { background:#1a2234; border:1px solid #2f3b53; box-shadow:none; }
+  .preset-grid button:hover { background:#22314c; }
 </style>
 <div class="card">
-  <div style="display:flex; flex-direction:column; gap:0.35rem;">
-    <div class="step-title" style="margin-bottom:0;">
-      <div>
-        <h2 style="margin:0 0 0.25rem;">Regex Lab wizard</h2>
-        <p class="helper-text" style="margin:0;">Move through the steps to curate sample lines, draft a regex, run it against the log, and add it back to the pipeline.</p>
-      </div>
-      {% if active_step_label %}<span class="pill">{{ active_step_label }}</span>{% endif %}
-    </div>
-    <div class="wizard-progress" aria-label="Regex wizard progress">
-      {% for step in wizard_steps %}
-      <div class="wizard-step {{ step.status }}" aria-current="{{ 'step' if step.status == 'active' else 'false' }}">
-        <div class="bullet">{{ loop.index }}</div>
-        <div>
-          <div class="step-label">{{ step.label }}</div>
-          <div class="step-status">{{ step.status|capitalize }}</div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  </div>
+  <p class="helper-text">Pick a module and test regexes against identified findings, the raw log tail, or curated sample logs.</p>
+  <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
+    <label style="display:block;">Module:
+      <select name="module" onchange="this.form.submit()">
+        {% for m in modules %}
+        <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>
+          {{ m.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="display:block;">Sample source:
+      <select name="sample_source" onchange="this.form.submit()">
+        {% for opt in sample_options %}
+        <option value="{{ opt.value }}" {% if sample_source == opt.value %}selected{% endif %}>{{ opt.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="helper-text" style="max-width:420px;">Tip: sample logs live in <code>baseline/samples</code> so you can experiment without touching production data.</div>
+  </form>
 
   {% if error %}
     <p style="color:#ff6b6b;">{{ error }}</p>
@@ -61,30 +61,10 @@
   {% endif %}
 
   {% if current_module %}
-    <div class="step-section" id="step-pick">
-      <div class="step-title">
-        <h3 style="margin:0;">1. Pick sample lines</h3>
-        <span class="helper-kbd"><kbd>Tab</kbd> to move, <kbd>Space</kbd> to select</span>
-      </div>
-      <div class="step-body">
-        <div>
-          <form method="get" action="{{ url_for('regex_lab') }}" class="inline-controls" aria-label="Module and source">
-            <label>Module
-              <select name="module" onchange="this.form.submit()" tabindex="0">
-                {% for m in modules %}
-                <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
-                {% endfor %}
-              </select>
-            </label>
-            <label>Sample source
-              <select name="sample_source" onchange="this.form.submit()" tabindex="0">
-                <option value="tail" {% if sample_source != 'errors' %}selected{% endif %}>Log tail</option>
-                <option value="errors" {% if sample_source == 'errors' %}selected{% endif %}>Identified errors</option>
-              </select>
-            </label>
-          </form>
-
-          {% if sample_lines %}
+    <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
+      <div style="flex:1 1 50%; min-width:260px;">
+        <h3>Sample lines ({{ sample_source_label }})</h3>
+        {% if sample_lines %}
           <form method="post" action="{{ url_for('regex_suggest') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
@@ -130,6 +110,16 @@
         <form method="post" action="{{ url_for('regex_test') }}">
           <input type="hidden" name="module" value="{{ current_module.name }}">
           <input type="hidden" name="sample_source" value="{{ sample_source }}">
+          {% if regex_presets %}
+          <div class="preset-shell">
+            <div class="helper-text" style="margin-bottom:0.35rem;">Click a preset to drop a common snippet into the editor.</div>
+            <div class="preset-grid">
+              {% for preset in regex_presets %}
+              <button type="button" class="secondary preset-btn" data-pattern="{{ preset.pattern | e }}" data-kind="{{ preset.kind }}">{{ preset.label }}</button>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
           <div style="margin-bottom:0.5rem;">
             <textarea name="regex_value" rows="4" style="width:95%; font-family:monospace;">{{ regex_value }}</textarea>
             {% if regex_issues %}
@@ -217,17 +207,21 @@
 
   highlightSelectedLine();
 
-  document.querySelectorAll('[data-toggle-full]').forEach(btn => {
-    btn.addEventListener('click', (event) => {
-      const container = event.target.closest('.regex-line');
-      if (!container) return;
-      const preview = container.querySelector('.line-preview');
-      const full = container.querySelector('.line-full');
-      if (!preview || !full) return;
-      const isHidden = full.style.display === 'none' || full.style.display === '';
-      full.style.display = isHidden ? 'block' : 'none';
-      preview.style.display = isHidden ? 'none' : 'inline';
-      event.target.textContent = isHidden ? 'Hide full line' : 'View full line';
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pattern = btn.dataset.pattern || '';
+      const kind = btn.dataset.kind || '';
+      const textarea = document.querySelector('textarea[name="regex_value"]');
+      if (textarea) {
+        textarea.value = textarea.value.trim() ? `${textarea.value}\n${pattern}` : pattern;
+        textarea.focus();
+      }
+      if (kind) {
+        const radio = document.querySelector(`input[name="regex_kind"][value="${kind}"]`);
+        if (radio) {
+          radio.checked = true;
+        }
+      }
     });
   });
 </script>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" fill="none">
+  <rect width="960" height="520" rx="18" fill="#0f141e"/>
+  <rect x="24" y="24" width="912" height="472" rx="14" fill="#141b29" stroke="#273349" stroke-width="2"/>
+  <text x="40" y="62" fill="#cfe1ff" font-family="Inter, Arial" font-size="22" font-weight="700">Preset snippets</text>
+  <rect x="52" y="98" width="856" height="136" rx="12" fill="#0f1624" stroke="#2b3b57" stroke-width="2"/>
+  <text x="72" y="132" fill="#e8ecf2" font-family="Inter, Arial" font-size="15">One-click buttons drop common regexes into the editor.</text>
+  <text x="72" y="158" fill="#9fb1d3" font-family="Inter, Arial" font-size="14">Snippets include HTTP 5xx errors, tracebacks, timeouts, deprecations, health-check ignores, and cache noise.</text>
+  <rect x="72" y="188" width="816" height="82" rx="10" fill="#1a2234" stroke="#35528f" stroke-width="2"/>
+  <text x="92" y="220" fill="#cfe1ff" font-family="Inter, Arial" font-size="14">Preset buttons sit above the regex editor in the lab.</text>
+  <rect x="52" y="302" width="856" height="168" rx="12" fill="#0f1624" stroke="#2b3b57" stroke-width="2"/>
+  <text x="72" y="334" fill="#9fb1d3" font-family="Inter, Arial" font-size="16">Workflow</text>
+  <text x="72" y="364" fill="#e8ecf2" font-family="Inter, Arial" font-size="14">1. Choose a sample line.</text>
+  <text x="72" y="386" fill="#e8ecf2" font-family="Inter, Arial" font-size="14">2. Click a preset or request a suggestion.</text>
+  <text x="72" y="408" fill="#e8ecf2" font-family="Inter, Arial" font-size="14">3. Test, adjust, then save to error/warning/ignore lists.</text>
+</svg>

@@ -1,0 +1,7 @@
+2024-05-12 08:16:12,100 [auth-proxy] INFO  path=/login client=203.0.113.9 user=anonymous status=302 redirect="/mfa"
+2024-05-12 08:16:12,841 [auth-proxy] WARN  path=/login client=203.0.113.9 user=anonymous status=401 reason="invalid totp"
+2024-05-12 08:16:15,442 [auth-backend] ERROR trace_id=9f3cf1 op=validate_mfa user=alex status=denied msg="totp drift beyond window"
+2024-05-12 08:16:20,003 [auth-backend] INFO  trace_id=9f3cf1 op=validate_mfa user=alex status=granted msg="device re-verified"
+2024-05-12 08:16:21,512 [auth-proxy] WARN  path=/sso/callback client=198.51.100.4 user=sso-service status=400 reason="missing audience"
+2024-05-12 08:16:24,001 [auth-proxy] ERROR path=/sso/callback client=198.51.100.4 user=sso-service status=502 reason="identity upstream timeout"
+2024-05-12 08:16:24,404 [audit] INFO  actor=sso-service action=login-failed target=alex severity=low
