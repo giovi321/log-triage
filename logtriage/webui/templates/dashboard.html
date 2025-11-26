@@ -62,7 +62,9 @@
           <td>{{ "yes" if m.enabled else "no" }}</td>
           <td>
             {% set status = "OK" %}
-            {% if st %}
+            {% if ingestion_status and m.name in ingestion_status.stale_modules %}
+              {% set status = "STALE" %}
+            {% elif st %}
               {% set sev_upper = (st.last_severity or "")|upper %}
               {% if st.errors_24h > 0 or sev_upper in ("ERROR", "CRITICAL") %}
                 {% set status = "ERROR" if sev_upper != "CRITICAL" else "CRITICAL" %}
