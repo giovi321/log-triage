@@ -1,0 +1,8 @@
+<svg width="180" height="48" viewBox="0 0 180 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="180" height="48" rx="10" fill="#0B1F33"/>
+  <rect x="10" y="10" width="28" height="28" rx="6" fill="#0DC5A8"/>
+  <path d="M18 18H30V21.5H21V23.8H28.5V27.3H21V30.5H30V34H18V18Z" fill="#0B1F33"/>
+  <text x="48" y="30" fill="#F4F6F8" font-family="'Inter', 'Helvetica', 'Arial', sans-serif" font-size="20" font-weight="700" letter-spacing="0.5">
+    log-triage
+  </text>
+</svg>
