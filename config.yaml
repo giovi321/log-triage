@@ -33,7 +33,7 @@ pipelines:
     - rsync error
     warning_regexes:
     - WARNING
-    ignore_regexes: []
+    ignore_regexes:
 - name: homeassistant
   match:
     filename_regex: homeassistant.*\.log
