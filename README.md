@@ -133,7 +133,7 @@ The config has five main parts:
 
 - `llm`: `enabled`, `min_severity`, `max_excerpt_lines`, `max_output_tokens`, `request_timeout`, `temperature`, `top_p`, `default_provider`, `providers.<name>.(api_base|api_key_env|model|max_output_tokens|request_timeout|temperature|top_p|organization|api_version)`
 - `pipelines`: `match.filename_regex`, `grouping.type`, `classifier.(error_regexes|warning_regexes|ignore_regexes)`
-- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `llm.(enabled|min_severity|max_excerpt_lines|context_prefix_lines|provider|prompt_template|emit_llm_payloads_dir|max_output_tokens)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
+- `modules`: `mode`, `path`, `pipeline`, `output_format`, `min_print_severity`, `stale_after_minutes`, `llm.(enabled|min_severity|max_excerpt_lines|context_prefix_lines|provider|prompt_template|emit_llm_payloads_dir|max_output_tokens)`, `alerts.(webhook|mqtt)`, `baseline.(enabled|state_file|window)`, `stream.from_beginning`
 - `database`: `url`, `retention_days`
 - `webui`: `host`, `port`, `base_path`, `secret_key`, `admin_users`
 
@@ -181,6 +181,7 @@ modules:
     pipeline: 'rsnapshot'
     output_format: 'json'
     min_print_severity: 'WARNING'
+    stale_after_minutes: 120
     llm:
       enabled: true
       provider: 'local_vllm'  # auto-selected if omitted and only one provider exists
@@ -206,6 +207,11 @@ modules:
       interval: 1.0
 
 ```
+
+Set `stale_after_minutes` on a module to control when its log activity is
+considered stale in the dashboard and AI logs explorer. If omitted, the
+fallback `LOGTRIAGE_INGESTION_STALENESS_MINUTES` environment variable (default
+`60`) is used.
 
 ### Baseline / anomaly detection
 
