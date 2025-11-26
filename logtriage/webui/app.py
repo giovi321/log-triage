@@ -1096,6 +1096,8 @@ async def ai_logs(
             except Exception:
                 module_prompt_template = None
 
+    regex_presets: List[Dict[str, str]] = []
+
     return templates.TemplateResponse(
         "ai_logs.html",
         {
