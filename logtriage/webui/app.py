@@ -949,6 +949,7 @@ def _build_log_view_state(
     module_obj, tail_filter: str, issue_filter: str, *, sample_lines_override: Optional[List[str]] = None
 ):
     sample_lines: List[str] = []
+    sample_start_line = 0
     recent_findings = []
     finding_tail: List[Dict[str, Any]] = []
     available_severities: List[str] = []
@@ -958,14 +959,20 @@ def _build_log_view_state(
     had_finding_tail = False
     had_recent_findings = False
     if module_obj is not None:
-        sample_lines = (
-            list(sample_lines_override)
-            if sample_lines_override is not None
-            else _tail_lines(Path(module_obj.path), max_lines=400)
-        )
+        if sample_lines_override is not None:
+            sample_lines = list(sample_lines_override)
+        else:
+            sample_lines, sample_start_line = _tail_lines(
+                Path(module_obj.path), max_lines=400
+            )
         recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
         had_recent_findings = bool(recent_findings)
-        finding_tail = _build_finding_tail(sample_lines, recent_findings)
+        finding_tail = _build_finding_tail(
+            sample_lines,
+            recent_findings,
+            first_line_number=sample_start_line,
+            module_path=Path(module_obj.path),
+        )
         finding_line_examples = _finding_line_examples(finding_tail)
         had_finding_tail = bool(finding_tail)
         if issue_filter_normalized == "ACTIVE":
@@ -1943,19 +1950,26 @@ async def change_password(
     )
 
 
-def _tail_lines(path: Path, max_lines: int = 200, *, max_chars_per_line: int = 4000) -> List[str]:
+def _tail_lines(
+    path: Path, max_lines: int = 200, *, max_chars_per_line: int = 4000
+) -> tuple[List[str], int]:
+    """Return the tail of a file and the 1-based line number for its first entry."""
+
     if not path.exists() or not path.is_file():
-        return []
+        return [], 1
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
-            trimmed = []
+            trimmed: List[str] = []
             for ln in lines[-max_lines:]:
                 normalized = ln.rstrip("\n")
                 trimmed.append(normalized[:max_chars_per_line])
-            return trimmed
+
+            # Ensure indexes are compatible with the 1-based line numbers stored on findings.
+            start_line = max(1, len(lines) - len(trimmed) + 1)
+            return trimmed, start_line
     except Exception:
-        return []
+        return [], 1
 
 
 def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
@@ -1963,11 +1977,16 @@ def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
     if not findings:
         return []
 
-    tail_lines = _tail_lines(Path(module_obj.path), max_lines=max_lines)
+    tail_lines, first_line_number = _tail_lines(Path(module_obj.path), max_lines=max_lines)
     if not tail_lines:
         return []
 
-    finding_tail = _build_finding_tail(tail_lines, findings)
+    finding_tail = _build_finding_tail(
+        tail_lines,
+        findings,
+        first_line_number=first_line_number,
+        module_path=Path(module_obj.path),
+    )
 
     lines: List[str] = []
     for section in finding_tail:
@@ -1987,7 +2006,9 @@ def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
     return lines[:max_lines]
 
 
-def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int = 200) -> tuple[List[str], Optional[str]]:
+def _get_sample_lines_for_module(
+    module_obj, sample_source: str, max_lines: int = 200
+) -> tuple[List[str], Optional[str]]:
     if module_obj is None:
         return [], None
 
@@ -2002,16 +2023,27 @@ def _get_sample_lines_for_module(module_obj, sample_source: str, max_lines: int 
         entry = next((item for item in sample_logs if item.get("value") == source), None)
         if entry is None:
             return [], "Sample log not found on disk."
-        lines = _tail_lines(entry["path"], max_lines=max_lines)
+        lines, _ = _tail_lines(entry["path"], max_lines=max_lines)
         if not lines:
             return [], "Sample log is empty or unreadable."
         return lines, None
 
-    return _tail_lines(Path(module_obj.path), max_lines=max_lines), None
+    lines, _ = _tail_lines(Path(module_obj.path), max_lines=max_lines)
+    return lines, None
 
 
-def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[Dict[str, Any]]:
-    indexed_lines = [{"index": idx, "text": line} for idx, line in enumerate(sample_lines)]
+def _build_finding_tail(
+    sample_lines: List[str],
+    recent_findings: List,
+    *,
+    first_line_number: int = 0,
+    module_path: Optional[Path] = None,
+    context_window: int = 2,
+) -> List[Dict[str, Any]]:
+    indexed_lines = [
+        {"index": idx + first_line_number, "text": line}
+        for idx, line in enumerate(sample_lines)
+    ]
     used_indexes: set[int] = set()
     sections: List[Dict[str, Any]] = []
 
@@ -2020,6 +2052,24 @@ def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[
         key=lambda c: getattr(c, "created_at", datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)),
         reverse=True,
     )
+
+    def _load_from_file(start: int, end: int) -> List[Dict[str, Any]]:
+        if not module_path or not module_path.exists():
+            return []
+
+        loaded: List[Dict[str, Any]] = []
+        try:
+            with module_path.open("r", encoding="utf-8", errors="ignore") as fh:
+                for idx, raw in enumerate(fh, start=1):
+                    if idx < start:
+                        continue
+                    if idx > end:
+                        break
+                    loaded.append({"index": idx, "text": raw.rstrip("\n")})
+        except Exception:
+            return []
+
+        return loaded
 
     def _lines_for_finding(finding):
         start = getattr(finding, "line_start", None)
@@ -2031,11 +2081,25 @@ def _build_finding_tail(sample_lines: List[str], recent_findings: List) -> List[
             matching = [entry for entry in indexed_lines if start <= entry.get("index", -1) <= end]
             if matching:
                 return matching
+            surrounding = _load_from_file(
+                max(1, start - context_window),
+                end + context_window,
+            )
+            if surrounding:
+                return surrounding
             if excerpt_lines:
                 return [
                     {"index": start + offset, "text": text}
                     for offset, text in enumerate(excerpt_lines)
                 ]
+
+        if start is not None:
+            fallback = _load_from_file(
+                max(1, start - context_window),
+                (start + context_window) if end is None else (end + context_window),
+            )
+            if fallback:
+                return fallback
 
         return [
             {"index": (start + idx) if start is not None else None, "text": text}
@@ -2302,7 +2366,7 @@ async def regex_save(
         return RedirectResponse(url=app.url_path_for("regex_lab"), status_code=status.HTTP_303_SEE_OTHER)
 
     prepared_lines = _prepare_sample_lines(
-        _filter_finding_intro_lines(_tail_lines(Path(module_obj.path), max_lines=200))
+        _filter_finding_intro_lines(_tail_lines(Path(module_obj.path), max_lines=200)[0])
     )
     wizard = _regex_wizard_metadata("save")
     step_hints = _build_all_regex_hints()
