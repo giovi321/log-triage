@@ -7,6 +7,7 @@
 - **Pluggable pipelines.** Define multiple pipelines, each with its own grouping strategies and classifiers.
 - **Flexible modules.** Decide whether a module runs once (batch) or tails a file with rotation awareness (follow).
 - **Ignore noisy lines.** Drop known noise via `ignore_regexes` before counting errors and warnings.
+- **Pluggable classifiers.** Swap between built-in regex or rsnapshot heuristics, or register your own (see [Classifiers](classifiers.md)).
 - **Severity-aware.** Findings are labeled `WARNING`, `ERROR`, or `CRITICAL`, and can be escalated when anomalies are detected.
 - **LLM-ready payloads.** Generate concise payloads with prompt templates, without coupling to a specific provider.
 - **Web dashboard.** Explore findings, edit configuration, and tune regexes in a dark-mode UI.

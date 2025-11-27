@@ -29,6 +29,8 @@ modules:
 - **Pipelines** describe how to group lines and which classifier to apply.
 - **Modules** describe when and how to run a pipeline against a specific file.
 
+You can create or refine these settings in the Web UI's config editor and regex lab instead of editing YAML by hand, which speeds up iteration.
+
 ## Run the CLI
 
 Activate your virtual environment and call the CLI module. The examples assume your `config.yaml` sits in the project root.
