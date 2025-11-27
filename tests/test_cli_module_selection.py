@@ -34,16 +34,16 @@ def _module(name: str, *, mode: str = "batch", enabled: bool = True) -> ModuleCo
     )
 
 
-def test_modules_to_run_includes_enabled_batch_and_follow():
+def test_modules_to_run_includes_only_enabled_follow_when_unspecified():
     modules = [_module("batch", mode="batch"), _module("follow", mode="follow")]
 
     selected = _modules_to_run(modules, selected_name=None)
 
-    assert selected == modules
+    assert selected == [modules[1]]
 
 
-def test_modules_to_run_skips_disabled_when_not_specified():
-    modules = [_module("enabled"), _module("disabled", enabled=False)]
+def test_modules_to_run_skips_disabled_follow_when_not_specified():
+    modules = [_module("enabled", mode="follow"), _module("disabled", mode="follow", enabled=False)]
 
     selected = _modules_to_run(modules, selected_name=None)
 
