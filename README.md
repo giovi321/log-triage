@@ -4,11 +4,47 @@
 
 <img width="317" height="55" alt="log-triage" src="https://github.com/user-attachments/assets/1da91cb3-fe19-408a-80c8-e894f57542a8" />
 
-`log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM.
-It does three things:
-- Filter and sort log lines by error severity
-- Send them to a LLM to get an opinion on the error
-- Provide a web user interace to manage all findings and configure the software
+`log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM. It filters noisy logs, detects problems, and gives you a dashboard and API-ready payloads so you can triage faster.
+
+## Overview
+
+### Key concepts
+- **Pipelines:** Reusable recipes that define how to group log lines, which regexes to ignore or count, and which prompt template to use for LLM payloads.
+- **Modules:** Runtime bindings that attach a pipeline to a file path and decide whether to scan once (batch) or tail continuously (follow) with rotation awareness.
+- **Findings:** Structured outputs for each grouped chunk, including severity (WARNING/ERROR/CRITICAL), counts, and optional LLM payloads.
+- **Baseline:** Optional anomaly detection that compares current counts to a rolling window and can bump severity when spikes occur.
+- **Addressed & false positives:** Workflow flags in the dashboard; marking a false positive also writes an ignore regex back to the pipeline to prevent repeats.
+
+### How it works (process)
+`log-triage` watches your logs, passes them through a configured pipeline, and surfaces only the important pieces:
+
+1. **Collect:** Point a module at a log file (or directory) to read entries once or continuously with rotation handling.
+2. **Group:** Apply the pipeline's grouping strategy (whole-file or marker-based) to carve the stream into logical chunks.
+3. **Classify:** Count warnings and errors with regex rules, ignore known-noise patterns, and assign a severity.
+4. **Baseline:** Optionally compare the run to historical averages and flag anomalies, optionally elevating severity.
+5. **Enrich:** Generate an LLM payload per finding using your prompt template and context lines.
+6. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
+
+### Getting started
+1. **Install dependencies:**
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install --upgrade pip
+   pip install pyyaml fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous paho-mqtt
+   pip install --upgrade --force-reinstall "bcrypt>=4.0,<4.1"
+   ```
+2. **Configure:** Copy `config.yaml` and edit pipelines/modules to point at your log files.
+3. **Run a module:**
+   ```bash
+   python -m logtriage.cli --config ./config.yaml run --module <module-name>
+   ```
+4. **Open the dashboard (optional):**
+   ```bash
+   export LOGTRIAGE_CONFIG=./config.yaml
+   python -m logtriage.webui
+   ```
+   Visit `http://127.0.0.1:8090` to review findings, adjust severity, or mark false positives.
 
 ## Documentation
 
@@ -16,7 +52,8 @@ See here the [full documentation](https://giovi321.github.io/log-triage/)
 
 ## How does it work
 
-[WIP]
+See the “How it works (at a glance)” section above for a quick process overview, or read the full documentation for in-depth
+details on pipelines, modules, and the Web UI.
 
 ## Features
 
