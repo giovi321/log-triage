@@ -5,6 +5,7 @@ import urllib.request
 from typing import List, Optional
 
 from .llm_payload import render_llm_payload
+from .notifications import add_notification
 from .models import (
     Finding,
     GlobalLLMConfig,
@@ -116,7 +117,16 @@ def analyze_findings_with_llm(
             "max_tokens": max_tokens,
         }
 
-        response_data = _call_chat_completion(provider, chat_payload)
+        try:
+            response_data = _call_chat_completion(provider, chat_payload)
+        except Exception as exc:
+            add_notification(
+                "error",
+                "LLM call failed",
+                f"{provider.name}: {exc}",
+            )
+            continue
+
         message = response_data.get("choices", [{}])[0].get("message", {})
         content = message.get("content", "")
         usage = response_data.get("usage", {}) or {}

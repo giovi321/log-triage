@@ -4,6 +4,7 @@ from typing import List, Optional
 from .models import Finding, Severity, PipelineConfig, ModuleLLMConfig
 from .classifiers import classify_lines
 from .llm_payload import should_send_to_llm
+from .notifications import add_notification
 from .utils import iter_log_files, select_pipeline
 
 
@@ -55,6 +56,14 @@ def analyze_path(
     context_prefix_lines: int = 0,
     pipeline_override: Optional[str] = None,
 ) -> List[Finding]:
+    if not root.exists():
+        add_notification(
+            "error",
+            "Source path missing",
+            f"Path {root} does not exist",
+        )
+        return []
+
     if root.is_file() and pipeline_override:
         pipeline_map = {p.name: p for p in pipelines}
         if pipeline_override not in pipeline_map:
@@ -69,6 +78,12 @@ def analyze_path(
         )
 
     files = iter_log_files(root)
+    if not files:
+        add_notification(
+            "warning",
+            "No log files found",
+            f"No files discovered under {root}",
+        )
     all_findings: List[Finding] = []
     pipeline_map = {p.name: p for p in pipelines}
 

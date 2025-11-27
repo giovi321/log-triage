@@ -20,6 +20,7 @@ from ..config import build_llm_config, build_modules, load_config
 from ..models import GlobalLLMConfig, ModuleConfig, Severity, Finding
 from ..llm_client import _call_chat_completion
 from ..version import __version__
+from ..notifications import add_notification, list_notifications, notification_summary
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
@@ -183,7 +184,15 @@ def _load_summary_prompt_template() -> Optional[str]:
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
-    raw = load_full_config(cfg_path)
+    try:
+        raw = load_full_config(cfg_path)
+    except SystemExit as exc:
+        add_notification("error", "Configuration load failed", str(exc))
+        raw = {}
+    except Exception as exc:  # pragma: no cover - defensive
+        add_notification("error", "Configuration load failed", str(exc))
+        raw = {}
+
     web_settings = parse_webui_settings(raw)
     _init_database(raw)
     return web_settings, raw, cfg_path
@@ -323,11 +332,25 @@ def get_settings() -> WebUISettings:
 
 def _refresh_llm_defaults() -> None:
     global llm_defaults
-    llm_defaults = build_llm_config(raw_config)
+    try:
+        llm_defaults = build_llm_config(raw_config)
+    except Exception as exc:
+        add_notification("error", "LLM defaults error", str(exc))
+        llm_defaults = GlobalLLMConfig(
+            enabled=False,
+            min_severity=Severity.ERROR,
+            providers={},
+            context_prefix_lines=0,
+            summary_prompt_path=None,
+        )
 
 
 def _build_modules_from_config() -> List[ModuleConfig]:
-    return build_modules(raw_config, llm_defaults)
+    try:
+        return build_modules(raw_config, llm_defaults)
+    except Exception as exc:
+        add_notification("error", "Module configuration error", str(exc))
+        return []
 
 
 from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
@@ -498,6 +521,7 @@ async def dashboard(request: Request):
     stats = get_module_stats(modules)
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
     ingestion_status = _derive_ingestion_status(modules, now=page_rendered_at)
+    notif_summary = notification_summary()
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -508,6 +532,25 @@ async def dashboard(request: Request):
             "db_status": db_status,
             "page_rendered_at": page_rendered_at,
             "ingestion_status": ingestion_status,
+            "notif_summary": notif_summary,
+        },
+    )
+
+
+@app.get("/notifications", name="notifications")
+async def notifications_page(request: Request):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    notes = list_notifications()
+    return templates.TemplateResponse(
+        "notifications.html",
+        {
+            "request": request,
+            "username": username,
+            "notifications": notes,
+            "notif_summary": notification_summary(),
         },
     )
 
@@ -540,6 +583,7 @@ async def edit_config_post(
     try:
         parsed = yaml.safe_load(config_text) or {}
     except Exception as e:
+        add_notification("error", "Configuration validation failed", str(e))
         return _render_config_editor(
             request,
             username,
@@ -564,10 +608,20 @@ async def edit_config_post(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    raw_config = load_config(CONFIG_PATH)
-    settings = parse_webui_settings(raw_config)
-    _init_database(raw_config)
-    _refresh_llm_defaults()
+    try:
+        raw_config = load_config(CONFIG_PATH)
+        settings = parse_webui_settings(raw_config)
+        _init_database(raw_config)
+        _refresh_llm_defaults()
+    except Exception as exc:
+        add_notification("error", "Configuration reload failed", str(exc))
+        return _render_config_editor(
+            request,
+            username,
+            config_text,
+            error=f"Reload failed: {exc}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     return _render_config_editor(
         request,
@@ -589,6 +643,7 @@ async def reload_config(request: Request):
         text = CONFIG_PATH.read_text(encoding="utf-8")
     except Exception as e:
         text = f"Error reading {CONFIG_PATH}: {e}"
+        add_notification("error", "Config reload failed", str(e))
         return _render_config_editor(request, username, text, error=f"Reload failed: {e}")
 
     try:
@@ -598,6 +653,7 @@ async def reload_config(request: Request):
         _init_database(new_raw)
         _refresh_llm_defaults()
     except Exception as e:
+        add_notification("error", "Config reload failed", str(e))
         return _render_config_editor(
             request,
             username,
