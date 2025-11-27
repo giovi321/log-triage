@@ -2,8 +2,8 @@
 
 Two services are provided so you can manage the main log processing loop and the Web UI independently:
 
-- `logtriage.service`: runs `python -m logtriage` against `/etc/logtriage/config.yaml`.
-- `logtriage-webui.service`: runs `python -m logtriage.webui` and reads the same configuration via `LOGTRIAGE_CONFIG`.
+- `logtriage.service`: runs the `logtriage` console script against `/etc/logtriage/config.yaml`.
+- `logtriage-webui.service`: runs the `logtriage-webui` console script and reads the same configuration via `LOGTRIAGE_CONFIG`.
 
 Both units assume the project lives in `/opt/logtriage` with a virtual environment in `/opt/logtriage/.venv/`. Adjust `User`, `Group`, `WorkingDirectory`, and the `PATH` environment override if your layout differs.
 
