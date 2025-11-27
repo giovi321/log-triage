@@ -1,3 +1,4 @@
+import datetime
 import os
 import time
 from collections import deque
@@ -149,6 +150,10 @@ def stream_file(
             context_prefix_lines,
             list(prefix_buffer),
         )
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for f in findings:
+            if getattr(f, "created_at", None) is None:
+                f.created_at = now
         for f in findings:
             f.finding_index = finding_index
             finding_index += 1

@@ -1,8 +1,9 @@
-import enum
 import dataclasses
+import datetime
+import enum
 import re
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 
 class Severity(enum.IntEnum):
@@ -26,6 +27,10 @@ class PipelineConfig:
     classifier_error_regexes: List[re.Pattern]
     classifier_warning_regexes: List[re.Pattern]
     classifier_ignore_regexes: List[re.Pattern]
+    grouping_type: str
+    grouping_start_regex: Optional[re.Pattern]
+    grouping_end_regex: Optional[re.Pattern]
+    grouping_only_last: bool
 
 
 @dataclasses.dataclass
@@ -41,6 +46,7 @@ class Finding:
     excerpt: List[str]
     needs_llm: bool = False
     llm_response: Optional["LLMResponse"] = None
+    created_at: Optional[datetime.datetime] = None
 
 
 @dataclasses.dataclass

@@ -125,8 +125,9 @@ Pipelines describe how to interpret a log stream. You can edit their regexes and
 ```yaml
 pipelines:
   - name: homeassistant
-    grouping: whole_file  # or marker_based
-    classifier: regex_counter  # or rsnapshot_heuristic
+    grouping:
+      type: whole_file  # or marker
+    classifier: regex_counter  # or rsnapshot_basic
     ignore_regexes:
       - "^DEBUG"
     warning_regexes:
@@ -137,7 +138,10 @@ pipelines:
 
 - **grouping** controls how log lines are chunked before classification.
   - `whole_file` treats the entire file as a single chunk, ideal for log files that represent one run or backup job.
-  - `marker_based` looks for start/end markers (for example, rsnapshot headers) and groups lines between markers.
+  - `marker` looks for start/end markers (for example, rsnapshot headers) and groups lines between markers.
+  - Optional keys under `grouping`:
+    - `start_regex` / `end_regex`: boundaries for marker grouping.
+    - `only_last`: when `true`, process only the final grouped chunk (useful when a batch module should analyze just the most recent run instead of the entire historical log).
 - **classifier** picks the rule set used to score each chunk. You can plug in your own; see [Classifiers](classifiers.md) for guidance.
 - **ignore_regexes** lets you drop known-noise lines before counting errors and warnings. False positives you mark in the UI are added here automatically.
 - **warning_regexes / error_regexes** count matches separately so the classifier can choose the highest severity observed.

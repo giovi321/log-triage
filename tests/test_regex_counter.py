@@ -67,6 +67,10 @@ def test_classify_detects_patterns_with_double_escaped_config_entries():
         classifier_error_regexes=[_compile_regex(r"\\berror\\b", flags=re.IGNORECASE)],
         classifier_warning_regexes=[],
         classifier_ignore_regexes=[],
+        grouping_type="whole_file",
+        grouping_start_regex=None,
+        grouping_end_regex=None,
+        grouping_only_last=False,
     )
 
     lines = [

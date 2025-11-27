@@ -79,6 +79,7 @@ def apply_baseline(cfg: BaselineConfig, findings: List[Finding]) -> List[Finding
                 rule_id="baseline_anomaly",
                 excerpt=[prefix],
                 needs_llm=False,
+                created_at=findings[0].created_at if findings else None,
             )
         )
 

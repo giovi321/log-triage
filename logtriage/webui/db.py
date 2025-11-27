@@ -187,6 +187,14 @@ def get_next_finding_index(module_name: str) -> int:
         sess.close()
 
 
+def _normalize_created_at(value: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.timezone.utc)
+    return value
+
+
 def store_finding(module_name: str, finding, anomaly_flag: bool = False):
     """Persist a single Finding into the database."""
     sess = get_session()
@@ -194,7 +202,9 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         return
 
     llm_response = getattr(finding, "llm_response", None)
-    obj = FindingRecord(
+    created_at = _normalize_created_at(getattr(finding, "created_at", None))
+
+    record_kwargs = dict(
         module_name=module_name,
         pipeline_name=getattr(finding, "pipeline_name", None),
         file_path=str(getattr(finding, "file_path", "")),
@@ -214,6 +224,10 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         llm_prompt_tokens=getattr(llm_response, "prompt_tokens", None),
         llm_completion_tokens=getattr(llm_response, "completion_tokens", None),
     )
+    if created_at is not None:
+        record_kwargs["created_at"] = created_at
+
+    obj = FindingRecord(**record_kwargs)
     try:
         sess.add(obj)
         sess.commit()

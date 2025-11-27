@@ -1,8 +1,44 @@
 import re
-from typing import List
+from typing import List, Sequence, Tuple
 
 from ..models import PipelineConfig, Severity, Finding
 from .regex_counter import _build_excerpt
+
+
+def _split_runs(
+    lines: List[str],
+    markers: Sequence[re.Pattern],
+) -> List[Tuple[int, List[str]]]:
+    """Split rsnapshot logs into runs using marker regexes.
+
+    Returns a list of (start_offset, chunk_lines) tuples.
+    """
+
+    if not markers:
+        return [(0, lines)] if lines else []
+
+    runs: List[Tuple[int, List[str]]] = []
+    current: List[str] = []
+    current_start = 0
+
+    def _flush():
+        nonlocal current
+        if current:
+            runs.append((current_start, current))
+        current = []
+
+    for idx, line in enumerate(lines):
+        if any(r.search(line) for r in markers):
+            _flush()
+            current_start = idx
+            current = [line]
+        else:
+            if not current:
+                current_start = idx
+            current.append(line)
+
+    _flush()
+    return runs
 
 
 def classify_rsnapshot_basic(
@@ -17,6 +53,19 @@ def classify_rsnapshot_basic(
 ) -> List[Finding]:
     """Heuristic classifier for rsnapshot runs that emits per-line findings."""
     joined_all = "\n".join(lines)
+
+    default_markers = [
+        pcfg.grouping_start_regex,
+        pcfg.grouping_end_regex,
+        re.compile(r"^={5,}$"),
+        re.compile(r"^-{5,}$"),
+        re.compile(r"rsnapshot\\s+\\w+:\\s+started", re.IGNORECASE),
+    ]
+    marker_res: List[re.Pattern] = [r for r in default_markers if r is not None]
+    runs = _split_runs(lines, marker_res)
+    if runs:
+        start_offset, lines = runs[-1]
+        start_line += start_offset
 
     error_patterns = [
         re.compile(r"rsync error", re.IGNORECASE),
