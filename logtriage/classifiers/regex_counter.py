@@ -4,6 +4,26 @@ from typing import List
 from ..models import PipelineConfig, Severity, Finding
 
 
+def _build_excerpt(
+    lines: List[str],
+    offset: int,
+    context_prefix_lines: int,
+    excerpt_limit: int,
+    prefix_lines: List[str],
+) -> List[str]:
+    excerpt_start = max(0, offset - context_prefix_lines)
+    excerpt = lines[excerpt_start : offset + 1]
+
+    missing_prefix = context_prefix_lines - min(context_prefix_lines, offset)
+    if prefix_lines and missing_prefix > 0:
+        excerpt = prefix_lines[-missing_prefix:] + excerpt
+
+    if len(excerpt) > excerpt_limit:
+        excerpt = excerpt[-excerpt_limit:]
+
+    return excerpt
+
+
 def _format_match_text(match_text: str, max_len: int = 120) -> str:
     """Return a single-line, human-friendly snippet of a regex match."""
 
@@ -21,6 +41,7 @@ def classify_regex_counter(
     start_line: int = 1,
     excerpt_limit: int = 20,
     context_prefix_lines: int = 0,
+    prefix_lines: List[str] | None = None,
 ) -> List[Finding]:
     """Emit one finding per matching rule line.
 
@@ -29,6 +50,8 @@ def classify_regex_counter(
 
     findings: List[Finding] = []
     ignore_res = pcfg.classifier_ignore_regexes or []
+
+    prefix_lines = prefix_lines or []
 
     for offset, line in enumerate(lines):
         current_line = start_line + offset
@@ -39,10 +62,13 @@ def classify_regex_counter(
             if not r:
                 continue
             for match in r.finditer(line):
-                excerpt_start = max(0, offset - context_prefix_lines)
-                excerpt = lines[excerpt_start : offset + 1]
-                if len(excerpt) > excerpt_limit:
-                    excerpt = excerpt[-excerpt_limit:]
+                excerpt = _build_excerpt(
+                    lines,
+                    offset,
+                    context_prefix_lines,
+                    excerpt_limit,
+                    prefix_lines,
+                )
                 match_text = _format_match_text(match.group(0))
                 findings.append(
                     Finding(
@@ -62,10 +88,13 @@ def classify_regex_counter(
             if not r:
                 continue
             for match in r.finditer(line):
-                excerpt_start = max(0, offset - context_prefix_lines)
-                excerpt = lines[excerpt_start : offset + 1]
-                if len(excerpt) > excerpt_limit:
-                    excerpt = excerpt[-excerpt_limit:]
+                excerpt = _build_excerpt(
+                    lines,
+                    offset,
+                    context_prefix_lines,
+                    excerpt_limit,
+                    prefix_lines,
+                )
                 match_text = _format_match_text(match.group(0))
                 findings.append(
                     Finding(
