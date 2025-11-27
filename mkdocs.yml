@@ -30,4 +30,6 @@ nav:
   - Overview: index.md
   - Getting started: getting-started.md
   - Configuration: configuration.md
+  - CLI: cli.md
+  - Classifiers: classifiers.md
   - Web UI: web-ui.md
