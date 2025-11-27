@@ -1,4 +1,5 @@
 import sys
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import re
@@ -34,10 +35,23 @@ def load_config(path: Path) -> Dict[str, Any]:
     return data
 
 
-def _compile_regex(pattern: Optional[str]) -> Optional[re.Pattern]:
+def _normalize_regex_pattern(pattern: str) -> str:
+    """Decode common escape sequences so YAML-friendly patterns behave as intended."""
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=DeprecationWarning)
+            return pattern.encode("utf-8").decode("unicode_escape")
+    except UnicodeDecodeError:
+        # Fall back to the original pattern if decoding fails so we don't block config loading
+        return pattern
+
+
+def _compile_regex(pattern: Optional[str], flags: int = 0) -> Optional[re.Pattern]:
     if not pattern:
         return None
-    return re.compile(pattern)
+    normalized = _normalize_regex_pattern(pattern)
+    return re.compile(normalized, flags)
 
 
 def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
@@ -64,7 +78,9 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
             compiled: List[re.Pattern] = []
             for pat in patterns:
                 try:
-                    compiled.append(re.compile(pat, re.IGNORECASE))
+                    compiled_regex = _compile_regex(pat, re.IGNORECASE)
+                    if compiled_regex:
+                        compiled.append(compiled_regex)
                 except re.error as exc:  # pragma: no cover - simple input validation
                     raise ValueError(
                         f"Pipeline '{name}' has invalid {key.rstrip('es')} regex '{pat}': {exc}"
