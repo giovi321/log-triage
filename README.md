@@ -26,23 +26,23 @@
 6. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
 
 ### Getting started
-1. **Install dependencies:**
+1. **Install the package:**
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
    pip install --upgrade pip
-   pip install pyyaml fastapi uvicorn jinja2 python-multipart passlib[bcrypt] sqlalchemy itsdangerous paho-mqtt
-   pip install --upgrade --force-reinstall "bcrypt>=4.0,<4.1"
+   # Install core plus optional Web UI + MQTT extras
+   pip install ".[webui,alerts]"
    ```
 2. **Configure:** Copy `config.yaml` and edit pipelines/modules to point at your log files.
 3. **Run a module:**
    ```bash
-   python -m logtriage.cli --config ./config.yaml run --module <module-name>
+   logtriage --config ./config.yaml run --module <module-name>
    ```
 4. **Open the dashboard (optional):**
    ```bash
    export LOGTRIAGE_CONFIG=./config.yaml
-   python -m logtriage.webui
+   logtriage-webui
    ```
    Visit `http://127.0.0.1:8090` to review findings, adjust severity, or mark false positives.
 
