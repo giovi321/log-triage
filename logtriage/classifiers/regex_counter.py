@@ -11,15 +11,32 @@ def _build_excerpt(
     excerpt_limit: int,
     prefix_lines: List[str],
 ) -> List[str]:
-    excerpt_start = max(0, offset - context_prefix_lines)
-    excerpt = lines[excerpt_start : offset + 1]
+    excerpt_limit = max(1, excerpt_limit)
+    prefix_lines = prefix_lines or []
 
-    missing_prefix = context_prefix_lines - min(context_prefix_lines, offset)
-    if prefix_lines and missing_prefix > 0:
-        excerpt = prefix_lines[-missing_prefix:] + excerpt
+    before_current = lines[max(0, offset - context_prefix_lines) : offset]
+    missing_prefix = max(0, context_prefix_lines - len(before_current))
+    before_context = prefix_lines[-missing_prefix:] + before_current
+
+    match_line = lines[offset]
+    after_context = lines[offset + 1 : offset + 1 + context_prefix_lines]
+
+    excerpt = before_context + [match_line] + after_context
 
     if len(excerpt) > excerpt_limit:
-        excerpt = excerpt[-excerpt_limit:]
+        match_idx = len(before_context)
+        start = max(0, match_idx - excerpt_limit // 2)
+        end = start + excerpt_limit
+
+        if end > len(excerpt):
+            end = len(excerpt)
+            start = max(0, end - excerpt_limit)
+
+        if not (start <= match_idx < end):
+            start = max(0, match_idx - excerpt_limit + 1)
+            end = start + excerpt_limit
+
+        excerpt = excerpt[start:end]
 
     return excerpt
 
