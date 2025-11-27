@@ -2,6 +2,8 @@
 
 `log-triage` is a Python toolkit that sits between your log collector and an LLM. It reads log files, applies configurable rules to group and classify entries, and emits structured findings and payloads you can forward to a model. The CLI and Web UI share the same YAML configuration so you can run batch jobs, follow live streams, or explore results in a dashboard.
 
+> Tip: You can build and edit configuration (including regexes) directly in the Web UI's config editor and regex lab. It is the easiest way to tweak values safely before saving.
+
 ## Core concepts
 
 - **Pipelines:** Reusable processing recipes. Each pipeline defines how to group log lines, how to classify them, which regexes to ignore, and which prompts to use.
@@ -26,8 +28,12 @@ llm:
   default_provider: null
   providers: {}
 database:
-alerts: {}
-baseline: {}
+alerts:
+  webhook: {}
+  mqtt: {}
+baseline:
+  enabled: false
+  state_file: ''
 ```
 
 Each top-level key controls a specific area of the system. The example below expands all of them in context.
@@ -79,13 +85,37 @@ llm:
 database:
   url: 'sqlite:///./logtriage.db'
   echo: false
+ 
+alerts:
+  webhook:
+    enabled: false
+    url: ''
+
+baseline:
+  enabled: false
+  state_file: ''
 ```
 
-> Tip: The Web UI config editor provides inline hints and validation so you can tweak values safely before saving.
+> Tip: The Web UI config editor provides inline hints and validation so you can tweak values safely before saving, and the regex lab lets you test patterns interactively before applying them.
+
+Line-by-line highlights for the example above:
+
+- `pipelines[].grouping`: choose how to split the log stream (`whole_file` or `marker_based`).
+- `pipelines[].classifier`: select which classifier implementation to run.
+- `ignore_regexes`, `warning_regexes`, `error_regexes`: filter noise or count severity indicators; editable from the Web UI when marking false positives.
+- `prompt_template`: path to the prompt file for LLM payloads.
+- `modules[].mode`: `batch` scans once; `follow` tails continuously.
+- `modules[].from_beginning` and `interval`: follow-mode controls for where to start reading and how often to poll for rotations.
+- `modules[].stale_after_minutes`: used by the Web UI to mark **follow** modules as stale when no new lines arrive; batch modules do not use this flag because they run once and exit.
+- `modules[].llm`: per-module override for enabling payloads, picking a provider, and setting context lines or output paths.
+- `modules[].alerts`: enable webhook or MQTT destinations per module.
+- `llm.default_provider` and `llm.providers`: global provider definitions, including where API keys come from.
+- `database.url`: connection string for persisting findings so the Web UI can query history.
+- `baseline`: optional anomaly detection storage (state file) and switches.
 
 ## Pipelines
 
-Pipelines describe how to interpret a log stream.
+Pipelines describe how to interpret a log stream. You can edit their regexes and templates directly from the Web UI config editor and regex lab.
 
 ```yaml
 pipelines:
@@ -101,13 +131,17 @@ pipelines:
 ```
 
 - **grouping** controls how log lines are chunked before classification.
-- **classifier** picks the rule set used to score each chunk.
-- **ignore_regexes** lets you drop known-noise lines before counting errors and warnings.
+  - `whole_file` treats the entire file as a single chunk, ideal for log files that represent one run or backup job.
+  - `marker_based` looks for start/end markers (for example, rsnapshot headers) and groups lines between markers.
+- **classifier** picks the rule set used to score each chunk. You can plug in your own; see [Classifiers](classifiers.md) for guidance.
+- **ignore_regexes** lets you drop known-noise lines before counting errors and warnings. False positives you mark in the UI are added here automatically.
 - **warning_regexes / error_regexes** count matches separately so the classifier can choose the highest severity observed.
+
+When using `marker_based` grouping, ensure your regexes align with the markers your log source emits (for example, rsnapshot's `^\d{4}/\d{2}/\d{2}` headers). Everything between two markers is treated as a single event, so place warnings/errors accordingly.
 
 ## Modules
 
-Modules connect pipelines to real log files and decide when to run.
+Modules connect pipelines to real log files and decide when to run. You can adjust module paths, modes, and LLM settings directly from the Web UI config editor without touching the YAML manually.
 
 ```yaml
 modules:
@@ -123,9 +157,12 @@ modules:
 
 ### Follow mode options
 
-- `from_beginning`: whether to start at the start of the file or tail new lines only.
-- `interval`: how frequently to poll for new lines and detect rotations.
-- `reload_on_change`: when set on the CLI, reloads the config if `config.yaml` changes.
+Follow mode tails a single file and keeps up with rotations. Combine these options to control responsiveness and resource usage:
+
+- `from_beginning`: when true, reads the whole file before tailing. Set to `false` for a tail-only experience similar to `tail -F`.
+- `interval`: poll frequency (in seconds) for new lines and rotation detection. Lower values react faster but hit the file system more often.
+- `reload_on_change`: CLI flag that reloads configuration when `config.yaml` changes so follow-mode modules pick up regex, grouping, and prompt updates without restarting.
+- `stale_after_minutes`: used only for follow-mode modules to trigger "stale" warnings in the Web UI when no new lines are seen within the window.
 
 ### LLM options per module
 
@@ -140,7 +177,14 @@ modules:
       context_prefix_lines: 2
 ```
 
-Each module can choose whether to generate payloads. The prompt template is formatted with placeholders such as `{pipeline}`, `{file_path}`, `{severity}`, `{reason}`, `{error_count}`, `{warning_count}`, and `{line_count}`.
+Each module can choose whether to generate payloads. The prompt template is formatted with placeholders such as `{pipeline}`, `{file_path}`, `{severity}`, `{reason}`, `{error_count}`, `{warning_count}`, and `{line_count}`. A prompt fragment might look like this:
+
+```
+Pipeline {pipeline} reported {error_count} errors and {warning_count} warnings in {file_path}. Context:
+{context}
+```
+
+`context` is assembled using the lines around each grouped chunk; tune `context_prefix_lines` to include enough lead-in. Edit templates from the Web UI to experiment quickly without restarting the CLI.
 
 ### Alerts
 
