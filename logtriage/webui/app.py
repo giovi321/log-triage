@@ -2077,6 +2077,30 @@ def _build_finding_tail(
         excerpt = getattr(finding, "excerpt", None) or ""
         excerpt_lines = excerpt.splitlines() if isinstance(excerpt, str) else list(excerpt)
 
+        # Always prefer the stored excerpt so the UI, DB, and LLM payloads stay in sync.
+        if excerpt_lines:
+            anchor_index = start if isinstance(start, int) else None
+            anchor_text = None
+            if anchor_index is not None:
+                anchor_text = next(
+                    (entry.get("text") for entry in indexed_lines if entry.get("index") == anchor_index),
+                    None,
+                )
+            match_pos = None
+            if anchor_text:
+                for pos, text in enumerate(excerpt_lines):
+                    if text == anchor_text:
+                        match_pos = pos
+                        break
+            if match_pos is None:
+                match_pos = 0
+
+            start_idx = anchor_index - match_pos if anchor_index is not None else None
+            return [
+                {"index": (start_idx + offset) if start_idx is not None else None, "text": text}
+                for offset, text in enumerate(excerpt_lines)
+            ]
+
         if start is not None and end is not None and start >= 0 and end >= start:
             matching = [entry for entry in indexed_lines if start <= entry.get("index", -1) <= end]
             if matching:
@@ -2087,11 +2111,6 @@ def _build_finding_tail(
             )
             if surrounding:
                 return surrounding
-            if excerpt_lines:
-                return [
-                    {"index": start + offset, "text": text}
-                    for offset, text in enumerate(excerpt_lines)
-                ]
 
         if start is not None:
             fallback = _load_from_file(
@@ -2101,10 +2120,7 @@ def _build_finding_tail(
             if fallback:
                 return fallback
 
-        return [
-            {"index": (start + idx) if start is not None else None, "text": text}
-            for idx, text in enumerate(excerpt_lines)
-        ]
+        return []
 
     for finding in sorted_findings:
         lines = _lines_for_finding(finding)
