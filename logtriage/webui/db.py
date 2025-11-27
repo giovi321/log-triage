@@ -322,6 +322,32 @@ def get_module_stats(modules: Optional[Iterable["ModuleConfig"]] = None) -> Dict
     return stats
 
 
+def count_open_findings_for_module(
+    module_name: str, *, severities: Optional[Iterable[str]] = None
+) -> int:
+    """Count findings for a module, optionally constrained to severities.
+
+    Returns 0 if the database is unavailable or the query fails.
+    """
+
+    sess = get_session()
+    if sess is None or not module_name:
+        return 0
+
+    try:
+        severity_values = [s.upper() for s in (severities or []) if s]
+        query = sess.query(func.count(FindingRecord.id)).filter(
+            FindingRecord.module_name == module_name
+        )
+        if severity_values:
+            query = query.filter(func.upper(FindingRecord.severity).in_(severity_values))
+        return int(query.scalar() or 0)
+    except Exception:
+        return 0
+    finally:
+        sess.close()
+
+
 def get_latest_finding_time():
     sess = get_session()
     if sess is None:
