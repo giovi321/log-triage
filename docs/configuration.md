@@ -113,6 +113,11 @@ Line-by-line highlights for the example above:
 - `database.url`: connection string for persisting findings so the Web UI can query history.
 - `baseline`: optional anomaly detection storage (state file) and switches.
 
+### LLM sampling controls
+
+- **temperature** tweaks randomness in completions (0–2). Lower values keep replies steady and deterministic; higher values make them more creative or exploratory. See OpenAI's parameter guide for examples: https://platform.openai.com/docs/guides/text-generation/parameter-details.
+- **top_p** (nucleus sampling) limits generation to the smallest set of tokens whose cumulative probability stays under the threshold. Smaller values constrain the model to safer choices; larger values behave more like an unrestricted search. Same reference: https://platform.openai.com/docs/guides/text-generation/parameter-details.
+
 ## Pipelines
 
 Pipelines describe how to interpret a log stream. You can edit their regexes and templates directly from the Web UI config editor and regex lab.
