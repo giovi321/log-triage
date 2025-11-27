@@ -11,10 +11,8 @@ Lines in this chunk: {line_count}
 Focus on authentication/outpost configuration problems, HTTP/API failures, and repeated warnings such as missing providers.
 If multiple issues appear, summarize the top 3–5 by impact.
 
-Return a single JSON object with keys:
-- severity: one of WARNING, ERROR, CRITICAL.
-- reason: 1–2 sentence summary of the main issue(s).
-- key_lines: array of the most critical log lines (max 5) that justify the summary.
-- action_items: array of concise remediation steps for the operator.
-
-Do not include any text before or after the JSON.
+Write an operator-friendly note instead of JSON.
+- Start with the overall severity (WARNING/ERROR/CRITICAL) and a short headline.
+- Describe the main problems in 2–4 sentences, mentioning the most important log lines (up to 5) that justify the summary.
+- List 2–5 clear action items the operator should take next.
+Keep the response readable for humans—no code blocks or JSON.

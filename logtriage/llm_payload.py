@@ -92,8 +92,9 @@ def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines:
                 f"Reason: {finding.message}\n"
                 f"File: {finding.file_path}\n"
                 f"Line span: {finding.line_start}-{finding.line_end}\n\n"
-                "Return a single JSON object with keys: severity, reason, key_lines, action_items.\n"
-                "Do not include any extra text outside the JSON.\n"
+                "Write a concise, human-readable briefing. Begin with the severity and a short headline. "
+                "Explain the main issues in 2–4 sentences, reference the most relevant log lines (up to 5), "
+                "and list a few action items the operator should try next. Do not use JSON or code blocks.\n"
             )
     else:
         header = (
@@ -102,12 +103,9 @@ def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines:
             f"Reason: {finding.message}\n"
             f"File: {finding.file_path}\n"
             f"Line span: {finding.line_start}-{finding.line_end}\n\n"
-            "Return a single JSON object with the following keys:\n"
-            "  severity: one of ['WARNING','ERROR','CRITICAL']\n"
-            "  reason: short human-readable explanation\n"
-            "  key_lines: list of log lines to highlight\n"
-            "  action_items: list of suggested actions or checks\n\n"
-            "Do not include any text before or after the JSON.\n"
+            "Provide an operator-ready summary: state the severity and headline, describe the main issues in a few sentences, "
+            "cite the most important log lines, and recommend concrete follow-up steps. Keep everything as plain text (no JSON "
+            "or code blocks).\n"
         )
 
     body = "\n".join(payload_lines)

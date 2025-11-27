@@ -266,7 +266,6 @@
                     {% set response_provider = response_obj.provider if response_obj else section.finding|attr('llm_provider') %}
                     {% set response_model = response_obj.model if response_obj else section.finding|attr('llm_model') %}
                     <div class="finding-response" data-finding-summary="true" data-finding-id="{{ section.finding.id }}">
-                      <div class="helper-text" style="margin:0;">AI opinion for finding #{{ section.finding.finding_index }}</div>
                       {% if response_provider or response_model %}
                         <div class="helper-text" style="margin:0;">Source: {{ response_provider or 'Unknown provider' }}{% if response_model %} · {{ response_model }}{% endif %}</div>
                       {% endif %}
