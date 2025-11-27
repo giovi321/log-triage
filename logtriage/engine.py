@@ -1,8 +1,10 @@
+import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from .models import Finding, Severity, PipelineConfig, ModuleLLMConfig
 from .classifiers import classify_lines
+from .grouping import group_lines
 from .llm_payload import should_send_to_llm
 from .notifications import add_notification
 from .utils import iter_log_files, select_pipeline
@@ -34,17 +36,51 @@ def analyze_file(
             )
         ]
 
-    findings = classify_lines(
-        pcfg,
-        file_path,
-        pcfg.name,
-        lines,
-        1,
-        excerpt_limit,
-        context_prefix_lines,
-    )
-    for f in findings:
-        f.needs_llm = should_send_to_llm(llm_cfg, f.severity, f.excerpt)
+    groups = group_lines(pcfg, lines)
+    if not groups:
+        return []
+
+    groups_with_offsets = []
+    offset = 0
+    for chunk in groups:
+        groups_with_offsets.append((offset, chunk))
+        offset += len(chunk)
+
+    if pcfg.grouping_only_last and groups_with_offsets:
+        groups_with_offsets = [groups_with_offsets[-1]]
+
+    try:
+        created_at = datetime.datetime.fromtimestamp(
+            file_path.stat().st_mtime, tz=datetime.timezone.utc
+        )
+    except Exception:
+        created_at = None
+
+    findings: List[Finding] = []
+
+    for offset, chunk in groups_with_offsets:
+        start_line = 1 + offset
+        prefix_lines = []
+        if context_prefix_lines > 0:
+            prefix_lines = lines[max(0, offset - context_prefix_lines) : offset]
+
+        chunk_findings = classify_lines(
+            pcfg,
+            file_path,
+            pcfg.name,
+            chunk,
+            start_line,
+            excerpt_limit,
+            context_prefix_lines,
+            prefix_lines,
+        )
+        for f in chunk_findings:
+            if getattr(f, "created_at", None) is None and created_at is not None:
+                f.created_at = created_at
+            f.finding_index = len(findings)
+            f.needs_llm = should_send_to_llm(llm_cfg, f.severity, f.excerpt)
+            findings.append(f)
+
     return findings
 
 

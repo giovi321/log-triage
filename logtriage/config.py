@@ -74,6 +74,30 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
                 f"Pipeline '{name}' has invalid filename_regex '{filename_regex}': {exc}"
             ) from exc
 
+        grouping_cfg = item.get("grouping", {}) or {}
+        grouping_type = "whole_file"
+        grouping_start_re = None
+        grouping_end_re = None
+        grouping_only_last = False
+        if isinstance(grouping_cfg, str):
+            grouping_type = grouping_cfg.lower()
+        elif isinstance(grouping_cfg, dict):
+            grouping_type = str(grouping_cfg.get("type", "whole_file")).lower()
+            grouping_start_re = _compile_regex(grouping_cfg.get("start_regex"))
+            grouping_end_re = _compile_regex(grouping_cfg.get("end_regex"))
+            grouping_only_last = bool(grouping_cfg.get("only_last", False))
+        else:
+            raise ValueError(
+                f"Pipeline '{name}': grouping must be string or mapping (got {type(grouping_cfg)})"
+            )
+
+        if grouping_type in ("marker_based", "marker"):
+            grouping_type = "marker"
+        elif grouping_type != "whole_file":
+            raise ValueError(
+                f"Pipeline '{name}': unknown grouping type '{grouping_type}' (expected whole_file or marker)"
+            )
+
         classifier_cfg = item.get("classifier", {}) or {}
         classifier_type = classifier_cfg.get("type", "regex_counter")
 
@@ -103,6 +127,10 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
                 classifier_error_regexes=error_regexes,
                 classifier_warning_regexes=warning_regexes,
                 classifier_ignore_regexes=ignore_regexes,
+                grouping_type=grouping_type,
+                grouping_start_regex=grouping_start_re,
+                grouping_end_regex=grouping_end_re,
+                grouping_only_last=grouping_only_last,
             )
         )
 
