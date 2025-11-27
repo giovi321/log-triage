@@ -1,7 +1,8 @@
 import os
 import time
+from collections import deque
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Deque, List, Optional, Tuple
 
 from .models import Finding, Severity, PipelineConfig, ModuleConfig
 from .classifiers import classify_lines
@@ -120,6 +121,9 @@ def stream_file(
     from_beginning = mod.stream_from_beginning
     interval = mod.stream_interval
     context_prefix_lines = mod.llm.context_prefix_lines
+    prefix_buffer: Deque[str] = (
+        deque(maxlen=context_prefix_lines) if context_prefix_lines > 0 else deque()
+    )
 
     finding_index = 0
 
@@ -143,10 +147,15 @@ def stream_file(
             start_line,
             mod.llm.max_excerpt_lines,
             context_prefix_lines,
+            list(prefix_buffer),
         )
         for f in findings:
             f.finding_index = finding_index
             finding_index += 1
+
+        if context_prefix_lines > 0:
+            for ln in lines[-context_prefix_lines:]:
+                prefix_buffer.append(ln)
 
         if mod.baseline is not None:
             findings = apply_baseline(mod.baseline, findings)
