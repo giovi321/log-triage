@@ -103,10 +103,13 @@ def analyze_findings_with_llm(
             "model": provider.model,
             "messages": [
                 {
-                    "role": "system",
-                    "content": "You are a log triage assistant that summarizes findings and proposes actions.",
-                },
-                {"role": "user", "content": payload_text},
+                    "role": "user",
+                    "content": (
+                        "You are a log triage assistant that summarizes log snippets succinctly "
+                        "and suggests follow-up actions when appropriate. Respond to the "
+                        f"following prompt:\n\n{payload_text}"
+                    ),
+                }
             ],
             "temperature": provider.temperature,
             "top_p": provider.top_p,
