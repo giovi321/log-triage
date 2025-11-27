@@ -27,6 +27,14 @@
         <span class="status-chip">Latest log activity: {{ ingestion_status.latest_log_update|localtime }}</span>
       {% endif %}
     {% endif %}
+    {% if notif_summary %}
+      <span class="status-chip {{ notif_summary.state_class }}">
+        {{ notif_summary.message }}
+        {% if notif_summary.count > 0 %}
+          <a href="{{ url_for('notifications') }}" style="color:inherit; text-decoration:underline;">(view {{ notif_summary.count }})</a>
+        {% endif %}
+      </span>
+    {% endif %}
     {% if page_rendered_at %}
       <span class="status-chip">Page last updated: {{ page_rendered_at|localtime }}</span>
     {% endif %}
