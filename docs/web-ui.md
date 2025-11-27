@@ -8,7 +8,7 @@ The Web UI runs on FastAPI and shares the same configuration file as the CLI. It
 
 ```bash
 export LOGTRIAGE_CONFIG=/path/to/config.yaml  # optional; defaults to ./config.yaml
-python -m logtriage.webui
+logtriage-webui
 ```
 
 By default the UI listens on `http://127.0.0.1:8090`. Use `LOGTRIAGE_HOST` and `LOGTRIAGE_PORT` to override the bind address.

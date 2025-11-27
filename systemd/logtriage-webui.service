@@ -8,7 +8,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/logtriage
 Environment=LOGTRIAGE_CONFIG=/etc/logtriage/config.yaml
-ExecStart=/opt/logtriage/venv/python3 -m logtriage.webui
+ExecStart=/opt/logtriage/.venv/bin/logtriage-webui
 Restart=on-failure
 RestartSec=5s
 StateDirectory=logtriage
