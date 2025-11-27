@@ -41,10 +41,14 @@ def _normalize_regex_pattern(pattern: str) -> str:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=DeprecationWarning)
-            return pattern.encode("utf-8").decode("unicode_escape")
+            normalized = pattern.encode("utf-8").decode("unicode_escape")
     except UnicodeDecodeError:
         # Fall back to the original pattern if decoding fails so we don't block config loading
         return pattern
+
+    # If YAML or the decoder converted word-boundary escapes (\b) into literal backspace
+    # characters, restore them so regex word boundaries work as expected.
+    return normalized.replace("\b", "\\b")
 
 
 def _compile_regex(pattern: Optional[str], flags: int = 0) -> Optional[re.Pattern]:
