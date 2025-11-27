@@ -50,6 +50,9 @@
 
 See here the [full documentation](https://giovi321.github.io/log-triage/)
 
+> **Security note:** The Web UI is not designed to be exposed to the public internet due to missing CSRF protections, weak sess
+ion cookies, and other controls. Run it only on trusted networks and see the documentation for the full disclaimer.
+
 ## How does it work
 
 See the “How it works (at a glance)” section above for a quick process overview, or read the full documentation for in-depth
