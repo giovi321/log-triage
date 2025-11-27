@@ -162,6 +162,7 @@
       .sev-WARNING { background-color: #ff8f00; }
       .sev-ERROR { background-color: #c62828; }
       .sev-CRITICAL { background-color: #6a1b9a; }
+      .sev-INFO { background-color: #1e88e5; color: #e8ecf2; }
       .sev-STALE { background-color: #455468; color: #e8ecf2; }
       table {
         width: 100%;
@@ -242,8 +243,10 @@
         {% set edit_config_url = request.app.url_path_for('edit_config') %}
         {% set severity_files_url = request.app.url_path_for('severity_files') %}
         {% set regex_lab_url = request.app.url_path_for('regex_lab') %}
+        {% set notifications_url = request.app.url_path_for('notifications') %}
         {% set account_url = request.app.url_path_for('account') %}
         <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Dashboard</a>
+        <a href="{{ notifications_url }}" class="{% if current_path.startswith(notifications_url) %}active{% endif %}">Notifications</a>
         <a href="{{ ai_logs_url }}" class="{% if current_path.startswith(ai_logs_url) %}active{% endif %}">AI logs explorer</a>
         <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Config editor</a>
         <a href="{{ severity_files_url }}" class="{% if current_path.startswith(severity_files_url) %}active{% endif %}">Baseline editor</a>
