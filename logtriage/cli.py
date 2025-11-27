@@ -78,6 +78,19 @@ def print_json_summary(findings: List[Finding]) -> None:
     print()
 
 
+def _modules_to_run(modules: List[ModuleConfig], selected_name: Optional[str]) -> List[ModuleConfig]:
+    """Filter modules based on CLI selection.
+
+    - When a specific module is requested, return that module even if it is disabled
+      so the user can explicitly run it.
+    - Otherwise, include all enabled modules (both batch and follow).
+    """
+
+    if selected_name:
+        return [m for m in modules if m.name == selected_name]
+    return [m for m in modules if m.enabled]
+
+
 def run_module_batch(
     mod: ModuleConfig, pipelines: List[PipelineConfig], llm_defaults: "GlobalLLMConfig"
 ) -> List[Finding]:
@@ -192,17 +205,16 @@ def main(argv: Optional[List[str]] = None) -> None:
                     # do not abort if cleanup fails
                     pass
 
-        if args.module:
-            modules_to_run = [m for m in modules if m.name == args.module]
-            if not modules_to_run:
-                print(f"No module named {args.module} found in config.", file=sys.stderr)
-                sys.exit(1)
-        else:
-            modules_to_run = [m for m in modules if m.enabled and m.mode == "follow"]
+        modules_to_run = _modules_to_run(modules, args.module)
 
-        if not modules_to_run:
-            print("No enabled follow-mode modules found in config.", file=sys.stderr)
+        if args.module and not modules_to_run:
+            print(f"No module named {args.module} found in config.", file=sys.stderr)
             sys.exit(1)
+
+        if not args.module and not modules_to_run:
+            print("No enabled modules found in config.", file=sys.stderr)
+            sys.exit(1)
+
 
         has_follow_module = any(mod.mode == "follow" for mod in modules_to_run)
 
