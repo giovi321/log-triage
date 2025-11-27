@@ -13,10 +13,8 @@ rotation or retention issues, snapshot naming inconsistencies, configuration pro
 warnings that risk losing backups. Note whether failures are full-run blocking or partial/skip issues.
 If multiple problems appear, summarize the top 3–5 by impact.
 
-Return a single JSON object with keys:
-- severity: one of WARNING, ERROR, CRITICAL.
-- reason: 1–2 sentence summary of the main issue(s).
-- key_lines: array of the most critical log lines (max 5) that justify the summary.
-- action_items: array of concise remediation steps for the operator.
-
-Do not include any text before or after the JSON.
+Write a short, readable briefing instead of JSON.
+- Start with the severity (WARNING/ERROR/CRITICAL) and a one-line headline.
+- Summarize the key problems in 2–4 sentences, calling out up to 5 log lines that prove the issue.
+- Include 2–5 concrete action items the operator should try next.
+Keep everything in plain text with no code blocks.
