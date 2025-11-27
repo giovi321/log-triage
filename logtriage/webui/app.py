@@ -31,6 +31,7 @@ from .db import (
     delete_finding_by_id,
     get_finding_by_id,
     get_module_stats,
+    count_open_findings_for_module,
     get_next_finding_index,
     setup_database,
     get_recent_findings_for_module,
@@ -1033,11 +1034,17 @@ async def ai_logs(
     ingestion_status = _derive_ingestion_status(modules) if modules else None
     safe_sample_source = _normalize_sample_source(sample_source)
     module_obj = None
+    open_findings_count = None
     if modules:
         if module:
             module_obj = next((m for m in modules if m.name == module), None)
         if module_obj is None:
             module_obj = modules[0]
+
+    if module_obj and db_status.get("connected"):
+        open_findings_count = count_open_findings_for_module(
+            module_obj.name, severities=SEVERITY_CHOICES
+        )
 
     sample_lines, sample_error = _get_sample_lines_for_module(
         module_obj, safe_sample_source, max_lines=400
@@ -1096,6 +1103,7 @@ async def ai_logs(
             "sample_source": safe_sample_source,
             "stats": stats,
             "ingestion_status": ingestion_status,
+            "open_findings_count": open_findings_count,
         },
     )
 
