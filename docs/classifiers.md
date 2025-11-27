@@ -18,7 +18,7 @@ Select either via `pipelines[].classifier` in `config.yaml`.
    - Output: a `List[Finding]` populated with severity, message, line numbers, and excerpt context.
 2. **Register the classifier.** Update `logtriage/classifiers/__init__.py` to route a new `classifier_type` string to your function, similar to how `rsnapshot_basic` is registered.
 3. **Expose configuration.** In `config.yaml`, set `pipelines[].classifier` to your new `classifier_type` (for example, `custom_http`). Add any regexes or options your classifier consumes.
-4. **Test with the CLI.** Run `python -m logtriage.cli run --module <module>` and use `--reload-on-change` to iterate quickly while editing code and regexes via the Web UI.
+4. **Test with the CLI.** Run `logtriage run --module <module>` and use `--reload-on-change` to iterate quickly while editing code and regexes via the Web UI.
 
 ## Authoring tips
 

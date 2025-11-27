@@ -33,23 +33,23 @@ You can create or refine these settings in the Web UI's config editor and regex 
 
 ## Run the CLI
 
-Activate your virtual environment and call the CLI module. The examples assume your `config.yaml` sits in the project root.
+Activate your virtual environment and call the `logtriage` console script. The examples assume your `config.yaml` sits in the project root.
 
 ```bash
 source .venv/bin/activate
-python -m logtriage --config config.yaml
+logtriage --config config.yaml
 ```
 
 Run only one module:
 
 ```bash
-python -m logtriage --config config.yaml --module homeassistant_batch
+logtriage --config config.yaml --module homeassistant_batch
 ```
 
 Follow a log file in real time, reloading when the config changes:
 
 ```bash
-python -m logtriage --config config.yaml --module homeassistant_follow --reload-on-change
+logtriage --config config.yaml --module homeassistant_follow --reload-on-change
 ```
 
 ## Enable LLM payloads

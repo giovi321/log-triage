@@ -5,9 +5,9 @@ The CLI reads the same YAML configuration as the Web UI and provides batch and f
 ## Commands
 
 ```bash
-python -m logtriage.cli --config ./config.yaml run --module <module-name>
-python -m logtriage.cli --config ./config.yaml run-all
-python -m logtriage.cli --config ./config.yaml list-modules
+logtriage --config ./config.yaml run --module <module-name>
+logtriage --config ./config.yaml run-all
+logtriage --config ./config.yaml list-modules
 ```
 
 - `--config`: path to the YAML configuration (defaults to `./config.yaml`).
@@ -22,8 +22,8 @@ When running in follow mode, use `--reload-on-change` to pick up edits from the 
 Modules can emit findings as plaintext or JSON.
 
 ```bash
-python -m logtriage.cli run --module homeassistant_follow --output-format text
-python -m logtriage.cli run --module homeassistant_follow --output-format json
+logtriage run --module homeassistant_follow --output-format text
+logtriage run --module homeassistant_follow --output-format json
 ```
 
 Use `min_print_severity` in the module configuration to suppress lower-importance findings (for example, only `ERROR` and `CRITICAL`).
@@ -44,6 +44,6 @@ CLI runs honor module-level alert and LLM settings:
 
 ## Troubleshooting tips
 
-- Run `python -m logtriage.cli --help` for the full list of global and subcommand flags.
+- Run `logtriage --help` for the full list of global and subcommand flags.
 - Use `--verbose` to print debug logging when diagnosing regex grouping or follow-mode timing.
 - If regexes seem off, open the Web UI regex lab to refine them and re-run the CLI with `--reload-on-change` enabled.
