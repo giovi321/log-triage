@@ -60,7 +60,7 @@ def classify_rsnapshot_basic(
         pcfg.grouping_end_regex,
         re.compile(r"^={5,}$"),
         re.compile(r"^-{5,}$"),
-        re.compile(r"rsnapshot\\s+\\w+:\\s+started", re.IGNORECASE),
+        re.compile(r"rsnapshot\s+\w+:\s+started", re.IGNORECASE),
     ]
     marker_res: List[re.Pattern] = [r for r in default_markers if r is not None]
     runs = _split_runs(lines, marker_res)
