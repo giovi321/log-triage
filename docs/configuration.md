@@ -14,7 +14,6 @@
   - `ignore_regexes` drop lines before counting.
   - `warning_regexes` and `error_regexes` count matched lines to set severity.
   - The regex lab in the UI helps experiment with these patterns.
-- **Baseline:** A rolling window of historical counts for a module. When current counts exceed configured multipliers, the finding is marked anomalous and its severity can be bumped.
 - **Addressed & false positives:** Addressed findings track items you reviewed. Marking a finding as a false positive also adds the pattern to the pipeline's ignore list, preventing repeats.
 
 Keep these terms in mind while reading the configuration sections below.
@@ -31,9 +30,6 @@ database:
 alerts:
   webhook: {}
   mqtt: {}
-baseline:
-  enabled: false
-  state_file: ''
 ```
 
 Each top-level key controls a specific area of the system. The example below expands all of them in context.
@@ -90,10 +86,6 @@ alerts:
   webhook:
     enabled: false
     url: ''
-
-baseline:
-  enabled: false
-  state_file: ''
 ```
 
 > Tip: The Web UI config editor provides inline hints and validation so you can tweak values safely before saving, and the regex lab lets you test patterns interactively before applying them.
@@ -111,7 +103,6 @@ Line-by-line highlights for the example above:
 - `modules[].alerts`: enable webhook or MQTT destinations per module.
 - `llm.default_provider` and `llm.providers`: global provider definitions, including where API keys come from.
 - `database.url`: connection string for persisting findings so the Web UI can query history.
-- `baseline`: optional anomaly detection storage (state file) and switches.
 
 ### LLM sampling controls
 
@@ -221,25 +212,6 @@ Modules support multiple alert channels:
       topic: 'alerts/logs'
       tls: false
   ```
-
-### Baseline and anomaly detection
-
-When `baseline.enabled` is true, the CLI tracks historical error and warning counts and labels runs as anomalies if they exceed configured multipliers.
-
-```yaml
-baseline:
-  enabled: true
-  state_file: './state/homeassistant.json'
-  window: 10
-  error_multiplier: 2.0
-  warning_multiplier: 2.0
-  severity_on_anomaly: 'CRITICAL'
-```
-
-- The baseline window stores the last `window` runs and computes moving averages for warnings and errors.
-- When current counts exceed the average times the configured multipliers, the run is flagged as anomalous.
-- If `severity_on_anomaly` is set, the finding severity is elevated (for example to `CRITICAL`). Otherwise, the original severity is preserved but the anomaly flag is stored.
-- Baseline state is persisted to the `state_file` per module. The Web UI offers an editor for these JSON files.
 
 ## LLM providers
 

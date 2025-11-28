@@ -53,7 +53,7 @@ BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
 ASSETS_DIR.mkdir(exist_ok=True)
-SAMPLE_LOG_DIR = ROOT_DIR / "baseline" / "samples"
+SAMPLE_LOG_DIR = ROOT_DIR / "samples"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals.update({"app_version": __version__})
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -380,48 +380,6 @@ def _render_config_editor(
     )
 
 
-def _collect_baseline_files(modules: List[ModuleConfig]) -> List[Dict[str, Any]]:
-    files: Dict[str, Dict[str, Any]] = {}
-    for module in modules:
-        baseline_cfg = getattr(module, "baseline", None)
-        if not baseline_cfg:
-            continue
-        path = baseline_cfg.state_file
-        path_str = str(path)
-        if path_str not in files:
-            files[path_str] = {"path": path, "path_str": path_str, "modules": []}
-        files[path_str]["modules"].append(module.name)
-    return list(files.values())
-
-
-def _render_severity_editor(
-    request: Request,
-    username: str,
-    *,
-    baseline_files: List[Dict[str, Any]],
-    selected_path: Optional[str],
-    file_text: str,
-    selected_modules: List[str],
-    error: Optional[str] = None,
-    message: Optional[str] = None,
-    status_code: int = status.HTTP_200_OK,
-):
-    return templates.TemplateResponse(
-        "severity_files.html",
-        {
-            "request": request,
-            "username": username,
-            "baseline_files": baseline_files,
-            "selected_path": selected_path,
-            "file_text": file_text,
-            "error": error,
-            "message": message,
-            "selected_modules": selected_modules,
-        },
-        status_code=status_code,
-    )
-
-
 def _regex_context(
     request: Request,
     username: str,
@@ -538,22 +496,6 @@ async def dashboard(request: Request):
     )
 
 
-@app.get("/notifications", name="notifications")
-async def notifications_page(request: Request):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    notes = list_notifications()
-    return templates.TemplateResponse(
-        "notifications.html",
-        {
-            "request": request,
-            "username": username,
-            "notifications": notes,
-            "notif_summary": notification_summary(),
-        },
-    )
 
 
 @app.get("/config/edit", name="edit_config")
@@ -668,179 +610,6 @@ async def reload_config(request: Request):
         username,
         text,
         message="Configuration reloaded from disk.",
-    )
-
-
-@app.get("/severity-files", name="severity_files")
-async def severity_files(request: Request, path: Optional[str] = None):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    try:
-        modules = _build_modules_from_config()
-    except Exception as exc:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=[],
-            selected_path=None,
-            file_text="",
-            selected_modules=[],
-            error=f"Failed to load modules from config: {exc}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    baseline_files = _collect_baseline_files(modules)
-    if not baseline_files:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=[],
-            selected_path=None,
-            file_text="",
-            selected_modules=[],
-            message="No modules define a baseline.state_file. Add one in the config to manage baseline severity files here.",
-        )
-
-    selected_entry = next((f for f in baseline_files if f["path_str"] == path), baseline_files[0])
-    file_path: Path = selected_entry["path"]
-    message: Optional[str] = None
-    error: Optional[str] = None
-
-    try:
-        raw_text = file_path.read_text(encoding="utf-8")
-        try:
-            parsed = json.loads(raw_text)
-            file_text = json.dumps(parsed, indent=2)
-        except Exception:
-            file_text = raw_text
-            error = "File contains invalid JSON; fix the content before saving."
-    except FileNotFoundError:
-        file_text = json.dumps({"history": []}, indent=2)
-        message = f"{file_path} not found. Save to create it."
-    except Exception as exc:
-        file_text = ""
-        error = f"Failed to read {file_path}: {exc}"
-
-    return _render_severity_editor(
-        request,
-        username,
-        baseline_files=baseline_files,
-        selected_path=str(file_path),
-        file_text=file_text,
-        selected_modules=selected_entry.get("modules", []),
-        error=error,
-        message=message,
-    )
-
-
-@app.post("/severity-files", name="severity_files_post")
-async def severity_files_post(
-    request: Request,
-    path: str = Form(...),
-    file_text: str = Form(...),
-):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    try:
-        modules = _build_modules_from_config()
-    except Exception as exc:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=[],
-            selected_path=None,
-            file_text=file_text,
-            selected_modules=[],
-            error=f"Failed to load modules from config: {exc}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    baseline_files = _collect_baseline_files(modules)
-    selected_entry = next((f for f in baseline_files if f["path_str"] == path), None)
-    if selected_entry is None:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=baseline_files,
-            selected_path=None,
-            file_text=file_text,
-            selected_modules=[],
-            error="Selected file is not part of configured baselines.",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-    target_path: Path = selected_entry["path"]
-
-    try:
-        parsed = json.loads(file_text)
-    except Exception as exc:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=baseline_files,
-            selected_path=str(target_path),
-            file_text=file_text,
-            selected_modules=selected_entry.get("modules", []),
-            error=f"JSON error: {exc}",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if not isinstance(parsed, dict) or parsed is None:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=baseline_files,
-            selected_path=str(target_path),
-            file_text=file_text,
-            selected_modules=selected_entry.get("modules", []),
-            error="Top-level JSON must be an object (e.g., {\"history\": []}).",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-    history = parsed.get("history")
-    if history is not None and not isinstance(history, list):
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=baseline_files,
-            selected_path=str(target_path),
-            file_text=file_text,
-            selected_modules=selected_entry.get("modules", []),
-            error="The 'history' key must be a list if present.",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-    normalized_text = json.dumps(parsed, indent=2)
-
-    try:
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = target_path.with_suffix(target_path.suffix + ".tmp")
-        tmp_path.write_text(normalized_text, encoding="utf-8")
-        tmp_path.replace(target_path)
-    except Exception as exc:
-        return _render_severity_editor(
-            request,
-            username,
-            baseline_files=baseline_files,
-            selected_path=str(target_path),
-            file_text=file_text,
-            selected_modules=selected_entry.get("modules", []),
-            error=f"Failed to write {target_path}: {exc}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    return _render_severity_editor(
-        request,
-        username,
-        baseline_files=baseline_files,
-        selected_path=str(target_path),
-        file_text=normalized_text,
-        selected_modules=selected_entry.get("modules", []),
-        message=f"Saved {target_path}.",
     )
 
 
@@ -990,15 +759,29 @@ def _build_log_view_state(
                 in SEVERITY_CHOICES,
             )
 
+        # Extract available severities from findings (handle unified view)
         for section in finding_tail:
-            finding = section.get("finding")
-            if not finding:
-                continue
-            sev = str(getattr(finding, "severity", "")).upper()
-            if sev and sev not in available_severities:
-                available_severities.append(sev)
-            if sev and sev not in severity_choices:
-                severity_choices.append(sev)
+            if section.get("unified_view"):
+                # Unified view: findings are attached to individual lines
+                for line_entry in section.get("lines", []):
+                    finding = line_entry.get("finding")
+                    if not finding:
+                        continue
+                    sev = str(getattr(finding, "severity", "")).upper()
+                    if sev and sev not in available_severities:
+                        available_severities.append(sev)
+                    if sev and sev not in severity_choices:
+                        severity_choices.append(sev)
+            else:
+                # Legacy: finding attached to section
+                finding = section.get("finding")
+                if not finding:
+                    continue
+                sev = str(getattr(finding, "severity", "")).upper()
+                if sev and sev not in available_severities:
+                    available_severities.append(sev)
+                if sev and sev not in severity_choices:
+                    severity_choices.append(sev)
 
         finding_tail = _filter_finding_tail(
             finding_tail, tail_filter_normalized, extra_predicate=None
@@ -2040,12 +1823,20 @@ def _build_finding_tail(
     module_path: Optional[Path] = None,
     context_window: int = 2,
 ) -> List[Dict[str, Any]]:
+    """Build a unified log view with findings mapped to single lines.
+    
+    Returns a single section containing all log lines, with each line optionally
+    associated with a finding. This allows the UI to show findings in context.
+    """
     indexed_lines = [
-        {"index": idx + first_line_number, "text": line}
+        {"index": idx + first_line_number, "text": line, "finding": None}
         for idx, line in enumerate(sample_lines)
     ]
-    used_indexes: set[int] = set()
-    sections: List[Dict[str, Any]] = []
+    
+    # Create a lookup by line index for quick access
+    line_by_index: Dict[int, Dict[str, Any]] = {
+        entry["index"]: entry for entry in indexed_lines
+    }
 
     sorted_findings = sorted(
         recent_findings,
@@ -2071,92 +1862,101 @@ def _build_finding_tail(
 
         return loaded
 
-    def _lines_for_finding(finding):
+    def _primary_line_for_finding(finding) -> Optional[Dict[str, Any]]:
+        """Get the single primary line that represents this finding."""
         start = getattr(finding, "line_start", None)
-        end = getattr(finding, "line_end", None)
         excerpt = getattr(finding, "excerpt", None) or ""
         excerpt_lines = excerpt.splitlines() if isinstance(excerpt, str) else list(excerpt)
-
-        # Always prefer the stored excerpt so the UI, DB, and LLM payloads stay in sync.
+        
+        # Try to find the line in our indexed lines first
+        if isinstance(start, int) and start in line_by_index:
+            return {"index": start, "text": line_by_index[start]["text"]}
+        
+        # If we have an excerpt, use its first line
         if excerpt_lines:
-            anchor_index = start if isinstance(start, int) else None
-            anchor_text = None
-            if anchor_index is not None:
-                anchor_text = next(
-                    (entry.get("text") for entry in indexed_lines if entry.get("index") == anchor_index),
-                    None,
-                )
-            match_pos = None
-            if anchor_text:
-                for pos, text in enumerate(excerpt_lines):
-                    if text == anchor_text:
-                        match_pos = pos
-                        break
-            if match_pos is None:
-                match_pos = 0
+            first_line_text = excerpt_lines[0]
+            # Try to match it in our indexed lines
+            for entry in indexed_lines:
+                if entry["text"] == first_line_text:
+                    return {"index": entry["index"], "text": first_line_text}
+            # Return with the start index if available
+            return {"index": start, "text": first_line_text}
+        
+        # Fallback: try to load from file
+        if isinstance(start, int):
+            loaded = _load_from_file(start, start)
+            if loaded:
+                return loaded[0]
+        
+        return None
 
-            start_idx = anchor_index - match_pos if anchor_index is not None else None
-            return [
-                {"index": (start_idx + offset) if start_idx is not None else None, "text": text}
-                for offset, text in enumerate(excerpt_lines)
-            ]
-
-        if start is not None and end is not None and start >= 0 and end >= start:
-            matching = [entry for entry in indexed_lines if start <= entry.get("index", -1) <= end]
-            if matching:
-                return matching
-            surrounding = _load_from_file(
-                max(1, start - context_window),
-                end + context_window,
-            )
-            if surrounding:
-                return surrounding
-
-        if start is not None:
-            fallback = _load_from_file(
-                max(1, start - context_window),
-                (start + context_window) if end is None else (end + context_window),
-            )
-            if fallback:
-                return fallback
-
-        return []
-
+    # Map findings to their primary lines
     for finding in sorted_findings:
-        lines = _lines_for_finding(finding)
-        if not lines:
+        primary = _primary_line_for_finding(finding)
+        if not primary:
             continue
-        for entry in lines:
-            idx = entry.get("index")
-            if isinstance(idx, int):
-                used_indexes.add(idx)
-        sections.append({"finding": finding, "lines": lines})
+        
+        line_index = primary.get("index")
+        if line_index is not None and line_index in line_by_index:
+            # Associate finding with this line (only if not already associated)
+            if line_by_index[line_index]["finding"] is None:
+                line_by_index[line_index]["finding"] = finding
+        else:
+            # Line not in current view - add it if we have an index
+            if line_index is not None:
+                new_entry = {
+                    "index": line_index,
+                    "text": primary.get("text", ""),
+                    "finding": finding,
+                }
+                # Insert in correct position
+                inserted = False
+                for i, entry in enumerate(indexed_lines):
+                    if entry["index"] > line_index:
+                        indexed_lines.insert(i, new_entry)
+                        line_by_index[line_index] = new_entry
+                        inserted = True
+                        break
+                if not inserted:
+                    indexed_lines.append(new_entry)
+                    line_by_index[line_index] = new_entry
 
-    if indexed_lines:
-        remaining = [ln for ln in indexed_lines if ln.get("index") not in used_indexes]
-        if remaining:
-            sections.append({"finding": None, "lines": remaining})
-
-    return sections
+    # Return a single section with all lines
+    return [{"finding": None, "lines": indexed_lines, "unified_view": True}]
 
 
 def _finding_line_examples(sections: List[Dict[str, Any]]) -> Dict[int, str]:
+    """Extract example lines for each finding from the unified view."""
     examples: Dict[int, str] = {}
     for section in sections:
-        finding = section.get("finding")
-        if not finding:
-            continue
-        finding_id = getattr(finding, "id", None)
-        if finding_id is None or finding_id in examples:
-            continue
-        lines = section.get("lines") or []
-        texts: List[str] = []
-        for entry in lines:
-            text = entry.get("text") if isinstance(entry, dict) else None
-            if text:
-                texts.append(text)
-        if texts:
-            examples[int(finding_id)] = "\n".join(texts)
+        # Handle unified view where findings are attached to individual lines
+        if section.get("unified_view"):
+            for line_entry in section.get("lines", []):
+                finding = line_entry.get("finding")
+                if not finding:
+                    continue
+                finding_id = getattr(finding, "id", None)
+                if finding_id is None or finding_id in examples:
+                    continue
+                text = line_entry.get("text", "")
+                if text:
+                    examples[int(finding_id)] = text
+        else:
+            # Legacy handling for non-unified sections
+            finding = section.get("finding")
+            if not finding:
+                continue
+            finding_id = getattr(finding, "id", None)
+            if finding_id is None or finding_id in examples:
+                continue
+            lines = section.get("lines") or []
+            texts: List[str] = []
+            for entry in lines:
+                text = entry.get("text") if isinstance(entry, dict) else None
+                if text:
+                    texts.append(text)
+            if texts:
+                examples[int(finding_id)] = "\n".join(texts)
     return examples
 
 
@@ -2165,6 +1965,11 @@ def _filter_finding_tail(
     tail_filter: str,
     extra_predicate=None,
 ) -> List[Dict[str, Any]]:
+    """Filter sections/lines based on severity filter.
+    
+    For unified view, this filters the lines within the section rather than
+    filtering entire sections.
+    """
     if not sections:
         return []
 
@@ -2174,12 +1979,20 @@ def _filter_finding_tail(
 
     filtered: List[Dict[str, Any]] = []
     for section in sections:
-        finding = section.get("finding")
-        severity = str(getattr(finding, "severity", "")).upper() if finding else ""
-        severity_match = normalized in {"", "ALL"} or severity == normalized
-        extra_match = extra_predicate(section) if extra_predicate else True
-        if severity_match and extra_match:
+        # Handle unified view - filter lines within the section
+        if section.get("unified_view"):
+            # For unified view, we keep all lines but the filter affects
+            # which findings are considered "active" for display purposes
+            # We don't filter lines out - we show all lines in context
             filtered.append(section)
+        else:
+            # Legacy handling for non-unified sections
+            finding = section.get("finding")
+            severity = str(getattr(finding, "severity", "")).upper() if finding else ""
+            severity_match = normalized in {"", "ALL"} or severity == normalized
+            extra_match = extra_predicate(section) if extra_predicate else True
+            if severity_match and extra_match:
+                filtered.append(section)
 
     return filtered
 

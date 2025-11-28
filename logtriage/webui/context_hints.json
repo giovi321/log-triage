@@ -1,5 +1,5 @@
 {
-  "root": "Configuration is grouped the same way as the README: llm, pipelines, modules, baseline, stream, database, webui, and alerts.",
+  "root": "Configuration is grouped the same way as the README: llm, pipelines, modules, stream, database, webui, and alerts.",
   "llm": "llm: global LLM defaults and provider definitions shared by every module.",
   "llm_enabled": "llm.enabled: master switch that allows modules to call an OpenAI-compatible provider when a finding needs LLM analysis.",
   "llm_min_severity": "llm.min_severity: lowest severity that should be eligible for LLM processing unless a module overrides it.",
@@ -45,7 +45,6 @@
   "modules_alerts": "modules.alerts: webhook and MQTT delivery points that can be tailored per module with their own severity thresholds.",
   "alerts_webhook": "alerts.webhook: HTTP callback settings used when a finding should be pushed to an external service.",
   "alerts_mqtt": "alerts.mqtt: configuration for publishing findings to an MQTT broker.",
-  "modules_baseline": "modules.baseline: anomaly detection settings that compare current counts to historical averages and bump severity when counts spike.",
   "modules_stream": "modules.stream: stream and tailing controls that apply when modules.mode is follow.",
   "database": "database: connection string and retention policy used by both CLI and Web UI to store findings history.",
   "database_url": "database.url: SQLAlchemy connection URL such as sqlite:///file.db or a PostgreSQL DSN.",
