@@ -10,7 +10,7 @@ from .classifiers import classify_lines
 from .llm_client import analyze_findings_with_llm
 from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
-from .webui.db import store_finding
+from .webui.db import store_finding, get_next_finding_index
 
 
 def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
@@ -133,7 +133,11 @@ def stream_file(
         deque(maxlen=context_prefix_lines) if context_prefix_lines > 0 else deque()
     )
 
-    finding_index = 0
+    try:
+        finding_index = get_next_finding_index(mod.name) - 1
+    except Exception:
+        # Fallback to 0 if database is not available
+        finding_index = 0
 
     for start_line, lines in follow_file(
         file_path,

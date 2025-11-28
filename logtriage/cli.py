@@ -13,7 +13,7 @@ from .llm_payload import write_llm_payloads, should_send_to_llm
 from .utils import select_pipeline
 from .stream import stream_file
 from .alerts import send_alerts
-from .webui.db import setup_database, cleanup_old_findings, store_finding
+from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
 from .version import __version__
 
 
@@ -103,6 +103,15 @@ def run_module_batch(
         context_suffix_lines=mod.llm.context_suffix_lines,
         pipeline_override=mod.pipeline_name,
     )
+
+    # Ensure continuous finding_index assignment across the entire module
+    try:
+        next_index = get_next_finding_index(mod.name)
+        for i, f in enumerate(findings):
+            f.finding_index = next_index + i
+    except Exception:
+        # Fallback to existing indices if database is not available
+        pass
 
     for f in findings:
         f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
