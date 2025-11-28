@@ -266,7 +266,8 @@
   function pathForCursor(doc, lineNumber) {
     const lines = doc.getValue().split('\n');
     const stack = [];
-    for (let i = 0; i <= lineNumber && i < lines.length; i++) {
+    // Only iterate up to (but not including) the current line to get ancestors
+    for (let i = 0; i < lineNumber && i < lines.length; i++) {
       const raw = lines[i];
       const indentMatch = raw.match(/^(\s*)/);
       const indent = indentMatch ? indentMatch[1].length : 0;
@@ -286,6 +287,21 @@
       }
       stack.push({ key, indent: effectiveIndent });
     }
+    
+    // Now check the current line's indent to pop ancestors that are at same or deeper level
+    if (lineNumber < lines.length) {
+      const currentLine = lines[lineNumber];
+      const currentIndentMatch = currentLine.match(/^(\s*)/);
+      const currentIndent = currentIndentMatch ? currentIndentMatch[1].length : 0;
+      const currentTrimmed = currentLine.trim();
+      const currentIsListItem = /^-\s*/.test(currentTrimmed);
+      const currentEffectiveIndent = currentIndent + (currentIsListItem ? 1 : 0);
+      
+      while (stack.length && stack[stack.length - 1].indent >= currentEffectiveIndent) {
+        stack.pop();
+      }
+    }
+    
     return stack.map(s => s.key);
   }
 

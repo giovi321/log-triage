@@ -111,10 +111,14 @@ def _load_context_hints() -> Dict[str, str]:
             if not path.exists():
                 continue
             raw = path.read_text(encoding="utf-8")
-            # Fix common invalid escape in JSON like `\.` (used in regex examples)
-            # which otherwise triggers `Invalid \escape` errors.
-            raw_fixed = raw.replace("\\.", "\\\\.")
-            data = json.loads(raw_fixed)
+            # The JSON file should be valid as-is; only apply escape fix if needed
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                # Fix common invalid escape in JSON like `\.` (used in regex examples)
+                # which otherwise triggers `Invalid \escape` errors.
+                raw_fixed = raw.replace("\\.", "\\\\.")
+                data = json.loads(raw_fixed)
             if isinstance(data, dict):
                 data.setdefault(
                     "root",
@@ -839,7 +843,11 @@ async def ai_logs(
         if module:
             module_obj = next((m for m in modules if m.name == module), None)
         if module_obj is None:
-            module_obj = modules[0]
+            # Default to first enabled module alphabetically
+            enabled_modules = sorted(
+                [m for m in modules if m.enabled], key=lambda m: m.name
+            )
+            module_obj = enabled_modules[0] if enabled_modules else None
 
     if module_obj and db_status.get("connected"):
         # Count findings based on current filters to match what's displayed
