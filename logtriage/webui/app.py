@@ -865,12 +865,6 @@ async def ai_logs(
             )
             module_obj = enabled_modules[0] if enabled_modules else None
 
-    if module_obj and db_status.get("connected"):
-        # Count all open findings regardless of display filters
-        open_findings_count = count_open_findings_for_module(
-            module_obj.name, severities=SEVERITY_CHOICES
-        )
-
     sample_lines, sample_start_line, total_lines, sample_error = _get_sample_lines_for_module(
         module_obj, safe_sample_source, max_lines=500
     )
@@ -882,6 +876,25 @@ async def ai_logs(
         sample_start_line=sample_start_line,
         total_lines=total_lines,
     )
+
+    # Count findings displayed in current view (from finding_tail)
+    if module_obj and db_status.get("connected"):
+        displayed_finding_ids = set()
+        for section in log_state.get("finding_tail", []):
+            if section.get("unified_view"):
+                for line_entry in section.get("lines", []):
+                    finding = line_entry.get("finding")
+                    if finding:
+                        fid = getattr(finding, "id", None)
+                        if fid is not None:
+                            displayed_finding_ids.add(fid)
+            else:
+                finding = section.get("finding")
+                if finding:
+                    fid = getattr(finding, "id", None)
+                    if fid is not None:
+                        displayed_finding_ids.add(fid)
+        open_findings_count = len(displayed_finding_ids)
 
     provider_name = _select_provider_name(module_obj)
     provider_cfg = llm_defaults.providers.get(provider_name) if provider_name else None
