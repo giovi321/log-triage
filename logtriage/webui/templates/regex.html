@@ -33,6 +33,18 @@
   .badge { background:#1f2f4b; color:#cfe1ff; border-radius:999px; padding:0.1rem 0.5rem; font-size:0.85rem; }
   .section-header { display:flex; justify-content:space-between; align-items:center; gap:0.65rem; flex-wrap:wrap; }
   .match-pill { display:flex; align-items:center; gap:0.4rem; font-weight:700; color:#e6ecf7; }
+  .findings-panel { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; }
+  .findings-list { display:flex; flex-direction:column; gap:0.5rem; max-height:300px; overflow-y:auto; }
+  .finding-item { display:flex; align-items:flex-start; gap:0.5rem; padding:0.5rem; background:#0f151e; border-radius:0.4rem; font-size:0.9rem; }
+  .finding-item:hover { background:#162032; }
+  .finding-item .finding-severity { flex-shrink:0; }
+  .finding-item .finding-reason { flex:1; white-space:pre-wrap; word-break:break-word; font-family:monospace; font-size:0.85rem; color:#c8d4e8; }
+  .finding-item .finding-meta { font-size:0.8rem; color:#9fb1d3; flex-shrink:0; }
+  .status-badge { display:inline-block; padding:0.15rem 0.4rem; border-radius:0.3rem; font-size:0.75rem; font-weight:600; text-transform:uppercase; }
+  .status-badge.sev-ERROR { background:#7d3434; color:#f8eaea; }
+  .status-badge.sev-WARNING { background:#6b5a2e; color:#f5ecd8; }
+  .status-badge.sev-CRITICAL { background:#5c1f3a; color:#f8e0ea; }
+  .status-badge.sev-INFO { background:#2e4472; color:#d8e8f8; }
 </style>
 <div class="card">
   <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
@@ -128,6 +140,30 @@
         </div>
       </div>
     </div>
+
+    {% if db_status and db_status.connected %}
+      <div class="findings-panel">
+        <div class="section-header" style="margin-bottom:0.5rem;">
+          <h3 style="margin:0;">Open findings</h3>
+          {% if open_findings_count is not none %}
+            <span class="badge">{{ open_findings_count }}</span>
+          {% endif %}
+        </div>
+        {% if recent_findings %}
+          <div class="findings-list">
+            {% for finding in recent_findings %}
+              <div class="finding-item">
+                <span class="status-badge sev-{{ finding.severity }} finding-severity">{{ finding.severity }}</span>
+                <span class="finding-reason">{{ finding.reason }}</span>
+                <span class="finding-meta">{{ finding.created_at|localtime }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">No findings recorded for this module.</p>
+        {% endif %}
+      </div>
+    {% endif %}
   {% else %}
     <p>No modules configured.</p>
   {% endif %}

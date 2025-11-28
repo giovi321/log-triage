@@ -403,6 +403,8 @@ def _regex_context(
     active_step: str = "pick",
     wizard: Optional[Dict[str, Any]] = None,
     step_hints: Optional[Dict[str, List[Dict[str, str]]]] = None,
+    recent_findings: Optional[List[Any]] = None,
+    open_findings_count: Optional[int] = None,
 ):
     normalized_source = _normalize_sample_source(sample_source)
     return {
@@ -423,6 +425,9 @@ def _regex_context(
         "wizard": wizard or _regex_wizard_metadata(active_step),
         "step_hints": step_hints or _build_all_regex_hints(),
         "active_step": active_step,
+        "recent_findings": recent_findings or [],
+        "open_findings_count": open_findings_count,
+        "db_status": db_status,
     }
 
 
@@ -669,6 +674,15 @@ async def regex_lab(
         regex_kind=stored_state.get("regex_kind", "error"),
     )
 
+    # Fetch findings for the module
+    recent_findings = []
+    open_findings_count = None
+    if module_obj and db_status.get("connected"):
+        recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
+        open_findings_count = count_open_findings_for_module(
+            module_obj.name, severities=SEVERITY_CHOICES
+        )
+
     wizard = _regex_wizard_metadata(active_step)
     step_hints = _build_all_regex_hints()
     return templates.TemplateResponse(
@@ -678,7 +692,7 @@ async def regex_lab(
             username,
             modules,
             module_obj,
-        sample_lines=prepared_lines,
+            sample_lines=prepared_lines,
             regex_value=stored_state.get("regex_value", ""),
             regex_kind=stored_state.get("regex_kind", "error"),
             matches=matches,
@@ -688,6 +702,8 @@ async def regex_lab(
             wizard=wizard,
             step_hints=step_hints,
             active_step=active_step,
+            recent_findings=recent_findings,
+            open_findings_count=open_findings_count,
         ),
     )
 
@@ -850,20 +866,9 @@ async def ai_logs(
             module_obj = enabled_modules[0] if enabled_modules else None
 
     if module_obj and db_status.get("connected"):
-        # Count findings based on current filters to match what's displayed
-        tail_filter_normalized = (tail_filter or "all").upper()
-        issue_filter_normalized = (issue_filter or "all").upper()
-        
-        # Determine which severities to count based on filters
-        if tail_filter_normalized in {"", "ALL"}:
-            count_severities = SEVERITY_CHOICES
-        elif tail_filter_normalized in SEVERITY_CHOICES:
-            count_severities = [tail_filter_normalized]
-        else:
-            count_severities = SEVERITY_CHOICES
-            
+        # Count all open findings regardless of display filters
         open_findings_count = count_open_findings_for_module(
-            module_obj.name, severities=count_severities
+            module_obj.name, severities=SEVERITY_CHOICES
         )
 
     sample_lines, sample_start_line, total_lines, sample_error = _get_sample_lines_for_module(
