@@ -20,11 +20,13 @@
   .finding-response + .finding-response { margin-top:0.65rem; }
   .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
   .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
-  .synced-shell { border:1px solid #1a2232; border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
-  .synced-head { display:grid; grid-template-columns:1.1fr 1fr; gap:0.75rem; align-items:flex-end; margin-bottom:0.45rem; }
+  .synced-shell { border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
+  .synced-head { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.45rem; }
   .synced-scroll { display:flex; flex-direction:column; gap:0.6rem; max-height:560px; overflow-y:auto; padding-right:0.25rem; }
-  .synced-row { display:grid; grid-template-columns:1.1fr 1fr; gap:0.75rem; align-items:start; }
-  .synced-pane { border:1px solid #1b2332; border-radius:0.55rem; background:#0f131b; padding:0.65rem; }
+  .synced-row { display:flex; flex-direction:column; gap:0.75rem; }
+  .synced-pane { border-radius:0.55rem; background:#0f131b; padding:0.65rem; }
+  .sort-control { display:flex; align-items:center; gap:0.35rem; }
+  .sort-control select { padding:0.25rem 0.5rem; font-size:0.85rem; background:#0f131b; border:1px solid #2b3242; border-radius:0.35rem; color:#e8ecf2; }
   .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
   .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
   .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
@@ -143,6 +145,7 @@
               <span id="mark-finding-label">Mark as finding</span>
             </button>
             <div class="menu-panel" id="mark-finding-panel" role="menu" aria-label="Choose severity">
+              <div id="already-finding-msg" style="display:none; padding:0.5rem; color:#9fb1d3; font-size:0.9rem; white-space:nowrap;">This line is already a finding</div>
               {% for sev in severity_choices %}
                 <button type="button" class="secondary" role="menuitem" onclick="submitManualFinding('{{ sev }}')">{{ sev }}</button>
               {% endfor %}
@@ -179,12 +182,14 @@
     <div class="synced-shell">
       <div class="synced-head">
         <div class="sync-title">
-          <h3 style="margin:0;">Findings</h3>
+          <h3 style="margin:0;">Log lines</h3>
         </div>
-        <div class="sync-title">
-          <div>
-            <h3 style="margin:0;">AI opinion</h3>
-          </div>
+        <div class="sort-control">
+          <span class="muted" style="font-size:0.85rem;">Sort:</span>
+          <select id="log-sort-order" onchange="sortLogLines()">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
         </div>
       </div>
       <div class="synced-scroll" id="synced-scroll">
@@ -194,7 +199,7 @@
               {% if section.unified_view %}
                 {# Unified view: all lines shown together with findings inline #}
                 <div class="synced-row">
-                  <div class="synced-pane tail-pane" style="flex:1.2;">
+                  <div class="synced-pane tail-pane" style="width:100%;">
                     <div class="log-section unified-log-view">
                       <div class="log-section-body">
                         {% for line in section.lines %}
@@ -217,8 +222,7 @@
                                   <span class="muted" style="font-size:0.85rem;">Finding #{{ line_finding.finding_index }} · {{ line_finding.created_at|localtime }}</span>
                                   <span class="helper-text" style="margin:0;">{{ line_finding.reason }}</span>
                                 </div>
-                              </div>
-                              <div class="finding-controls" style="margin-top:0.35rem;">
+                                <div class="finding-controls" style="margin:0; flex-shrink:0;">
                                 {% set finding_example = (finding_examples.get(line_finding.id) if finding_examples else None) %}
                                 <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
                                   <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
@@ -247,6 +251,7 @@
                                     </div>
                                   </div>
                                 </form>
+                                </div>
                               </div>
                               {# AI opinion inline #}
                               {% set response_obj = line_finding|attr('llm_response') %}
@@ -267,13 +272,6 @@
                         {% endfor %}
                       </div>
                     </div>
-                  </div>
-                  <div class="synced-pane ai-pane" style="flex:0.8;">
-                    {% if not db_status.connected %}
-                      <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
-                    {% else %}
-                      <p class="muted" style="margin:0;">Select lines and click "Add to prompt" to analyze them. Findings are highlighted with severity badges.</p>
-                    {% endif %}
                   </div>
                 </div>
               {% else %}
@@ -305,26 +303,18 @@
                       </div>
                     </div>
                   </div>
-                  <div class="synced-pane ai-pane">
-                    {% if not db_status.connected %}
-                      <p class="muted">Database not connected.</p>
-                    {% elif not section.finding %}
-                      <p class="muted" style="margin:0;">No finding associated with these lines.</p>
-                    {% endif %}
-                  </div>
                 </div>
               {% endif %}
             {% endfor %}
           {% elif had_finding_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
             <div class="synced-row">
-              <div class="synced-pane tail-pane">
+              <div class="synced-pane tail-pane" style="width:100%;">
                 <p class="muted">No log sections matched the current filters.</p>
               </div>
-              <div class="synced-pane ai-pane"></div>
             </div>
           {% else %}
             <div class="synced-row">
-              <div class="synced-pane tail-pane">
+              <div class="synced-pane tail-pane" style="width:100%;">
                 {% for line in sample_lines %}
                   <div class="log-line" style="font-family:monospace; font-size:0.92rem;">
                     <input type="checkbox" name="selected_line" data-line-index="{{ loop.index0 }}" data-line="{{ line|replace('\n','')|e }}">
@@ -332,21 +322,13 @@
                   </div>
                 {% endfor %}
               </div>
-              <div class="synced-pane ai-pane">
-                {% if not db_status.connected %}
-                  <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
-                {% else %}
-                  <p class="muted" style="margin:0;">AI opinions will appear once findings are available.</p>
-                {% endif %}
-              </div>
             </div>
           {% endif %}
         {% else %}
           <div class="synced-row">
-            <div class="synced-pane tail-pane">
+            <div class="synced-pane tail-pane" style="width:100%;">
               <p class="muted">No lines read from this log path.</p>
             </div>
-            <div class="synced-pane ai-pane"></div>
           </div>
         {% endif %}
       </div>
@@ -362,7 +344,7 @@
               <span>Prompt builder</span>
               <span id="llm-status" class="muted"></span>
             </div>
-            <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}">{{ seed_prompt or '' }}</textarea>
+            <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}"></textarea>
             <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
               <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
               <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
@@ -464,6 +446,50 @@
       btn.classList.toggle('expanded', !isVisible);
     }
   }
+
+  function sortLogLines() {
+    const select = document.getElementById('log-sort-order');
+    const container = document.querySelector('.log-section-body');
+    if (!select || !container) return;
+    
+    const sortOrder = select.value;
+    const lines = Array.from(container.querySelectorAll('.log-line'));
+    
+    lines.sort((a, b) => {
+      const indexA = parseInt(a.dataset.lineIndex, 10) || 0;
+      const indexB = parseInt(b.dataset.lineIndex, 10) || 0;
+      return sortOrder === 'newest' ? indexB - indexA : indexA - indexB;
+    });
+    
+    // Re-append in sorted order (also moves associated finding-details)
+    lines.forEach(line => {
+      container.appendChild(line);
+      const findingId = line.dataset.findingId;
+      if (findingId) {
+        const details = document.getElementById(`finding-details-${findingId}`);
+        if (details) {
+          container.appendChild(details);
+        }
+      }
+    });
+  }
+
+  // Initialize sort on page load (newest first by default)
+  document.addEventListener('DOMContentLoaded', () => {
+    sortLogLines();
+    
+    // Add double-click handler for finding lines
+    document.querySelectorAll('.log-line.finding-line').forEach(line => {
+      line.addEventListener('dblclick', (e) => {
+        // Don't trigger if clicking on checkbox or button
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        const findingId = line.dataset.findingId;
+        if (findingId) {
+          toggleFindingDetails(findingId);
+        }
+      });
+    });
+  });
 
   function buildRegexSuggestionFromLine(line) {
     if (!line) return '';
@@ -827,6 +853,23 @@
     const panel = document.getElementById('mark-finding-panel');
     const trigger = document.getElementById('mark-finding-trigger');
     if (!menu || !panel || !trigger || trigger.disabled) return;
+    
+    // Check if any selected line is already a finding
+    const selectedCheckboxes = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
+    const hasExistingFinding = selectedCheckboxes.some(cb => cb.dataset.findingId);
+    const alreadyFindingMsg = document.getElementById('already-finding-msg');
+    const severityButtons = panel.querySelectorAll('button[role="menuitem"]');
+    
+    if (hasExistingFinding) {
+      // Show message, hide severity buttons
+      if (alreadyFindingMsg) alreadyFindingMsg.style.display = 'block';
+      severityButtons.forEach(btn => btn.style.display = 'none');
+    } else {
+      // Hide message, show severity buttons
+      if (alreadyFindingMsg) alreadyFindingMsg.style.display = 'none';
+      severityButtons.forEach(btn => btn.style.display = '');
+    }
+    
     const shouldOpen = typeof forceState === 'boolean' ? forceState : !menu.classList.contains('open');
     menu.classList.toggle('open', shouldOpen);
     trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
