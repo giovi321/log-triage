@@ -7,6 +7,8 @@ site_author: giovi321
 
 theme:
   name: material
+  palette:
+    scheme: slate
   logo: assets/log-triage-logo.svg
   favicon: assets/favicon.ico
   features:
