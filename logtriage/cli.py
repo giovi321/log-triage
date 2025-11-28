@@ -100,6 +100,7 @@ def run_module_batch(
         mod.llm,
         mod.llm.max_excerpt_lines,
         context_prefix_lines=mod.llm.context_prefix_lines,
+        context_suffix_lines=mod.llm.context_suffix_lines,
         pipeline_override=mod.pipeline_name,
     )
 

@@ -8,6 +8,7 @@ def _build_excerpt(
     lines: List[str],
     offset: int,
     context_prefix_lines: int,
+    context_suffix_lines: int,
     excerpt_limit: int,
     prefix_lines: List[str],
 ) -> List[str]:
@@ -19,7 +20,7 @@ def _build_excerpt(
     before_context = prefix_lines[-missing_prefix:] + before_current
 
     match_line = lines[offset]
-    after_context = lines[offset + 1 : offset + 1 + context_prefix_lines]
+    after_context = lines[offset + 1 : offset + 1 + context_suffix_lines]
 
     excerpt = before_context + [match_line] + after_context
 
@@ -58,6 +59,7 @@ def classify_regex_counter(
     start_line: int = 1,
     excerpt_limit: int = 20,
     context_prefix_lines: int = 0,
+    context_suffix_lines: int = 0,
     prefix_lines: List[str] | None = None,
 ) -> List[Finding]:
     """Emit one finding per matching rule line.
@@ -83,6 +85,7 @@ def classify_regex_counter(
                     lines,
                     offset,
                     context_prefix_lines,
+                    context_suffix_lines,
                     excerpt_limit,
                     prefix_lines,
                 )
@@ -109,6 +112,7 @@ def classify_regex_counter(
                     lines,
                     offset,
                     context_prefix_lines,
+                    context_suffix_lines,
                     excerpt_limit,
                     prefix_lines,
                 )

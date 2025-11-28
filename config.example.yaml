@@ -35,6 +35,10 @@ pipelines:
     - WARNING
     ignore_regexes:
     - 'Could not write lockfile /var/run/rsnapshot\.pid: File exists'
+  grouping:
+    type: separator
+    separator_regex: '^rsnapshot '
+    only_last: true
 - name: homeassistant
   match:
     filename_regex: homeassistant.*\.log
@@ -118,6 +122,7 @@ modules:
     prompt_template: ./prompts/rsnapshot.txt
     emit_llm_payloads_dir: ./rsnapshot_payloads
     context_prefix_lines: 2
+    context_suffix_lines: 2
   alerts:
     webhook:
       enabled: false
@@ -155,6 +160,7 @@ modules:
     prompt_template: ./prompts/homeassistant.txt
     emit_llm_payloads_dir: ./ha_llm_payloads
     context_prefix_lines: 2
+    context_suffix_lines: 2
   alerts:
     mqtt:
       enabled: false

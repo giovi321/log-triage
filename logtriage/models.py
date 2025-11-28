@@ -30,6 +30,7 @@ class PipelineConfig:
     grouping_type: str
     grouping_start_regex: Optional[re.Pattern]
     grouping_end_regex: Optional[re.Pattern]
+    grouping_separator_regex: Optional[re.Pattern]
     grouping_only_last: bool
 
 
@@ -108,6 +109,7 @@ class GlobalLLMConfig:
     default_provider: Optional[str]
     providers: Dict[str, LLMProviderConfig]
     context_prefix_lines: int = 0
+    context_suffix_lines: int = 0
     summary_prompt_path: Optional[Path] = None
 
 
@@ -120,6 +122,7 @@ class ModuleLLMConfig:
     prompt_template_path: Optional[Path] = None
     emit_llm_payloads_dir: Optional[Path] = None
     context_prefix_lines: int = 0
+    context_suffix_lines: int = 0
     max_output_tokens: Optional[int] = None
 
 

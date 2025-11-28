@@ -212,9 +212,12 @@
   const replaceOneButton = document.getElementById('replace-one');
   const replaceAllButton = document.getElementById('replace-all');
 
-  const hintTexts = {{ context_hints | tojson | safe }} || {};
-  const hintsLoaded = Object.keys(hintTexts).length > 0;
-  const defaultHint = hintTexts.root || 'Top-level settings for logtriage.';
+  // Context hints from server
+  const hintTexts = {{ context_hints | tojson | safe }};
+  // Ensure we have a valid object
+  const safeHints = hintTexts && typeof hintTexts === 'object' ? hintTexts : {};
+  const hintsLoaded = Object.keys(safeHints).length > 0;
+  const defaultHint = safeHints.root || 'Top-level settings for logtriage.';
   let errorLineHandle = null;
   let lastSearchDirection = 'next';
   let currentSearchMarker = null;
@@ -327,23 +330,23 @@
 
     // Exact matches first
     for (const key of candidates) {
-      if (key && hintTexts[key]) {
-        return hintTexts[key];
+      if (key && safeHints[key]) {
+        return safeHints[key];
       }
     }
 
     // Wildcard matches (e.g., llm_providers_*_api_base)
-    const wildcardKeys = Object.keys(hintTexts).filter((key) => key.includes('*'));
+    const wildcardKeys = Object.keys(safeHints).filter((key) => key.includes('*'));
     for (const candidate of candidates) {
       for (const wildcard of wildcardKeys) {
         const regex = new RegExp('^' + wildcard.replace(/\*/g, '[^_]+') + '$');
         if (regex.test(candidate)) {
-          return hintTexts[wildcard];
+          return safeHints[wildcard];
         }
       }
     }
 
-    return hintTexts.root || defaultHint;
+    return safeHints.root || defaultHint;
   }
 
   function validateYaml() {

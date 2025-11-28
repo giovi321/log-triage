@@ -56,8 +56,13 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
 
             if first_open and from_beginning:
                 f.seek(0, 0)
+                current_line_number = 1
             else:
                 f.seek(0, 2)
+                # For efficiency, we don't count lines when seeking to end.
+                # Instead, we use a placeholder and the actual line numbers
+                # will be relative to when we started following.
+                current_line_number = 1
             first_open = False
 
         line = f.readline()
@@ -104,7 +109,9 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
                 pass
             f = None
             inode_info = None
+            # Reset line number tracking - we'll seek to end on next open
             current_line_number = 1
+            first_open = False  # Ensure we seek to end, not beginning
             continue
 
 
@@ -121,6 +128,7 @@ def stream_file(
     from_beginning = mod.stream_from_beginning
     interval = mod.stream_interval
     context_prefix_lines = mod.llm.context_prefix_lines
+    context_suffix_lines = mod.llm.context_suffix_lines
     prefix_buffer: Deque[str] = (
         deque(maxlen=context_prefix_lines) if context_prefix_lines > 0 else deque()
     )
@@ -147,6 +155,7 @@ def stream_file(
             start_line,
             mod.llm.max_excerpt_lines,
             context_prefix_lines,
+            context_suffix_lines,
             list(prefix_buffer),
         )
         now = datetime.datetime.now(datetime.timezone.utc)

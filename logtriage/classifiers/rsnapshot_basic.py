@@ -49,6 +49,7 @@ def classify_rsnapshot_basic(
     start_line: int = 1,
     excerpt_limit: int = 20,
     context_prefix_lines: int = 0,
+    context_suffix_lines: int = 0,
     prefix_lines: List[str] | None = None,
 ) -> List[Finding]:
     """Heuristic classifier for rsnapshot runs that emits per-line findings."""
@@ -94,6 +95,7 @@ def classify_rsnapshot_basic(
                     lines,
                     offset,
                     context_prefix_lines,
+                    context_suffix_lines,
                     excerpt_limit,
                     prefix_lines,
                 )
@@ -117,6 +119,7 @@ def classify_rsnapshot_basic(
                     lines,
                     offset,
                     context_prefix_lines,
+                    context_suffix_lines,
                     excerpt_limit,
                     prefix_lines,
                 )
