@@ -832,8 +832,20 @@ async def ai_logs(
             module_obj = modules[0]
 
     if module_obj and db_status.get("connected"):
+        # Count findings based on current filters to match what's displayed
+        tail_filter_normalized = (tail_filter or "all").upper()
+        issue_filter_normalized = (issue_filter or "all").upper()
+        
+        # Determine which severities to count based on filters
+        if tail_filter_normalized in {"", "ALL"}:
+            count_severities = SEVERITY_CHOICES
+        elif tail_filter_normalized in SEVERITY_CHOICES:
+            count_severities = [tail_filter_normalized]
+        else:
+            count_severities = SEVERITY_CHOICES
+            
         open_findings_count = count_open_findings_for_module(
-            module_obj.name, severities=SEVERITY_CHOICES
+            module_obj.name, severities=count_severities
         )
 
     sample_lines, sample_error = _get_sample_lines_for_module(
@@ -1968,7 +1980,8 @@ def _filter_finding_tail(
     """Filter sections/lines based on severity filter.
     
     For unified view, this filters the lines within the section rather than
-    filtering entire sections.
+    filtering entire sections. When a severity filter is active, only lines
+    with findings matching that severity are shown (not all lines for context).
     """
     if not sections:
         return []
@@ -1981,10 +1994,26 @@ def _filter_finding_tail(
     for section in sections:
         # Handle unified view - filter lines within the section
         if section.get("unified_view"):
-            # For unified view, we keep all lines but the filter affects
-            # which findings are considered "active" for display purposes
-            # We don't filter lines out - we show all lines in context
-            filtered.append(section)
+            # For unified view, we need to filter the lines based on their findings
+            filtered_lines = []
+            for line_entry in section.get("lines", []):
+                finding = line_entry.get("finding")
+                if finding:
+                    severity = str(getattr(finding, "severity", "")).upper()
+                    severity_match = normalized in {"", "ALL"} or severity == normalized
+                    extra_match = extra_predicate(line_entry) if extra_predicate else True
+                    if severity_match and extra_match:
+                        filtered_lines.append(line_entry)
+                elif normalized in {"", "ALL"}:
+                    # Only keep non-finding lines when showing all severities
+                    filtered_lines.append(line_entry)
+                # When filtering by specific severity, skip non-finding lines
+            
+            # Only add the section if we have any lines that match
+            if filtered_lines:
+                filtered_section = section.copy()
+                filtered_section["lines"] = filtered_lines
+                filtered.append(filtered_section)
         else:
             # Legacy handling for non-unified sections
             finding = section.get("finding")

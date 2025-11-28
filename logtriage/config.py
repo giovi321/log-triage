@@ -78,12 +78,14 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
         grouping_start_re = None
         grouping_end_re = None
         grouping_only_last = False
+        grouping_separator_re = None
         if isinstance(grouping_cfg, str):
             grouping_type = grouping_cfg.lower()
         elif isinstance(grouping_cfg, dict):
             grouping_type = str(grouping_cfg.get("type", "whole_file")).lower()
             grouping_start_re = _compile_regex(grouping_cfg.get("start_regex"))
             grouping_end_re = _compile_regex(grouping_cfg.get("end_regex"))
+            grouping_separator_re = _compile_regex(grouping_cfg.get("separator_regex"))
             grouping_only_last = bool(grouping_cfg.get("only_last", False))
         else:
             raise ValueError(
@@ -92,9 +94,11 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
 
         if grouping_type in ("marker_based", "marker"):
             grouping_type = "marker"
+        elif grouping_type in ("separator_based", "separator"):
+            grouping_type = "separator"
         elif grouping_type != "whole_file":
             raise ValueError(
-                f"Pipeline '{name}': unknown grouping type '{grouping_type}' (expected whole_file or marker)"
+                f"Pipeline '{name}': unknown grouping type '{grouping_type}' (expected whole_file, marker, or separator)"
             )
 
         classifier_cfg = item.get("classifier", {}) or {}
@@ -129,6 +133,7 @@ def build_pipelines(cfg: Dict[str, Any]) -> List[PipelineConfig]:
                 grouping_type=grouping_type,
                 grouping_start_regex=grouping_start_re,
                 grouping_end_regex=grouping_end_re,
+                grouping_separator_regex=grouping_separator_re,
                 grouping_only_last=grouping_only_last,
             )
         )
@@ -156,6 +161,7 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
         )
     )
     base_context_prefix_lines = int(llm_cfg.get("context_prefix_lines", 0))
+    base_context_suffix_lines = int(llm_cfg.get("context_suffix_lines", 0))
     base_max_output_tokens = int(
         llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens", 512))
     )
@@ -199,6 +205,7 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
         default_provider=default_provider,
         providers=providers,
         context_prefix_lines=base_context_prefix_lines,
+        context_suffix_lines=base_context_suffix_lines,
         summary_prompt_path=summary_prompt_path,
     )
 
@@ -208,6 +215,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
     modules: List[ModuleConfig] = []
 
     base_context_prefix_lines = llm_defaults.context_prefix_lines
+    base_context_suffix_lines = llm_defaults.context_suffix_lines
 
     for item in modules_cfg:
         name = item["name"]
@@ -274,6 +282,19 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
             raise ValueError(
                 f"Module {name}: context_prefix_lines must be non-negative (got {context_prefix_lines})"
             )
+
+        context_suffix_lines_raw = llm_cfg.get("context_suffix_lines", base_context_suffix_lines)
+        try:
+            context_suffix_lines = int(context_suffix_lines_raw)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Module {name}: invalid context_suffix_lines {context_suffix_lines_raw} (expected integer)"
+            )
+        if context_suffix_lines < 0:
+            raise ValueError(
+                f"Module {name}: context_suffix_lines must be non-negative (got {context_suffix_lines})"
+            )
+
         max_output_tokens_raw = llm_cfg.get("max_output_tokens", llm_cfg.get("max_tokens"))
         max_output_tokens = int(max_output_tokens_raw) if max_output_tokens_raw else None
 
@@ -282,6 +303,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
             min_severity=llm_min_sev,
             max_excerpt_lines=llm_max_excerpt,
             context_prefix_lines=context_prefix_lines,
+            context_suffix_lines=context_suffix_lines,
             prompt_template_path=prompt_template_path,
             provider_name=provider_name,
             emit_llm_payloads_dir=emit_dir,

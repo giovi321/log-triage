@@ -16,6 +16,7 @@ def analyze_file(
     llm_cfg: ModuleLLMConfig,
     excerpt_limit: int,
     context_prefix_lines: int,
+    context_suffix_lines: int = 0,
 ) -> List[Finding]:
     try:
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
@@ -72,6 +73,7 @@ def analyze_file(
             start_line,
             excerpt_limit,
             context_prefix_lines,
+            context_suffix_lines,
             prefix_lines,
         )
         for f in chunk_findings:
@@ -90,6 +92,7 @@ def analyze_path(
     llm_cfg: ModuleLLMConfig,
     excerpt_limit: int,
     context_prefix_lines: int = 0,
+    context_suffix_lines: int = 0,
     pipeline_override: Optional[str] = None,
 ) -> List[Finding]:
     if not root.exists():
@@ -111,6 +114,7 @@ def analyze_path(
             llm_cfg,
             excerpt_limit,
             context_prefix_lines,
+            context_suffix_lines,
         )
 
     files = iter_log_files(root)
@@ -131,7 +135,7 @@ def analyze_path(
         else:
             pcfg = select_pipeline(pipelines, f)
         findings = analyze_file(
-            f, pcfg, llm_cfg, excerpt_limit, context_prefix_lines
+            f, pcfg, llm_cfg, excerpt_limit, context_prefix_lines, context_suffix_lines
         )
         all_findings.extend(findings)
     return all_findings
