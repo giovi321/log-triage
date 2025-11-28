@@ -70,16 +70,6 @@ class AlertWebhookConfig:
 
 
 @dataclasses.dataclass
-class BaselineConfig:
-    enabled: bool
-    state_file: Path
-    window: int
-    error_multiplier: float
-    warning_multiplier: float
-    severity_on_anomaly: Severity
-
-
-@dataclasses.dataclass
 class ModuleConfig:
     name: str
     path: Path
@@ -93,7 +83,6 @@ class ModuleConfig:
     stale_after_minutes: Optional[int] = None
     alert_mqtt: Optional[AlertMQTTConfig] = None
     alert_webhook: Optional[AlertWebhookConfig] = None
-    baseline: Optional[BaselineConfig] = None
     enabled: bool = True
 
 

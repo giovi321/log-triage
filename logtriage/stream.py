@@ -10,7 +10,6 @@ from .classifiers import classify_lines
 from .llm_client import analyze_findings_with_llm
 from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
-from .baseline import apply_baseline
 from .webui.db import store_finding
 
 
@@ -161,9 +160,6 @@ def stream_file(
         if context_prefix_lines > 0:
             for ln in lines[-context_prefix_lines:]:
                 prefix_buffer.append(ln)
-
-        if mod.baseline is not None:
-            findings = apply_baseline(mod.baseline, findings)
 
         for f in findings:
             f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)

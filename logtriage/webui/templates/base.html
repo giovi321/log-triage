@@ -241,15 +241,11 @@
         {% set dashboard_url = request.app.url_path_for('dashboard') %}
         {% set ai_logs_url = request.app.url_path_for('ai_logs') %}
         {% set edit_config_url = request.app.url_path_for('edit_config') %}
-        {% set severity_files_url = request.app.url_path_for('severity_files') %}
         {% set regex_lab_url = request.app.url_path_for('regex_lab') %}
-        {% set notifications_url = request.app.url_path_for('notifications') %}
         {% set account_url = request.app.url_path_for('account') %}
         <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Dashboard</a>
-        <a href="{{ notifications_url }}" class="{% if current_path.startswith(notifications_url) %}active{% endif %}">Notifications</a>
         <a href="{{ ai_logs_url }}" class="{% if current_path.startswith(ai_logs_url) %}active{% endif %}">AI logs explorer</a>
         <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Config editor</a>
-        <a href="{{ severity_files_url }}" class="{% if current_path.startswith(severity_files_url) %}active{% endif %}">Baseline editor</a>
         <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
         <a href="{{ account_url }}" class="{% if current_path.startswith(account_url) %}active{% endif %}">Password</a>
         <a href="{{ url_for('logout') }}">Logout</a>

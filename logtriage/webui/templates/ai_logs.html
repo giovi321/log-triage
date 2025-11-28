@@ -4,6 +4,12 @@
   .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
   .log-line input[type="checkbox"] { margin-top:0.15rem; }
   .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
+  .log-line.finding-line { background:#1a1f2e; border-left:2px solid #4f6fa9; padding-left:0.35rem; margin-left:-0.35rem; }
+  .log-line.finding-line:hover { background:#1f2538; }
+  .unified-log-view { max-height:560px; overflow-y:auto; }
+  .finding-expand-btn { opacity:0.7; transition:opacity 0.15s; }
+  .finding-expand-btn:hover { opacity:1; }
+  .finding-expand-btn.expanded { transform:rotate(180deg); }
   .log-section { border-left:3px solid #2f4261; border-radius:0.35rem; margin-bottom:0.65rem; padding:0.35rem 0.5rem; background:#0e121b; }
   .log-section-header { display:flex; gap:0.6rem; align-items:flex-start; justify-content:space-between; padding-bottom:0.25rem; }
   .log-section-body { padding:0.1rem 0; display:flex; flex-direction:column; gap:0.05rem; }
@@ -156,14 +162,6 @@
           <input type="hidden" name="lines" id="manual-finding-lines">
           <input type="hidden" name="line_indexes" id="manual-finding-indexes">
         </form>
-        <div class="context-toggle" id="context-toggle">
-          <span class="muted" style="font-size:0.92rem;">Include 3</span>
-          <div class="chip-group">
-          <button type="button" class="secondary" data-context-direction="before" onclick="toggleContextDirection('before')">preceding</button>
-          <button type="button" class="secondary" data-context-direction="after" onclick="toggleContextDirection('after')">following</button>
-          </div>
-          <span class="muted" style="font-size:0.92rem;">lines to prompt</span>
-        </div>
       {% if issue_filter != 'ALL' %}
         <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}{% if tail_filter %}&tail_filter={{ tail_filter|lower }}{% endif %}&sample_source={{ sample_source }}" style="display:inline-flex; align-items:center; padding:0.45rem 0.65rem; border:1px solid #2b3242; border-radius:0.35rem; text-decoration:none; color:#e8ecf2;">Reset issue filter</a>
       {% endif %}
@@ -193,92 +191,129 @@
         {% if sample_lines %}
           {% if finding_tail %}
             {% for section in finding_tail %}
-              <div class="synced-row">
-                <div class="synced-pane tail-pane">
-                  <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
-                    <div class="log-section-header">
-                      {% if section.finding %}
-                        <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap;">
-                          <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
-                          <div style="display:flex; flex-direction:column; gap:0.15rem; min-width:12rem;">
-                            <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
-                            <span class="helper-text" style="margin:0;">{{ section.finding.reason }}</span>
+              {% if section.unified_view %}
+                {# Unified view: all lines shown together with findings inline #}
+                <div class="synced-row">
+                  <div class="synced-pane tail-pane" style="flex:1.2;">
+                    <div class="log-section unified-log-view">
+                      <div class="log-section-body">
+                        {% for line in section.lines %}
+                          {% set line_finding = line.finding %}
+                          <div class="log-line {% if line_finding %}finding-line{% endif %}" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}" {% if line_finding %}data-finding-section="true" data-finding-id="{{ line_finding.id }}" data-finding-index="{{ line_finding.finding_index }}"{% endif %}>
+                            <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}" {% if line_finding %}data-finding-id="{{ line_finding.id }}"{% endif %}>
+                            <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                            {% if line_finding %}
+                              <span class="status-badge sev-{{ line_finding.severity }}" style="font-size:0.7rem; padding:0.1rem 0.35rem; margin-right:0.35rem;">{{ line_finding.severity }}</span>
+                            {% endif %}
+                            <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                            {% if line_finding %}
+                              <button type="button" class="secondary finding-expand-btn" style="padding:0.15rem 0.4rem; font-size:0.75rem; margin-left:0.35rem;" onclick="toggleFindingDetails('{{ line_finding.id }}')">▼</button>
+                            {% endif %}
                           </div>
-                        </div>
-                        <div class="section-actions">
-                          <button type="button" class="secondary" data-section-index="{{ loop.index0 }}" onclick="toggleSection(this)">Collapse</button>
-                        </div>
-                      {% else %}
-                        <div class="muted">Tail lines</div>
-                      {% endif %}
-                    </div>
-                    <div class="log-section-body">
-                      {% for line in section.lines %}
-                        <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
-                          <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
-                          <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
-                          <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
-                        </div>
-                      {% endfor %}
-                      {% if section.finding %}
-                        <div class="finding-controls">
-                          {% set finding_example = (finding_examples.get(section.finding.id) if finding_examples else None) %}
-                          <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
-                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
-                            <input type="hidden" name="module" value="{{ current_module.name }}">
-                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                            <input type="hidden" name="sample_line" value="{{ (finding_example or section.finding.reason)|e }}">
-                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                            <button type="button" class="secondary" onclick="launchFalsePositiveFlow(this.form)">False positive</button>
-                          </form>
-                          <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ section.finding.id }}">
-                            <input type="hidden" name="finding_id" value="{{ section.finding.id }}">
-                            <input type="hidden" name="module" value="{{ current_module.name }}">
-                            <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
-                            <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
-                            <input type="hidden" name="sample_source" value="{{ sample_source }}">
-                            <input type="hidden" name="severity" id="finding-severity-value-{{ section.finding.id }}" value="{{ section.finding.severity if section.finding.severity in severity_choices else (severity_choices[0] if severity_choices else 'ERROR') }}">
-                            <div class="action-menu finding-severity-menu" id="finding-sev-menu-{{ section.finding.id }}" data-finding-id="{{ section.finding.id }}">
-                              <button type="button" class="secondary menu-trigger" id="finding-sev-trigger-{{ section.finding.id }}" aria-haspopup="true" aria-expanded="false" onclick="toggleFindingSeverityMenu('{{ section.finding.id }}')">
-                                Update severity
-                              </button>
-                              <div class="menu-panel" id="finding-sev-panel-{{ section.finding.id }}" role="menu" aria-label="Choose severity for finding {{ section.finding.finding_index }}">
-                                {% for sev in severity_choices %}
-                                  <button type="button" class="secondary" role="menuitem" onclick="submitFindingSeverity('{{ section.finding.id }}', '{{ sev }}')">{{ sev }}</button>
-                                {% endfor %}
+                          {% if line_finding %}
+                            <div class="finding-details" id="finding-details-{{ line_finding.id }}" style="display:none; margin-left:4rem; margin-bottom:0.5rem; padding:0.5rem; background:#0c1119; border-radius:0.4rem; border-left:3px solid #4f6fa9;">
+                              <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:0.35rem;">
+                                <div style="display:flex; flex-direction:column; gap:0.15rem; flex:1;">
+                                  <span class="muted" style="font-size:0.85rem;">Finding #{{ line_finding.finding_index }} · {{ line_finding.created_at|localtime }}</span>
+                                  <span class="helper-text" style="margin:0;">{{ line_finding.reason }}</span>
+                                </div>
                               </div>
+                              <div class="finding-controls" style="margin-top:0.35rem;">
+                                {% set finding_example = (finding_examples.get(line_finding.id) if finding_examples else None) %}
+                                <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
+                                  <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
+                                  <input type="hidden" name="module" value="{{ current_module.name }}">
+                                  <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                                  <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                                  <input type="hidden" name="sample_line" value="{{ (finding_example or line_finding.reason)|e }}">
+                                  <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                                  <button type="button" class="secondary" onclick="launchFalsePositiveFlow(this.form)">False positive</button>
+                                </form>
+                                <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ line_finding.id }}">
+                                  <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
+                                  <input type="hidden" name="module" value="{{ current_module.name }}">
+                                  <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
+                                  <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
+                                  <input type="hidden" name="sample_source" value="{{ sample_source }}">
+                                  <input type="hidden" name="severity" id="finding-severity-value-{{ line_finding.id }}" value="{{ line_finding.severity if line_finding.severity in severity_choices else (severity_choices[0] if severity_choices else 'ERROR') }}">
+                                  <div class="action-menu finding-severity-menu" id="finding-sev-menu-{{ line_finding.id }}" data-finding-id="{{ line_finding.id }}">
+                                    <button type="button" class="secondary menu-trigger" id="finding-sev-trigger-{{ line_finding.id }}" aria-haspopup="true" aria-expanded="false" onclick="toggleFindingSeverityMenu('{{ line_finding.id }}')">
+                                      Update severity
+                                    </button>
+                                    <div class="menu-panel" id="finding-sev-panel-{{ line_finding.id }}" role="menu" aria-label="Choose severity for finding {{ line_finding.finding_index }}">
+                                      {% for sev in severity_choices %}
+                                        <button type="button" class="secondary" role="menuitem" onclick="submitFindingSeverity('{{ line_finding.id }}', '{{ sev }}')">{{ sev }}</button>
+                                      {% endfor %}
+                                    </div>
+                                  </div>
+                                </form>
+                              </div>
+                              {# AI opinion inline #}
+                              {% set response_obj = line_finding|attr('llm_response') %}
+                              {% set response_content = response_obj.content if response_obj else line_finding|attr('llm_response_content') %}
+                              {% set response_provider = response_obj.provider if response_obj else line_finding|attr('llm_provider') %}
+                              {% set response_model = response_obj.model if response_obj else line_finding|attr('llm_model') %}
+                              {% if response_content %}
+                                <div class="finding-response" style="margin-top:0.5rem;" data-finding-summary="true" data-finding-id="{{ line_finding.id }}">
+                                  {% if response_provider or response_model %}
+                                    <div class="helper-text" style="margin:0;">AI opinion: {{ response_provider or 'Unknown provider' }}{% if response_model %} · {{ response_model }}{% endif %}</div>
+                                  {% endif %}
+                                  <div class="llm-body" style="max-height:120px;">{{ response_content }}</div>
+                                  <div class="recorded-summary muted" data-summary-for="{{ line_finding.id }}" style="display:none;"></div>
+                                </div>
+                              {% endif %}
                             </div>
-                          </form>
-                        </div>
-                      {% endif %}
+                          {% endif %}
+                        {% endfor %}
+                      </div>
                     </div>
                   </div>
+                  <div class="synced-pane ai-pane" style="flex:0.8;">
+                    {% if not db_status.connected %}
+                      <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
+                    {% else %}
+                      <p class="muted" style="margin:0;">Select lines and click "Add to prompt" to analyze them. Findings are highlighted with severity badges.</p>
+                    {% endif %}
+                  </div>
                 </div>
-                <div class="synced-pane ai-pane">
-                  {% if not db_status.connected %}
-                    <p class="muted">Database not connected; start the log-triage process with database.url configured to see history.</p>
-                  {% elif not section.finding %}
-                    <p class="muted" style="margin:0;">No finding associated with these lines.</p>
-                  {% else %}
-                    {% set response_obj = section.finding|attr('llm_response') %}
-                    {% set response_content = response_obj.content if response_obj else section.finding|attr('llm_response_content') %}
-                    {% set response_provider = response_obj.provider if response_obj else section.finding|attr('llm_provider') %}
-                    {% set response_model = response_obj.model if response_obj else section.finding|attr('llm_model') %}
-                    <div class="finding-response" data-finding-summary="true" data-finding-id="{{ section.finding.id }}">
-                      {% if response_provider or response_model %}
-                        <div class="helper-text" style="margin:0;">Source: {{ response_provider or 'Unknown provider' }}{% if response_model %} · {{ response_model }}{% endif %}</div>
-                      {% endif %}
-                      {% if response_content %}
-                        <div class="llm-body">{{ response_content }}</div>
-                      {% else %}
-                        <p class="muted" style="margin:0;">No AI opinion saved for this finding.</p>
-                      {% endif %}
-                      <div class="recorded-summary muted" data-summary-for="{{ section.finding.id }}" style="display:none;"></div>
+              {% else %}
+                {# Legacy section view (fallback) #}
+                <div class="synced-row">
+                  <div class="synced-pane tail-pane">
+                    <div class="log-section" {% if section.finding %}data-finding-section="true" data-finding-id="{{ section.finding.id }}" data-finding-index="{{ section.finding.finding_index }}"{% endif %}>
+                      <div class="log-section-header">
+                        {% if section.finding %}
+                          <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap;">
+                            <span class="status-badge sev-{{ section.finding.severity }}">{{ section.finding.severity }}</span>
+                            <div style="display:flex; flex-direction:column; gap:0.15rem; min-width:12rem;">
+                              <span class="muted" style="font-size:0.85rem;">Finding #{{ section.finding.finding_index }} · {{ section.finding.created_at|localtime }}</span>
+                              <span class="helper-text" style="margin:0;">{{ section.finding.reason }}</span>
+                            </div>
+                          </div>
+                        {% else %}
+                          <div class="muted">Tail lines</div>
+                        {% endif %}
+                      </div>
+                      <div class="log-section-body">
+                        {% for line in section.lines %}
+                          <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
+                            <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
+                            <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                            <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                          </div>
+                        {% endfor %}
+                      </div>
                     </div>
-                  {% endif %}
+                  </div>
+                  <div class="synced-pane ai-pane">
+                    {% if not db_status.connected %}
+                      <p class="muted">Database not connected.</p>
+                    {% elif not section.finding %}
+                      <p class="muted" style="margin:0;">No finding associated with these lines.</p>
+                    {% endif %}
+                  </div>
                 </div>
-              </div>
+              {% endif %}
             {% endfor %}
           {% elif had_finding_tail and (tail_filter != 'ALL' or issue_filter != 'ALL') %}
             <div class="synced-row">
@@ -415,11 +450,20 @@
   const regexPresets = {{ regex_presets|tojson }};
   {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
   const recordedSummaries = {};
-  const CONTEXT_LINE_COUNT = 3;
 
-  const contextDirections = new Set();
   let lastLLMData = null;
   let activeFalsePositiveForm = null;
+
+  function toggleFindingDetails(findingId) {
+    const details = document.getElementById(`finding-details-${findingId}`);
+    const btn = document.querySelector(`[onclick="toggleFindingDetails('${findingId}')"]`);
+    if (!details) return;
+    const isVisible = details.style.display !== 'none';
+    details.style.display = isVisible ? 'none' : 'block';
+    if (btn) {
+      btn.classList.toggle('expanded', !isVisible);
+    }
+  }
 
   function buildRegexSuggestionFromLine(line) {
     if (!line) return '';
@@ -669,79 +713,27 @@
     return lookup;
   }
 
-  function collectSelectedLines(directions = null) {
+  function collectSelectedLines() {
+    // Collect selected lines in order by their line index
     const selected = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
-    if (!directions) {
-      return selected.map(cb => cb.dataset.line).filter(Boolean);
-    }
-
     const lookup = buildLineLookup();
-    const indexes = new Set();
-    const fallbackTexts = [];
-
-    const dirSet = new Set(Array.isArray(directions) || directions instanceof Set ? Array.from(directions) : [directions].filter(Boolean));
-
-    selected.forEach(cb => {
-      const text = cb.dataset.line;
+    
+    // Get indexes and sort them
+    const entries = selected.map(cb => {
       const idxRaw = cb.dataset.lineIndex || cb.value;
       const idx = Number.parseInt(idxRaw, 10);
-      if (!Number.isNaN(idx)) {
-        if (dirSet.has('before')) {
-          for (let i = CONTEXT_LINE_COUNT; i >= 1; i -= 1) {
-            indexes.add(idx - i);
-          }
-        }
-        if (dirSet.has('after')) {
-          for (let i = 1; i <= CONTEXT_LINE_COUNT; i += 1) {
-            indexes.add(idx + i);
-          }
-        }
-        indexes.add(idx);
-      } else if (text) {
-        fallbackTexts.push(text);
-      }
+      const text = cb.dataset.line;
+      return { idx, text };
+    }).filter(e => !Number.isNaN(e.idx) || e.text);
+    
+    // Sort by index
+    entries.sort((a, b) => {
+      if (Number.isNaN(a.idx)) return 1;
+      if (Number.isNaN(b.idx)) return -1;
+      return a.idx - b.idx;
     });
-
-    const orderedIndexes = Array.from(indexes)
-      .filter(idx => lookup.has(idx))
-      .sort((a, b) => a - b);
-
-    const seen = new Set();
-    const contextual = [];
-    orderedIndexes.forEach(idx => {
-      const text = lookup.get(idx);
-      if (!text) return;
-      const key = `${idx}:${text}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      contextual.push(text);
-    });
-
-    fallbackTexts.forEach(text => {
-      if (!text) return;
-      const key = `x:${text}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      contextual.push(text);
-    });
-
-    return contextual;
-  }
-
-  function toggleContextDirection(direction) {
-    if (contextDirections.has(direction)) {
-      contextDirections.delete(direction);
-    } else {
-      contextDirections.add(direction);
-    }
-    refreshContextButtons();
-  }
-
-  function refreshContextButtons() {
-    document.querySelectorAll('[data-context-direction]').forEach(btn => {
-      const dir = btn.dataset.contextDirection;
-      btn.classList.toggle('active', contextDirections.has(dir));
-    });
+    
+    return entries.map(e => e.text).filter(Boolean);
   }
 
   function copyText(text) {
@@ -763,7 +755,7 @@
   }
 
   function appendSelectedToPrompt() {
-    const selected = collectSelectedLines(contextDirections);
+    const selected = collectSelectedLines();
     if (!selected.length) return;
     appendToPrompt(selected.join('\n'));
   }
@@ -788,7 +780,6 @@
     cb.addEventListener('change', refreshSelectedHighlights);
   });
   refreshSelectedHighlights();
-  refreshContextButtons();
 
   function toggleSelectAllLines() {
     const boxes = Array.from(document.querySelectorAll('input[name="selected_line"]'));

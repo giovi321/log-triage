@@ -12,7 +12,6 @@ from .llm_client import analyze_findings_with_llm
 from .llm_payload import write_llm_payloads, should_send_to_llm
 from .utils import select_pipeline
 from .stream import stream_file
-from .baseline import apply_baseline
 from .alerts import send_alerts
 from .webui.db import setup_database, cleanup_old_findings, store_finding
 from .version import __version__
@@ -104,9 +103,6 @@ def run_module_batch(
         pipeline_override=mod.pipeline_name,
     )
 
-    if mod.baseline is not None:
-        findings = apply_baseline(mod.baseline, findings)
-
     for f in findings:
         f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
 
@@ -116,7 +112,7 @@ def run_module_batch(
         if mod.alert_mqtt or mod.alert_webhook:
             send_alerts(mod, f)
         try:
-            store_finding(mod.name, f, anomaly_flag=f.rule_id == "baseline_anomaly")
+            store_finding(mod.name, f)
         except Exception:
             pass
 

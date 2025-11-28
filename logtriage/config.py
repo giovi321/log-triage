@@ -12,7 +12,6 @@ except ImportError:
 from .models import (
     AlertMQTTConfig,
     AlertWebhookConfig,
-    BaselineConfig,
     GlobalLLMConfig,
     LLMProviderConfig,
     ModuleConfig,
@@ -333,25 +332,6 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
                     headers={str(k): str(v) for k, v in wh_headers.items()},
                 )
 
-        baseline_cfg = None
-        baseline_raw = item.get("baseline")
-        if baseline_raw:
-            bl_enabled = bool(baseline_raw.get("enabled", True))
-            state_file_raw = baseline_raw.get("state_file") or f".logtriage_{name}_baseline.json"
-            state_file = Path(state_file_raw)
-            window = int(baseline_raw.get("window", 20))
-            error_mult = float(baseline_raw.get("error_multiplier", 3.0))
-            warn_mult = float(baseline_raw.get("warning_multiplier", 3.0))
-            sev_on_anom = Severity.from_string(baseline_raw.get("severity_on_anomaly", "ERROR"))
-            baseline_cfg = BaselineConfig(
-                enabled=bl_enabled,
-                state_file=state_file,
-                window=window,
-                error_multiplier=error_mult,
-                warning_multiplier=warn_mult,
-                severity_on_anomaly=sev_on_anom,
-            )
-
         enabled = bool(item.get("enabled", True))
 
         modules.append(
@@ -368,7 +348,6 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
                 stale_after_minutes=stale_after_minutes,
                 alert_mqtt=alert_mqtt_cfg,
                 alert_webhook=alert_webhook_cfg,
-                baseline=baseline_cfg,
                 enabled=enabled,
             )
         )

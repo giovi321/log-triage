@@ -1,4 +1,4 @@
-[![Version](https://img.shields.io/badge/version-v0.1.0-blue.svg)](https://github.com/giovi321/log-triage)
+[![Version](https://img.shields.io/badge/version-v0.2.0-blue.svg)](https://github.com/giovi321/log-triage)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/giovi321/log-triage)](https://github.com/giovi321/log-triage/blob/main/LICENSE)
 
