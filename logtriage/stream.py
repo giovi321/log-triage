@@ -58,11 +58,11 @@ def follow_file(path: Path, from_beginning: bool, interval: float, should_stop=N
                 f.seek(0, 0)
                 current_line_number = 1
             else:
+                # Count actual lines in the file so line_start is absolute
+                f.seek(0, 0)
+                current_line_number = sum(1 for _ in f) + 1
+                # Now seek to end to follow new lines
                 f.seek(0, 2)
-                # For efficiency, we don't count lines when seeking to end.
-                # Instead, we use a placeholder and the actual line numbers
-                # will be relative to when we started following.
-                current_line_number = 1
             first_open = False
 
         line = f.readline()
