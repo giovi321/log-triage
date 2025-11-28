@@ -1,18 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
-  .log-line input[type="checkbox"] { margin-top:0.15rem; }
-  .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
-  .log-line.finding-line { background:#1a1f2e; padding-left:0.35rem; }
+  .log-line { display:flex; align-items:flex-start; gap:0.3rem; padding:0.12rem 0.25rem; }
+  .log-line:nth-child(odd) { background:#0d1219; }
+  .log-line:nth-child(even) { background:#0f151e; }
+  .log-line input[type="checkbox"] { margin-top:0.15rem; flex-shrink:0; }
+  .log-line.selected { background:#162032; border-radius:0.4rem; }
+  .log-line.finding-line { background:#1a1f2e; }
+  .log-line.finding-line:nth-child(odd) { background:#1a1f2e; }
+  .log-line.finding-line:nth-child(even) { background:#1c2230; }
   .log-line.finding-line:hover { background:#1f2538; }
-  .unified-log-view { max-height:420px; overflow-y:auto; }
-  .finding-expand-btn { opacity:0.7; transition:opacity 0.15s; }
+  .unified-log-view { max-height:none; overflow:visible; }
+  .finding-expand-btn { opacity:0.7; transition:opacity 0.15s; flex-shrink:0; }
   .finding-expand-btn:hover { opacity:1; }
   .finding-expand-btn.expanded { transform:rotate(180deg); }
-  .log-section { border-radius:0.35rem; margin-bottom:0.65rem; padding:0.35rem 0.5rem; background:#0e121b; }
+  .log-section { border-radius:0.35rem; margin-bottom:0; padding:0; background:transparent; }
   .log-section-header { display:flex; gap:0.6rem; align-items:flex-start; justify-content:space-between; padding-bottom:0.25rem; }
-  .log-section-body { padding:0.1rem 0; display:flex; flex-direction:column; gap:0.05rem; }
+  .log-section-body { padding:0; display:flex; flex-direction:column; gap:0; }
   .log-section.collapsed .log-section-body { display:none; }
   .log-section .section-actions { display:flex; gap:0.35rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
   .log-section.highlighted-finding { border-color:#4f6fa9; box-shadow:0 0 0 1px #4f6fa9; }
@@ -20,10 +24,11 @@
   .finding-response + .finding-response { margin-top:0.65rem; }
   .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
   .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
-  .synced-shell { border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
-  .synced-scroll { display:flex; flex-direction:column; gap:0.6rem; max-height:420px; overflow-y:auto; padding-right:0.25rem; }
-  .synced-row { display:flex; flex-direction:column; gap:0.75rem; }
-  .synced-pane { border-radius:0.55rem; background:#0f131b; padding:0.65rem; }
+  .synced-shell { border-radius:0.5rem; padding:0.35rem; background:#0a0e14; }
+  .synced-scroll { display:flex; flex-direction:column; gap:0; max-height:520px; overflow-y:auto; padding-right:0; }
+  .synced-row { display:flex; flex-direction:column; gap:0; }
+  .synced-pane { border-radius:0; background:transparent; padding:0; }
+  .match-highlight { background:#3d2a0a; color:#f5c842; padding:0 0.1rem; border-radius:0.15rem; }
   .sort-toggle { margin-left:auto; display:flex; align-items:center; gap:0.35rem; }
   .sort-toggle button { padding:0.25rem 0.6rem; font-size:0.85rem; }
   .sort-toggle button.active { background:#2e4472; border-color:#3c5c98; }
@@ -196,13 +201,13 @@
                       <div class="log-section-body">
                         {% for line in section.lines %}
                           {% set line_finding = line.finding %}
-                          <div class="log-line {% if line_finding %}finding-line{% endif %}" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}" {% if line_finding %}data-finding-section="true" data-finding-id="{{ line_finding.id }}" data-finding-index="{{ line_finding.finding_index }}"{% endif %}>
+                          <div class="log-line {% if line_finding %}finding-line{% endif %}" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}" {% if line_finding %}data-finding-section="true" data-finding-id="{{ line_finding.id }}" data-finding-index="{{ line_finding.finding_index }}" data-rule-id="{{ line_finding.rule_id|default('', true)|e }}"{% endif %}>
                             <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}" {% if line_finding %}data-finding-id="{{ line_finding.id }}"{% endif %}>
-                            <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                            <span style="min-width:2.5rem; color:#9fb1d3; flex-shrink:0;">{{ line.index }}:</span>
                             {% if line_finding %}
                               <span class="status-badge sev-{{ line_finding.severity }}" style="font-size:0.7rem; padding:0.1rem 0.35rem; margin-right:0.35rem;">{{ line_finding.severity }}</span>
                             {% endif %}
-                            <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
+                            <span class="log-line-text" style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
                             {% if line_finding %}
                               <button type="button" class="secondary finding-expand-btn" style="padding:0.15rem 0.4rem; font-size:0.75rem; margin-left:0.35rem;" onclick="toggleFindingDetails('{{ line_finding.id }}')">▼</button>
                             {% endif %}
@@ -288,7 +293,7 @@
                         {% for line in section.lines %}
                           <div class="log-line" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}">
                             <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}">
-                            <span style="min-width:3.25rem; color:#9fb1d3;">{{ "%4d" % line.index }}:</span>
+                            <span style="min-width:2.5rem; color:#9fb1d3; flex-shrink:0;">{{ line.index }}:</span>
                             <span style="flex:1; white-space:pre-wrap; word-break:break-word;">{{ line.text }}</span>
                           </div>
                         {% endfor %}
@@ -474,9 +479,52 @@
     sortLogLines();
   }
 
+  function highlightRegexMatches() {
+    // Highlight the regex-matching portion of finding lines
+    document.querySelectorAll('.log-line.finding-line').forEach(line => {
+      const ruleId = line.dataset.ruleId;
+      const textSpan = line.querySelector('.log-line-text');
+      if (!ruleId || !textSpan) return;
+      
+      const originalText = textSpan.textContent || '';
+      try {
+        const regex = new RegExp(ruleId, 'g');
+        let match;
+        let lastIndex = 0;
+        let html = '';
+        let hasMatch = false;
+        
+        while ((match = regex.exec(originalText)) !== null) {
+          const [segment] = match;
+          if (!segment) {
+            regex.lastIndex += 1;
+            continue;
+          }
+          const start = match.index;
+          const end = start + segment.length;
+          html += escapeHtml(originalText.slice(lastIndex, start));
+          html += `<span class="match-highlight">${escapeHtml(segment)}</span>`;
+          lastIndex = end;
+          hasMatch = true;
+          if (regex.lastIndex === match.index) {
+            regex.lastIndex += 1;
+          }
+        }
+        
+        if (hasMatch) {
+          html += escapeHtml(originalText.slice(lastIndex));
+          textSpan.innerHTML = html;
+        }
+      } catch (err) {
+        // Invalid regex, skip highlighting
+      }
+    });
+  }
+
   // Initialize sort on page load (newest first by default)
   document.addEventListener('DOMContentLoaded', () => {
     setLogSort('newest');
+    highlightRegexMatches();
     
     // Add double-click handler for finding lines
     document.querySelectorAll('.log-line.finding-line').forEach(line => {

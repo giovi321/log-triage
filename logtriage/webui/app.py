@@ -1875,30 +1875,45 @@ def _build_finding_tail(
         return loaded
 
     def _primary_line_for_finding(finding) -> Optional[Dict[str, Any]]:
-        """Get the single primary line that represents this finding."""
+        """Get the single primary line that represents this finding.
+        
+        The line_start attribute is the authoritative source for which line
+        matched the regex. The excerpt may contain context lines before/after
+        the match, so we should NOT use the first excerpt line as the primary.
+        """
         start = getattr(finding, "line_start", None)
         excerpt = getattr(finding, "excerpt", None) or ""
         excerpt_lines = excerpt.splitlines() if isinstance(excerpt, str) else list(excerpt)
         
+        # line_start is the authoritative matching line number
+        if not isinstance(start, int):
+            return None
+        
         # Try to find the line in our indexed lines first
-        if isinstance(start, int) and start in line_by_index:
+        if start in line_by_index:
             return {"index": start, "text": line_by_index[start]["text"]}
         
-        # If we have an excerpt, use its first line
-        if excerpt_lines:
-            first_line_text = excerpt_lines[0]
-            # Try to match it in our indexed lines
-            for entry in indexed_lines:
-                if entry["text"] == first_line_text:
-                    return {"index": entry["index"], "text": first_line_text}
-            # Return with the start index if available
-            return {"index": start, "text": first_line_text}
+        # Try to load the actual line from file
+        loaded = _load_from_file(start, start)
+        if loaded:
+            return loaded[0]
         
-        # Fallback: try to load from file
-        if isinstance(start, int):
-            loaded = _load_from_file(start, start)
-            if loaded:
-                return loaded[0]
+        # Last resort: if we have an excerpt, try to find the matching line
+        # by looking for a line that matches the rule_id pattern
+        rule_id = getattr(finding, "rule_id", None)
+        if rule_id and excerpt_lines:
+            try:
+                pattern = re.compile(rule_id)
+                for line_text in excerpt_lines:
+                    if pattern.search(line_text):
+                        return {"index": start, "text": line_text}
+            except re.error:
+                pass
+            # If no pattern match, use the middle line of excerpt as best guess
+            # (since context is added before and after the match)
+            if excerpt_lines:
+                middle_idx = len(excerpt_lines) // 2
+                return {"index": start, "text": excerpt_lines[middle_idx]}
         
         return None
 
