@@ -218,6 +218,9 @@
   const safeHints = hintTexts && typeof hintTexts === 'object' ? hintTexts : {};
   const hintsLoaded = Object.keys(safeHints).length > 0;
   const defaultHint = safeHints.root || 'Top-level settings for logtriage.';
+  
+  // Debug: log hints status on load
+  console.log('[ConfigEditor] Hints loaded:', hintsLoaded, 'keys:', Object.keys(safeHints).length);
   let errorLineHandle = null;
   let lastSearchDirection = 'next';
   let currentSearchMarker = null;
@@ -389,8 +392,10 @@
 
   function updateHint() {
     try {
-      const lineText = editor.getLine(editor.getCursor().line) || '';
+      const pos = editor.getCursor();
+      const lineText = editor.getLine(pos.line) || '';
       const hint = hintForLine(lineText);
+      console.log('[ConfigEditor] updateHint:', { line: pos.line, text: lineText.substring(0, 50), hint: hint ? hint.substring(0, 50) + '...' : null });
       if (hint) {
         setHint(hint);
       } else {
@@ -578,6 +583,9 @@
   setSearchStatus('');
   setHint(defaultHint);
   validateYaml();
-  updateHint();
+  // Initial hint update with a small delay to ensure editor is ready
+  setTimeout(updateHint, 100);
+  // Also update on focus
+  editor.on('focus', updateHint);
 </script>
 {% endblock %}
