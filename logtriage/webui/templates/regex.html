@@ -45,9 +45,10 @@
   .status-badge.sev-WARNING { background:#6b5a2e; color:#f5ecd8; }
   .status-badge.sev-CRITICAL { background:#5c1f3a; color:#f8e0ea; }
   .status-badge.sev-INFO { background:#2e4472; color:#d8e8f8; }
+  .regex-line.finding-line { background:#1a1f2a; }
 </style>
 <div class="card">
-  <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
+  <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
     <label style="display:block;">Module:
       <select name="module" onchange="this.form.submit()">
         {% for m in modules %}{% if m.enabled %}
@@ -57,13 +58,7 @@
         {% endif %}{% endfor %}
       </select>
     </label>
-    <label style="display:block;">Sample source:
-      <select name="sample_source" onchange="this.form.submit()">
-        {% for opt in sample_options %}
-        <option value="{{ opt.value }}" {% if sample_source == opt.value %}selected{% endif %}>{{ opt.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
+    <input type="hidden" name="sample_source" value="tail">
   </form>
 
   {% if ingestion_status %}
@@ -75,7 +70,13 @@
       <div style="flex:1 1 50%; min-width:260px;">
         <div class="section-header">
           <h3 style="margin:0;">Sample lines</h3>
-          <button type="button" class="secondary" id="filter-matches-btn" onclick="toggleMatchFilter()" style="display:none;">Show matches only</button>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.85rem; cursor:pointer;">
+              <input type="checkbox" id="show-findings-only" onchange="toggleFindingsFilter()" style="cursor:pointer;">
+              <span>Show findings only</span>
+            </label>
+            <button type="button" class="secondary" id="filter-matches-btn" onclick="toggleMatchFilter()" style="display:none;">Show matches only</button>
+          </div>
         </div>
         {% if sample_lines %}
           <form id="draft-form" method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
@@ -85,9 +86,17 @@
             <input type="hidden" name="sample_selection" value="">
             <div id="sample-lines" style="max-height:520px; overflow:auto; border-radius:0.5rem; background:#0a0e14; padding:0.35rem;" aria-label="Sample lines">
               <div class="regex-lines">
+                {% set finding_lines = {} %}
+                {% for f in recent_findings %}
+                  {% if f.line_start %}
+                    {% set _ = finding_lines.update({f.line_start: f}) %}
+                  {% endif %}
+                {% endfor %}
                 {% for entry in sample_lines %}
-                  <div class="regex-line {% if matches and (entry.index in matches) %}match-line{% endif %}" data-line-index="{{ entry.index }}">
+                  {% set line_finding = finding_lines.get(entry.index) %}
+                  <div class="regex-line {% if matches and (entry.index in matches) %}match-line{% endif %}{% if line_finding %} finding-line{% endif %}" data-line-index="{{ entry.index }}"{% if line_finding %} data-has-finding="true"{% endif %}>
                     <span class="line-number">{{ entry.index }}:</span>
+                    {% if line_finding %}<span class="status-badge sev-{{ line_finding.severity }}" style="font-size:0.65rem; padding:0.05rem 0.25rem; margin-right:0.25rem;">{{ line_finding.severity }}</span>{% endif %}
                     <span class="line-content">{{ entry.full }}</span>
                   </div>
                 {% endfor %}
@@ -172,6 +181,23 @@
   const currentRegexValue = {{ regex_value|tojson }};
   const hasMatches = {{ (matches|length > 0)|tojson }};
   let showMatchesOnly = false;
+  let showFindingsOnly = false;
+
+  function toggleFindingsFilter() {
+    showFindingsOnly = document.getElementById('show-findings-only')?.checked || false;
+    applyLineFilters();
+  }
+
+  function applyLineFilters() {
+    document.querySelectorAll('.regex-line').forEach(line => {
+      const isMatch = line.classList.contains('match-line');
+      const hasFinding = line.hasAttribute('data-has-finding');
+      let show = true;
+      if (showMatchesOnly && !isMatch) show = false;
+      if (showFindingsOnly && !hasFinding) show = false;
+      line.style.display = show ? '' : 'none';
+    });
+  }
 
   function escapeHtml(text) {
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -225,13 +251,7 @@
     if (btn) {
       btn.textContent = showMatchesOnly ? 'Show all lines' : 'Show matches only';
     }
-    document.querySelectorAll('.regex-line').forEach(line => {
-      if (showMatchesOnly) {
-        line.style.display = line.classList.contains('match-line') ? '' : 'none';
-      } else {
-        line.style.display = '';
-      }
-    });
+    applyLineFilters();
   }
 
   function updateFilterButton() {
