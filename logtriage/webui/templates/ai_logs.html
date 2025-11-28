@@ -329,6 +329,17 @@
           </div>
         {% endif %}
       </div>
+      {% if sample_start_line > 1 %}
+        <div style="display:flex; justify-content:center; padding:0.75rem 0;">
+          <button type="button" class="secondary" id="load-more-btn" onclick="loadMoreLines()" style="padding:0.5rem 1.5rem;">
+            Load older lines (showing lines {{ sample_start_line }}–{{ sample_start_line + sample_lines|length - 1 }} of {{ total_lines }})
+          </button>
+        </div>
+      {% elif total_lines > 0 %}
+        <div style="display:flex; justify-content:center; padding:0.5rem 0;">
+          <span class="muted">Showing all {{ total_lines }} lines</span>
+        </div>
+      {% endif %}
       </div>
     </div>
 
@@ -430,6 +441,17 @@
   {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
   const recordedSummaries = {};
 
+  // Pagination state
+  const paginationState = {
+    currentModule: {{ (current_module.name if current_module else '')|tojson }},
+    sampleSource: {{ sample_source|tojson }},
+    currentOffset: {{ sample_lines|length }},
+    startLine: {{ sample_start_line }},
+    totalLines: {{ total_lines }},
+    hasMore: {{ 'true' if sample_start_line > 1 else 'false' }},
+    loading: false
+  };
+
   let lastLLMData = null;
   let activeFalsePositiveForm = null;
 
@@ -442,6 +464,192 @@
     if (btn) {
       btn.classList.toggle('expanded', !isVisible);
     }
+  }
+
+  async function loadMoreLines() {
+    if (paginationState.loading || !paginationState.hasMore) return;
+    
+    const btn = document.getElementById('load-more-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Loading...';
+    }
+    paginationState.loading = true;
+
+    try {
+      const params = new URLSearchParams({
+        module: paginationState.currentModule,
+        offset: paginationState.currentOffset,
+        limit: 500,
+        sample_source: paginationState.sampleSource
+      });
+      
+      const resp = await fetch(`{{ url_for('api_log_lines') }}?${params}`);
+      const data = await resp.json();
+      
+      if (!resp.ok) {
+        throw new Error(data.error || 'Failed to load more lines');
+      }
+
+      // Insert new lines at the beginning of the log section
+      const container = document.querySelector('.log-section-body');
+      if (container && data.lines && data.lines.length > 0) {
+        // Create document fragment for efficient DOM insertion
+        const fragment = document.createDocumentFragment();
+        
+        // Process lines in reverse order since we're prepending
+        for (let i = data.lines.length - 1; i >= 0; i--) {
+          const lineData = data.lines[i];
+          const lineEl = createLogLineElement(lineData);
+          fragment.insertBefore(lineEl, fragment.firstChild);
+          
+          // If line has a finding, create the details element too
+          if (lineData.finding) {
+            const detailsEl = createFindingDetailsElement(lineData);
+            // Insert details right after the line
+            const nextSibling = lineEl.nextSibling;
+            if (nextSibling) {
+              fragment.insertBefore(detailsEl, nextSibling);
+            } else {
+              fragment.appendChild(detailsEl);
+            }
+          }
+        }
+        
+        // Insert at the beginning of the container
+        container.insertBefore(fragment, container.firstChild);
+        
+        // Re-sort if needed
+        sortLogLines();
+        
+        // Highlight regex matches on new lines
+        highlightRegexMatches();
+        
+        // Rebind checkbox listeners
+        document.querySelectorAll('input[name="selected_line"]').forEach(cb => {
+          cb.removeEventListener('change', refreshSelectedHighlights);
+          cb.addEventListener('change', refreshSelectedHighlights);
+        });
+      }
+
+      // Update pagination state
+      paginationState.currentOffset = data.next_offset;
+      paginationState.startLine = data.start_line;
+      paginationState.hasMore = data.has_more;
+
+      // Update button text or hide it
+      if (btn) {
+        if (data.has_more) {
+          const endLine = data.start_line + data.lines.length - 1;
+          btn.textContent = `Load older lines (showing lines ${data.start_line}–${paginationState.totalLines} of ${paginationState.totalLines})`;
+          btn.disabled = false;
+        } else {
+          btn.parentElement.innerHTML = `<span class="muted">Showing all ${paginationState.totalLines} lines</span>`;
+        }
+      }
+    } catch (err) {
+      console.error('Error loading more lines:', err);
+      if (btn) {
+        btn.textContent = 'Error loading lines. Click to retry.';
+        btn.disabled = false;
+      }
+    } finally {
+      paginationState.loading = false;
+    }
+  }
+
+  function createLogLineElement(lineData) {
+    const div = document.createElement('div');
+    div.className = 'log-line' + (lineData.finding ? ' finding-line' : '');
+    div.style.cssText = 'font-family:monospace; font-size:0.92rem;';
+    div.dataset.lineIndex = lineData.index;
+    
+    if (lineData.finding) {
+      div.dataset.findingSection = 'true';
+      div.dataset.findingId = lineData.finding.id;
+      div.dataset.findingIndex = lineData.finding.finding_index;
+      if (lineData.finding.rule_id) {
+        div.dataset.ruleId = lineData.finding.rule_id;
+      }
+    }
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'selected_line';
+    checkbox.value = lineData.index;
+    checkbox.dataset.lineIndex = lineData.index;
+    checkbox.dataset.line = (lineData.text || '').replace(/\n/g, '');
+    if (lineData.finding) {
+      checkbox.dataset.findingId = lineData.finding.id;
+    }
+    div.appendChild(checkbox);
+
+    const lineNum = document.createElement('span');
+    lineNum.style.cssText = 'min-width:2.5rem; color:#9fb1d3; flex-shrink:0;';
+    lineNum.textContent = `${lineData.index}:`;
+    div.appendChild(lineNum);
+
+    if (lineData.finding) {
+      const badge = document.createElement('span');
+      badge.className = `status-badge sev-${lineData.finding.severity}`;
+      badge.style.cssText = 'font-size:0.7rem; padding:0.1rem 0.35rem; margin-right:0.35rem;';
+      badge.textContent = lineData.finding.severity;
+      div.appendChild(badge);
+    }
+
+    const textSpan = document.createElement('span');
+    textSpan.className = 'log-line-text';
+    textSpan.style.cssText = 'flex:1; white-space:pre-wrap; word-break:break-word;';
+    textSpan.textContent = lineData.text || '';
+    div.appendChild(textSpan);
+
+    if (lineData.finding) {
+      const expandBtn = document.createElement('button');
+      expandBtn.type = 'button';
+      expandBtn.className = 'secondary finding-expand-btn';
+      expandBtn.style.cssText = 'padding:0.15rem 0.4rem; font-size:0.75rem; margin-left:0.35rem;';
+      expandBtn.textContent = '▼';
+      expandBtn.onclick = () => toggleFindingDetails(lineData.finding.id);
+      div.appendChild(expandBtn);
+      
+      // Add double-click handler
+      div.addEventListener('dblclick', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        toggleFindingDetails(lineData.finding.id);
+      });
+    }
+
+    return div;
+  }
+
+  function createFindingDetailsElement(lineData) {
+    const finding = lineData.finding;
+    const div = document.createElement('div');
+    div.className = 'finding-details';
+    div.id = `finding-details-${finding.id}`;
+    div.style.cssText = 'display:none; margin-left:4rem; margin-bottom:0.5rem; padding:0.5rem; background:#0c1119; border-radius:0.4rem; border-left:3px solid #4f6fa9;';
+
+    let html = `
+      <div style="display:flex; gap:0.45rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:0.35rem;">
+        <div style="display:flex; flex-direction:column; gap:0.15rem; flex:1;">
+          <span class="muted" style="font-size:0.85rem;">Finding #${finding.finding_index} · ${finding.created_at}</span>
+          <span class="helper-text" style="margin:0;">${escapeHtml(finding.reason || '')}</span>
+        </div>
+      </div>
+    `;
+
+    if (finding.llm_response_content) {
+      html += `
+        <div class="finding-response" style="margin-top:0.5rem;" data-finding-summary="true" data-finding-id="${finding.id}">
+          ${finding.llm_provider || finding.llm_model ? `<div class="helper-text" style="margin:0;">AI opinion: ${finding.llm_provider || 'Unknown provider'}${finding.llm_model ? ` · ${finding.llm_model}` : ''}</div>` : ''}
+          <div class="llm-body" style="max-height:120px;">${escapeHtml(finding.llm_response_content)}</div>
+          <div class="recorded-summary muted" data-summary-for="${finding.id}" style="display:none;"></div>
+        </div>
+      `;
+    }
+
+    div.innerHTML = html;
+    return div;
   }
 
   function sortLogLines() {

@@ -642,7 +642,7 @@ async def regex_lab(
     sample_error: Optional[str] = None
     safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        raw_sample_lines, sample_error = _get_sample_lines_for_module(
+        raw_sample_lines, _, _, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
 
@@ -715,10 +715,15 @@ def _logs_redirect(
 
 
 def _build_log_view_state(
-    module_obj, tail_filter: str, issue_filter: str, *, sample_lines_override: Optional[List[str]] = None
+    module_obj,
+    tail_filter: str,
+    issue_filter: str,
+    *,
+    sample_lines_override: Optional[List[str]] = None,
+    sample_start_line: int = 0,
+    total_lines: int = 0,
 ):
     sample_lines: List[str] = []
-    sample_start_line = 0
     recent_findings = []
     finding_tail: List[Dict[str, Any]] = []
     available_severities: List[str] = []
@@ -731,8 +736,8 @@ def _build_log_view_state(
         if sample_lines_override is not None:
             sample_lines = list(sample_lines_override)
         else:
-            sample_lines, sample_start_line = _tail_lines(
-                Path(module_obj.path), max_lines=400
+            sample_lines, sample_start_line, total_lines = _tail_lines(
+                Path(module_obj.path), max_lines=500
             )
         recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
         had_recent_findings = bool(recent_findings)
@@ -801,6 +806,8 @@ def _build_log_view_state(
         "tail_severities": available_severities,
         "severity_choices": severity_choices,
         "finding_examples": finding_line_examples,
+        "sample_start_line": sample_start_line,
+        "total_lines": total_lines,
     }
 
 
@@ -848,11 +855,16 @@ async def ai_logs(
             module_obj.name, severities=count_severities
         )
 
-    sample_lines, sample_error = _get_sample_lines_for_module(
-        module_obj, safe_sample_source, max_lines=400
+    sample_lines, sample_start_line, total_lines, sample_error = _get_sample_lines_for_module(
+        module_obj, safe_sample_source, max_lines=500
     )
     log_state = _build_log_view_state(
-        module_obj, tail_filter, issue_filter, sample_lines_override=sample_lines
+        module_obj,
+        tail_filter,
+        issue_filter,
+        sample_lines_override=sample_lines,
+        sample_start_line=sample_start_line,
+        total_lines=total_lines,
     )
 
     provider_name = _select_provider_name(module_obj)
@@ -908,6 +920,83 @@ async def ai_logs(
             "open_findings_count": open_findings_count,
         },
     )
+
+
+@app.get("/api/log-lines", name="api_log_lines")
+async def api_log_lines(
+    request: Request,
+    module: str,
+    offset: int = 0,
+    limit: int = 500,
+    sample_source: str = "tail",
+):
+    """API endpoint to load more log lines with pagination.
+    
+    Returns JSON with lines and pagination info. Used by the "Load more" button.
+    """
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse(
+            {"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    modules = _build_modules_from_config()
+    module_obj = next((m for m in modules if m.name == module), None)
+    if module_obj is None:
+        return JSONResponse({"error": "Module not found"}, status_code=404)
+
+    safe_sample_source = _normalize_sample_source(sample_source)
+    lines, start_line, total_lines, error = _get_sample_lines_for_module(
+        module_obj, safe_sample_source, max_lines=limit, offset=offset
+    )
+
+    if error:
+        return JSONResponse({"error": error}, status_code=400)
+
+    # Get findings for these lines
+    recent_findings = get_recent_findings_for_module(module_obj.name, limit=100)
+    finding_tail = _build_finding_tail(
+        lines,
+        recent_findings,
+        first_line_number=start_line,
+        module_path=Path(module_obj.path),
+    )
+
+    # Convert finding_tail to JSON-serializable format
+    lines_data = []
+    for section in finding_tail:
+        if section.get("unified_view"):
+            for line_entry in section.get("lines", []):
+                finding = line_entry.get("finding")
+                line_data = {
+                    "index": line_entry.get("index"),
+                    "text": line_entry.get("text", ""),
+                    "finding": None,
+                }
+                if finding:
+                    line_data["finding"] = {
+                        "id": getattr(finding, "id", None),
+                        "finding_index": getattr(finding, "finding_index", None),
+                        "severity": str(getattr(finding, "severity", "")),
+                        "reason": getattr(finding, "reason", ""),
+                        "rule_id": getattr(finding, "rule_id", None),
+                        "created_at": _format_local_timestamp(getattr(finding, "created_at", None)),
+                        "llm_response_content": getattr(finding, "llm_response_content", None),
+                        "llm_provider": getattr(finding, "llm_provider", None),
+                        "llm_model": getattr(finding, "llm_model", None),
+                    }
+                lines_data.append(line_data)
+
+    # Calculate if there are more lines to load
+    has_more = start_line > 1
+
+    return JSONResponse({
+        "lines": lines_data,
+        "start_line": start_line,
+        "total_lines": total_lines,
+        "has_more": has_more,
+        "next_offset": offset + len(lines),
+    })
 
 
 def _select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
@@ -1746,25 +1835,56 @@ async def change_password(
 
 
 def _tail_lines(
-    path: Path, max_lines: int = 200, *, max_chars_per_line: int = 4000
-) -> tuple[List[str], int]:
-    """Return the tail of a file and the 1-based line number for its first entry."""
-
+    path: Path, max_lines: int = 500, *, max_chars_per_line: int = 4000, offset: int = 0
+) -> tuple[List[str], int, int]:
+    """Return the tail of a file and the 1-based line number for its first entry.
+    
+    Args:
+        path: Path to the log file
+        max_lines: Maximum number of lines to return (default 500)
+        max_chars_per_line: Maximum characters per line before truncation
+        offset: Number of lines to skip from the end (for pagination).
+                offset=0 returns the last max_lines lines.
+                offset=500 returns lines before those last 500 lines.
+    
+    Returns:
+        Tuple of (lines, start_line_number, total_lines_in_file)
+        - lines: List of log line strings
+        - start_line_number: 1-based line number of the first returned line
+        - total_lines_in_file: Total number of lines in the file
+    """
     if not path.exists() or not path.is_file():
-        return [], 1
+        return [], 1, 0
     try:
         with path.open("r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
+            all_lines = f.readlines()
+            total_lines = len(all_lines)
+            
+            if total_lines == 0:
+                return [], 1, 0
+            
+            # Calculate the range of lines to return
+            # offset=0 means get the last max_lines
+            # offset=500 means skip the last 500 and get the max_lines before that
+            end_idx = total_lines - offset
+            start_idx = max(0, end_idx - max_lines)
+            
+            if end_idx <= 0:
+                # Offset is beyond the file, no lines to return
+                return [], 1, total_lines
+            
+            selected_lines = all_lines[start_idx:end_idx]
+            
             trimmed: List[str] = []
-            for ln in lines[-max_lines:]:
+            for ln in selected_lines:
                 normalized = ln.rstrip("\n")
                 trimmed.append(normalized[:max_chars_per_line])
 
-            # Ensure indexes are compatible with the 1-based line numbers stored on findings.
-            start_line = max(1, len(lines) - len(trimmed) + 1)
-            return trimmed, start_line
+            # 1-based line number for the first returned line
+            start_line = start_idx + 1
+            return trimmed, start_line, total_lines
     except Exception:
-        return [], 1
+        return [], 1, 0
 
 
 def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
@@ -1772,7 +1892,7 @@ def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
     if not findings:
         return []
 
-    tail_lines, first_line_number = _tail_lines(Path(module_obj.path), max_lines=max_lines)
+    tail_lines, first_line_number, _ = _tail_lines(Path(module_obj.path), max_lines=max_lines)
     if not tail_lines:
         return []
 
@@ -1802,29 +1922,41 @@ def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
 
 
 def _get_sample_lines_for_module(
-    module_obj, sample_source: str, max_lines: int = 200
-) -> tuple[List[str], Optional[str]]:
+    module_obj, sample_source: str, max_lines: int = 500, offset: int = 0
+) -> tuple[List[str], int, int, Optional[str]]:
+    """Get sample lines from a module's log file with pagination support.
+    
+    Args:
+        module_obj: The module configuration object
+        sample_source: Source type ('tail', 'errors', or 'sample:...')
+        max_lines: Maximum number of lines to return (default 500)
+        offset: Number of lines to skip from the end for pagination
+    
+    Returns:
+        Tuple of (lines, start_line_number, total_lines, error_message)
+    """
     if module_obj is None:
-        return [], None
+        return [], 1, 0, None
 
     source = _normalize_sample_source(sample_source)
     if source == "errors":
         if not db_status.get("connected"):
-            return [], "Database not connected; cannot load identified errors."
-        return _error_lines_from_findings(module_obj, max_lines=max_lines), None
+            return [], 1, 0, "Database not connected; cannot load identified errors."
+        lines = _error_lines_from_findings(module_obj, max_lines=max_lines)
+        return lines, 1, len(lines), None
 
     if source.startswith("sample:"):
         sample_logs = _available_sample_logs()
         entry = next((item for item in sample_logs if item.get("value") == source), None)
         if entry is None:
-            return [], "Sample log not found on disk."
-        lines, _ = _tail_lines(entry["path"], max_lines=max_lines)
+            return [], 1, 0, "Sample log not found on disk."
+        lines, start_line, total = _tail_lines(entry["path"], max_lines=max_lines, offset=offset)
         if not lines:
-            return [], "Sample log is empty or unreadable."
-        return lines, None
+            return [], 1, total, "Sample log is empty or unreadable."
+        return lines, start_line, total, None
 
-    lines, _ = _tail_lines(Path(module_obj.path), max_lines=max_lines)
-    return lines, None
+    lines, start_line, total = _tail_lines(Path(module_obj.path), max_lines=max_lines, offset=offset)
+    return lines, start_line, total, None
 
 
 def _build_finding_tail(
@@ -2068,7 +2200,7 @@ async def regex_test(
     sample_error: Optional[str] = None
     safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        raw_sample_lines, sample_error = _get_sample_lines_for_module(
+        raw_sample_lines, _, _, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
     filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
@@ -2142,7 +2274,7 @@ async def regex_suggest(
     sample_error: Optional[str] = None
     safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        raw_sample_lines, sample_error = _get_sample_lines_for_module(
+        raw_sample_lines, _, _, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
 
