@@ -4,9 +4,9 @@
   .log-line { display:flex; align-items:flex-start; gap:0.55rem; padding:0.08rem 0; }
   .log-line input[type="checkbox"] { margin-top:0.15rem; }
   .log-line.selected { background:#162032; border-radius:0.4rem; padding:0.25rem 0.2rem; }
-  .log-line.finding-line { background:#1a1f2e; border-left:2px solid #4f6fa9; padding-left:0.35rem; margin-left:-0.35rem; }
+  .log-line.finding-line { background:#1a1f2e; padding-left:0.35rem; }
   .log-line.finding-line:hover { background:#1f2538; }
-  .unified-log-view { max-height:560px; overflow-y:auto; }
+  .unified-log-view { max-height:420px; overflow-y:auto; }
   .finding-expand-btn { opacity:0.7; transition:opacity 0.15s; }
   .finding-expand-btn:hover { opacity:1; }
   .finding-expand-btn.expanded { transform:rotate(180deg); }
@@ -21,12 +21,12 @@
   .finding-response h4 { margin:0; font-size:1rem; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
   .finding-response .llm-body { max-height:180px; overflow:auto; background:#0c1018; padding:0.5rem; border-radius:0.5rem; white-space:pre-wrap; }
   .synced-shell { border-radius:0.75rem; padding:0.65rem; background:#0c111a; }
-  .synced-head { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.45rem; }
-  .synced-scroll { display:flex; flex-direction:column; gap:0.6rem; max-height:560px; overflow-y:auto; padding-right:0.25rem; }
+  .synced-scroll { display:flex; flex-direction:column; gap:0.6rem; max-height:420px; overflow-y:auto; padding-right:0.25rem; }
   .synced-row { display:flex; flex-direction:column; gap:0.75rem; }
   .synced-pane { border-radius:0.55rem; background:#0f131b; padding:0.65rem; }
-  .sort-control { display:flex; align-items:center; gap:0.35rem; }
-  .sort-control select { padding:0.25rem 0.5rem; font-size:0.85rem; background:#0f131b; border:1px solid #2b3242; border-radius:0.35rem; color:#e8ecf2; }
+  .sort-toggle { margin-left:auto; display:flex; align-items:center; gap:0.35rem; }
+  .sort-toggle button { padding:0.25rem 0.6rem; font-size:0.85rem; }
+  .sort-toggle button.active { background:#2e4472; border-color:#3c5c98; }
   .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
   .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
   .finding-controls form { display:inline-flex; gap:0.25rem; align-items:center; margin:0; }
@@ -156,8 +156,12 @@
           </div>
           <button type="button" class="danger" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
         </div>
-        <form id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}" style="display:none;">
-          <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
+        <div class="sort-toggle">
+          <button type="button" class="secondary sort-btn active" data-order="newest" onclick="setLogSort('newest')">Newest first</button>
+          <button type="button" class="secondary sort-btn" data-order="oldest" onclick="setLogSort('oldest')">Oldest first</button>
+        </div>
+      <form id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}" style="display:none;">
+        <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
           <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
           <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
           <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
@@ -180,18 +184,6 @@
       <input type="hidden" name="finding_ids" id="selected-finding-ids">
     </form>
     <div class="synced-shell">
-      <div class="synced-head">
-        <div class="sync-title">
-          <h3 style="margin:0;">Log lines</h3>
-        </div>
-        <div class="sort-control">
-          <span class="muted" style="font-size:0.85rem;">Sort:</span>
-          <select id="log-sort-order" onchange="sortLogLines()">
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-          </select>
-        </div>
-      </div>
       <div class="synced-scroll" id="synced-scroll">
         {% if sample_lines %}
           {% if finding_tail %}
@@ -448,11 +440,11 @@
   }
 
   function sortLogLines() {
-    const select = document.getElementById('log-sort-order');
+    const activeBtn = document.querySelector('.sort-btn.active');
     const container = document.querySelector('.log-section-body');
-    if (!select || !container) return;
+    if (!activeBtn || !container) return;
     
-    const sortOrder = select.value;
+    const sortOrder = activeBtn.dataset.order || 'newest';
     const lines = Array.from(container.querySelectorAll('.log-line'));
     
     lines.sort((a, b) => {
@@ -474,9 +466,17 @@
     });
   }
 
+  function setLogSort(order) {
+    const buttons = document.querySelectorAll('.sort-btn');
+    buttons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.order === order);
+    });
+    sortLogLines();
+  }
+
   // Initialize sort on page load (newest first by default)
   document.addEventListener('DOMContentLoaded', () => {
-    sortLogLines();
+    setLogSort('newest');
     
     // Add double-click handler for finding lines
     document.querySelectorAll('.log-line.finding-line').forEach(line => {
