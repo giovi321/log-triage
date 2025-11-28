@@ -13,12 +13,18 @@
   .wizard-step .step-status { font-size:0.8rem; color:#93a3c1; }
   .lab-layout { display:grid; grid-template-columns: minmax(0, 1.1fr) minmax(380px, 1fr); gap:1rem; align-items:start; }
   @media (max-width: 900px) { .lab-layout { grid-template-columns: 1fr; } }
-  .regex-line { display:flex; align-items:flex-start; gap:0.6rem; white-space:pre-wrap; word-break:break-word; padding:0.35rem 0.4rem; border-radius:0.4rem; transition:background 0.15s ease, border 0.15s ease; }
-  .regex-line:hover { background:#182233; border:1px solid #2c3a55; }
-  .regex-line .line-number { min-width:3.25rem; color:#9fb1d3; display:inline-block; }
-  .regex-line .line-content { display:flex; flex-direction:column; gap:0.35rem; width:100%; }
-  .regex-lines { display:flex; flex-direction:column; gap:0.15rem; }
-  .match-line { background:#332107; padding:0.05rem 0.15rem; border-radius:0.25rem; }
+  .regex-line { display:flex; align-items:flex-start; gap:0.3rem; padding:0.12rem 0.25rem; font-family:monospace; font-size:0.92rem; }
+  .regex-line:nth-child(odd) { background:#0d1219; }
+  .regex-line:nth-child(even) { background:#0f151e; }
+  .regex-line:hover { background:#182233; }
+  .regex-line.match-line { background:#1a1f2e; }
+  .regex-line.match-line:nth-child(odd) { background:#1a1f2e; }
+  .regex-line.match-line:nth-child(even) { background:#1c2230; }
+  .regex-line.match-line:hover { background:#1f2538; }
+  .regex-line .line-number { min-width:2.5rem; color:#9fb1d3; flex-shrink:0; }
+  .regex-line .line-content { flex:1; white-space:pre-wrap; word-break:break-word; }
+  .regex-lines { display:flex; flex-direction:column; gap:0; }
+  .match-highlight { background:#3d2a0a; color:#f5c842; padding:0 0.1rem; border-radius:0.15rem; }
   .editor-shell { border:none; border-radius:0.75rem; padding:0.9rem; background:#0f131e; box-shadow:0 12px 28px rgba(0,0,0,0.35); }
   .editor-header { display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; }
   .editor-actions { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
@@ -64,18 +70,12 @@
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <input type="hidden" name="sample_selection" value="">
-            <div id="sample-lines" style="max-height:320px; overflow:auto; border:1px solid #333; padding:0.35rem; border-radius:0.5rem;" aria-label="Sample lines">
+            <div id="sample-lines" style="max-height:520px; overflow:auto; border-radius:0.5rem; background:#0a0e14; padding:0.35rem;" aria-label="Sample lines">
               <div class="regex-lines">
                 {% for entry in sample_lines %}
-                  <div class="regex-line" style="font-family:monospace; font-size:0.85rem;">
+                  <div class="regex-line {% if matches and (entry.index in matches) %}match-line{% endif %}" data-line-index="{{ entry.index }}">
                     <span class="line-number">{{ entry.index }}:</span>
-                    <div class="line-content">
-                      <span class="line-preview {% if matches and (entry.index in matches) %}match-line{% endif %}" data-preview="{{ entry.preview }}" data-full="{{ entry.full }}" data-clipped="{{ entry.was_clipped }}">{{ entry.preview }}</span>
-                      {% if entry.is_preview_truncated or entry.was_clipped %}
-                        <button type="button" class="link-button" data-toggle-full>View full line</button>
-                        <div class="line-full" style="display:none; white-space:pre-wrap; word-break:break-word;">{{ entry.full }}{% if entry.was_clipped %}<em style="color:#ccc;"> (clipped preview)</em>{% endif %}</div>
-                      {% endif %}
-                    </div>
+                    <span class="line-content line-preview" data-preview="{{ entry.preview }}" data-full="{{ entry.full }}" data-clipped="{{ entry.was_clipped }}">{{ entry.preview }}</span>
                   </div>
                 {% endfor %}
               </div>
@@ -132,15 +132,55 @@
   {% endif %}
 </div>
 <script>
-  document.querySelectorAll('[data-toggle-full]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const full = btn.nextElementSibling;
-      if (!full) return;
-      const isHidden = full.style.display === 'none' || !full.style.display;
-      full.style.display = isHidden ? 'block' : 'none';
-      btn.textContent = isHidden ? 'Hide full line' : 'View full line';
+  const currentRegexValue = {{ regex_value|tojson }};
+
+  function escapeHtml(text) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return (text || '').replace(/[&<>"']/g, m => map[m] || m);
+  }
+
+  function highlightRegexMatches() {
+    if (!currentRegexValue) return;
+    let regex;
+    try {
+      regex = new RegExp(currentRegexValue, 'g');
+    } catch (e) {
+      return;
+    }
+
+    document.querySelectorAll('.regex-line.match-line .line-content').forEach(span => {
+      const fullText = span.dataset.full || span.textContent || '';
+      regex.lastIndex = 0;
+      let match;
+      let lastIndex = 0;
+      let html = '';
+      let hasMatch = false;
+
+      while ((match = regex.exec(fullText)) !== null) {
+        const [segment] = match;
+        if (!segment) {
+          regex.lastIndex += 1;
+          continue;
+        }
+        const start = match.index;
+        const end = start + segment.length;
+        html += escapeHtml(fullText.slice(lastIndex, start));
+        html += `<span class="match-highlight">${escapeHtml(segment)}</span>`;
+        lastIndex = end;
+        hasMatch = true;
+        if (regex.lastIndex === match.index) {
+          regex.lastIndex += 1;
+        }
+      }
+
+      if (hasMatch) {
+        html += escapeHtml(fullText.slice(lastIndex));
+        span.innerHTML = html;
+      }
     });
-  });
+  }
+
+  document.addEventListener('DOMContentLoaded', highlightRegexMatches);
 
   const draftForm = document.querySelector('[data-draft-form]');
   const selectionInput = draftForm?.querySelector('input[name="sample_selection"]');

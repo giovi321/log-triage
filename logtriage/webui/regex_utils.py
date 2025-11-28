@@ -58,6 +58,7 @@ def _compile_regex_with_feedback(regex_value: str) -> tuple[Optional[re.Pattern[
 def _prepare_sample_lines(
     sample_lines: List[str],
     *,
+    first_line_number: int = 0,
     max_preview_chars: int = 240,
     max_full_chars: int = 2000,
 ) -> List[Dict[str, Any]]:
@@ -74,7 +75,7 @@ def _prepare_sample_lines(
 
         prepared.append(
             {
-                "index": idx,
+                "index": idx + first_line_number,
                 "preview": preview,
                 "full": clipped_line,
                 "is_preview_truncated": preview_truncated,
