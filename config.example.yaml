@@ -45,16 +45,16 @@ pipelines:
   classifier:
     type: regex_counter
     error_regexes:
-    - \\berror\\b
+    - \berror\b
     - Traceback
     warning_regexes:
-    - \\bwarning\\b
-    - \\bfailed to\\b
+    - \bwarning\b
+    - \bfailed to\b
     ignore_regexes:
     - Some noisy integration .* does not support.*
 - name: nextcloud
   match:
-    filename_regex: nextcloud.*\\.log
+    filename_regex: nextcloud.*\.log
   classifier:
     type: regex_counter
     error_regexes:
