@@ -1895,29 +1895,17 @@ def _error_lines_from_findings(module_obj, max_lines: int = 200) -> List[str]:
     if not findings:
         return []
 
-    tail_lines, first_line_number, _ = _tail_lines(Path(module_obj.path), max_lines=max_lines)
-    if not tail_lines:
-        return []
-
-    finding_tail = _build_finding_tail(
-        tail_lines,
-        findings,
-        first_line_number=first_line_number,
-        module_path=Path(module_obj.path),
-    )
-
     lines: List[str] = []
-    for section in finding_tail:
-        finding = section.get("finding")
-        if finding is None:
-            continue
-
-        finding_lines = section.get("lines", [])
+    for finding in findings:
         created_at = _format_local_timestamp(getattr(finding, "created_at", None))
         header = f"[{getattr(finding, 'severity', '')}] finding #{getattr(finding, 'finding_index', '?')} @ {created_at}"
         lines.append(header)
-        for entry in finding_lines:
-            lines.append(entry.get("text", ""))
+        
+        # Get excerpt lines from the finding
+        excerpt = getattr(finding, "excerpt", None) or ""
+        excerpt_lines = excerpt.splitlines() if isinstance(excerpt, str) else list(excerpt)
+        for line_text in excerpt_lines:
+            lines.append(line_text)
             if len(lines) >= max_lines:
                 return lines[:max_lines]
 

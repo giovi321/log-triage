@@ -38,11 +38,11 @@
   <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:flex-end; flex-wrap:wrap;">
     <label style="display:block;">Module:
       <select name="module" onchange="this.form.submit()">
-        {% for m in modules %}
+        {% for m in modules %}{% if m.enabled %}
         <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>
           {{ m.name }}
         </option>
-        {% endfor %}
+        {% endif %}{% endfor %}
       </select>
     </label>
     <label style="display:block;">Sample source:
@@ -62,7 +62,8 @@
     <div class="lab-layout">
       <div style="flex:1 1 50%; min-width:260px;">
         <div class="section-header">
-          <h3 style="margin:0;">Sample lines ({{ sample_source_label }})</h3>
+          <h3 style="margin:0;">Sample lines</h3>
+          <button type="button" class="secondary" id="filter-matches-btn" onclick="toggleMatchFilter()" style="display:none;">Show matches only</button>
         </div>
         {% if sample_lines %}
           <form id="draft-form" method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
@@ -75,7 +76,7 @@
                 {% for entry in sample_lines %}
                   <div class="regex-line {% if matches and (entry.index in matches) %}match-line{% endif %}" data-line-index="{{ entry.index }}">
                     <span class="line-number">{{ entry.index }}:</span>
-                    <span class="line-content line-preview" data-preview="{{ entry.preview }}" data-full="{{ entry.full }}" data-clipped="{{ entry.was_clipped }}">{{ entry.preview }}</span>
+                    <span class="line-content">{{ entry.full }}</span>
                   </div>
                 {% endfor %}
               </div>
@@ -133,6 +134,8 @@
 </div>
 <script>
   const currentRegexValue = {{ regex_value|tojson }};
+  const hasMatches = {{ (matches|length > 0)|tojson }};
+  let showMatchesOnly = false;
 
   function escapeHtml(text) {
     const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -149,7 +152,7 @@
     }
 
     document.querySelectorAll('.regex-line.match-line .line-content').forEach(span => {
-      const fullText = span.dataset.full || span.textContent || '';
+      const fullText = span.textContent || '';
       regex.lastIndex = 0;
       let match;
       let lastIndex = 0;
@@ -180,7 +183,32 @@
     });
   }
 
-  document.addEventListener('DOMContentLoaded', highlightRegexMatches);
+  function toggleMatchFilter() {
+    showMatchesOnly = !showMatchesOnly;
+    const btn = document.getElementById('filter-matches-btn');
+    if (btn) {
+      btn.textContent = showMatchesOnly ? 'Show all lines' : 'Show matches only';
+    }
+    document.querySelectorAll('.regex-line').forEach(line => {
+      if (showMatchesOnly) {
+        line.style.display = line.classList.contains('match-line') ? '' : 'none';
+      } else {
+        line.style.display = '';
+      }
+    });
+  }
+
+  function updateFilterButton() {
+    const btn = document.getElementById('filter-matches-btn');
+    if (btn && hasMatches) {
+      btn.style.display = '';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    highlightRegexMatches();
+    updateFilterButton();
+  });
 
   const draftForm = document.querySelector('[data-draft-form]');
   const selectionInput = draftForm?.querySelector('input[name="sample_selection"]');

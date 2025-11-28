@@ -77,9 +77,9 @@
     <form method="get" action="{{ url_for('ai_logs') }}" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
       <label>Module:
         <select name="module" onchange="this.form.submit()">
-          {% for m in modules %}
+          {% for m in modules %}{% if m.enabled %}
             <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
-          {% endfor %}
+          {% endif %}{% endfor %}
         </select>
       </label>
       <label>Tail view:
@@ -99,40 +99,40 @@
       <input type="hidden" name="sample_source" value="{{ sample_source }}">
       <span class="muted">Path: {{ current_module.path if current_module else '-' }}</span>
     </form>
-    {% if current_module %}
-      {% set st = stats.get(current_module.name) if stats else None %}
-      {% set status = "OK" %}
-      {% if ingestion_status and current_module.name in ingestion_status.stale_modules %}
-        {% set status = "STALE" %}
-      {% elif st %}
-        {% set sev_upper = (st.last_severity or "")|upper %}
-        {% if st.errors_24h > 0 or sev_upper in ("ERROR", "CRITICAL") %}
-          {% set status = "ERROR" if sev_upper != "CRITICAL" else "CRITICAL" %}
-        {% elif st.warnings_24h > 0 or sev_upper == "WARNING" %}
-          {% set status = "WARNING" %}
-        {% endif %}
-      {% endif %}
-      <div style="display:flex; gap:0.75rem; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end; min-width:260px;">
-        <div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-          <span class="muted">Last log update</span>
-          {% if st and st.last_log_update %}
-            <span class="status-chip">{{ st.last_log_update|localtime }}</span>
-          {% else %}
-            <span class="muted">n/a</span>
-          {% endif %}
-          <span class="status-badge sev-{{ status }}">{{ status }}</span>
-        </div>
-        <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-          <span class="muted">Open findings</span>
-          {% if open_findings_count is not none %}
-            <span class="status-chip">{{ open_findings_count }}</span>
-          {% else %}
-            <span class="muted">n/a</span>
-          {% endif %}
-        </div>
-      </div>
-    {% endif %}
   </div>
+  {% if current_module %}
+    {% set st = stats.get(current_module.name) if stats else None %}
+    {% set status = "OK" %}
+    {% if ingestion_status and current_module.name in ingestion_status.stale_modules %}
+      {% set status = "STALE" %}
+    {% elif st %}
+      {% set sev_upper = (st.last_severity or "")|upper %}
+      {% if st.errors_24h > 0 or sev_upper in ("ERROR", "CRITICAL") %}
+        {% set status = "ERROR" if sev_upper != "CRITICAL" else "CRITICAL" %}
+      {% elif st.warnings_24h > 0 or sev_upper == "WARNING" %}
+        {% set status = "WARNING" %}
+      {% endif %}
+    {% endif %}
+    <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-bottom:0.5rem;">
+      <div style="display:flex; gap:0.45rem; align-items:center; flex-wrap:wrap;">
+        <span class="muted">Last log update</span>
+        {% if st and st.last_log_update %}
+          <span class="status-chip">{{ st.last_log_update|localtime }}</span>
+        {% else %}
+          <span class="muted">n/a</span>
+        {% endif %}
+        <span class="status-badge sev-{{ status }}">{{ status }}</span>
+      </div>
+      <div style="display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+        <span class="muted">Open findings</span>
+        {% if open_findings_count is not none %}
+          <span class="status-chip">{{ open_findings_count }}</span>
+        {% else %}
+          <span class="muted">n/a</span>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
 
   {% if not modules %}
     <p class="muted">No modules configured yet.</p>
@@ -160,6 +160,10 @@
             </div>
           </div>
           <button type="button" class="danger" onclick="deleteSelectedFindings()" {% if not current_module or not db_status.connected %}disabled{% endif %}>Delete findings</button>
+        </div>
+        <div class="selection-box" style="flex-shrink:0;">
+          <input type="text" id="fuzzy-search" placeholder="Search lines..." style="width:160px; padding:0.3rem 0.5rem; border:1px solid #2b3242; border-radius:0.35rem; background:#0f131b; color:#e8ecf2;" oninput="filterLinesBySearch()">
+          <button type="button" class="secondary" onclick="clearSearch()">Clear</button>
         </div>
         <div class="sort-toggle">
           <button type="button" class="secondary sort-btn active" data-order="newest" onclick="setLogSort('newest')">Newest first</button>
@@ -329,15 +333,15 @@
           </div>
         {% endif %}
       </div>
-      {% if sample_start_line > 1 %}
+      {% if sample_start_line > 1 and tail_filter == 'ALL' %}
         <div style="display:flex; justify-content:center; padding:0.75rem 0;">
           <button type="button" class="secondary" id="load-more-btn" onclick="loadMoreLines()" style="padding:0.5rem 1.5rem;">
-            Load older lines (showing lines {{ sample_start_line }}–{{ sample_start_line + sample_lines|length - 1 }} of {{ total_lines }})
+            Load older lines
           </button>
         </div>
-      {% elif total_lines > 0 %}
+      {% elif total_lines > 0 and tail_filter == 'ALL' %}
         <div style="display:flex; justify-content:center; padding:0.5rem 0;">
-          <span class="muted">Showing all {{ total_lines }} lines</span>
+          <span class="muted">Showing all lines</span>
         </div>
       {% endif %}
       </div>
@@ -540,11 +544,10 @@
       // Update button text or hide it
       if (btn) {
         if (data.has_more) {
-          const endLine = data.start_line + data.lines.length - 1;
-          btn.textContent = `Load older lines (showing lines ${data.start_line}–${paginationState.totalLines} of ${paginationState.totalLines})`;
+          btn.textContent = 'Load older lines';
           btn.disabled = false;
         } else {
-          btn.parentElement.innerHTML = `<span class="muted">Showing all ${paginationState.totalLines} lines</span>`;
+          btn.parentElement.innerHTML = `<span class="muted">Showing all lines</span>`;
         }
       }
     } catch (err) {
@@ -1083,6 +1086,39 @@
     }
     const allChecked = boxes.every(cb => cb.checked);
     btn.textContent = allChecked ? 'Deselect all' : 'Select all';
+  }
+
+  function filterLinesBySearch() {
+    const searchInput = document.getElementById('fuzzy-search');
+    const query = (searchInput?.value || '').toLowerCase().trim();
+    
+    document.querySelectorAll('.log-line').forEach(line => {
+      if (!query) {
+        line.style.display = '';
+        return;
+      }
+      const textSpan = line.querySelector('.log-line-text') || line.querySelector('span:last-child');
+      const lineText = (textSpan?.textContent || '').toLowerCase();
+      // Simple fuzzy match: check if all characters appear in order
+      let matchIndex = 0;
+      for (const char of query) {
+        const foundIndex = lineText.indexOf(char, matchIndex);
+        if (foundIndex === -1) {
+          line.style.display = 'none';
+          return;
+        }
+        matchIndex = foundIndex + 1;
+      }
+      line.style.display = '';
+    });
+  }
+
+  function clearSearch() {
+    const searchInput = document.getElementById('fuzzy-search');
+    if (searchInput) {
+      searchInput.value = '';
+      filterLinesBySearch();
+    }
   }
 
   function positionFloatingPanel(panel, trigger) {
