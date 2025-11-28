@@ -312,7 +312,9 @@ def _build_all_regex_hints() -> Dict[str, List[Dict[str, str]]]:
     return {step: _regex_step_hints(step) for step, _ in REGEX_WIZARD_STEPS}
 
 
-def _evaluate_regex_against_lines(regex_value: str, sample_lines: List[str]) -> tuple[list[int], Optional[str]]:
+def _evaluate_regex_against_lines(
+    regex_value: str, sample_lines: List[str], first_line_number: int = 0
+) -> tuple[list[int], Optional[str]]:
     matches: List[int] = []
     error_msg: Optional[str] = None
     if not regex_value:
@@ -320,7 +322,7 @@ def _evaluate_regex_against_lines(regex_value: str, sample_lines: List[str]) -> 
 
     try:
         pattern = re.compile(regex_value)
-        matches = [idx for idx, line in enumerate(sample_lines) if pattern.search(line)]
+        matches = [idx + first_line_number for idx, line in enumerate(sample_lines) if pattern.search(line)]
     except re.error as e:
         error_msg = f"Regex error: {e}"
 
@@ -639,17 +641,18 @@ async def regex_lab(
             module_obj = modules[0]
 
     raw_sample_lines: List[str] = []
+    sample_start_line: int = 1
     sample_error: Optional[str] = None
     safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        raw_sample_lines, _, _, sample_error = _get_sample_lines_for_module(
+        raw_sample_lines, sample_start_line, _, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
 
     filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
-    prepared_lines = _prepare_sample_lines(filtered_sample_lines)
+    prepared_lines = _prepare_sample_lines(filtered_sample_lines, first_line_number=sample_start_line)
     matches, evaluation_error = _evaluate_regex_against_lines(
-        stored_state.get("regex_value", ""), filtered_sample_lines
+        stored_state.get("regex_value", ""), filtered_sample_lines, first_line_number=sample_start_line
     )
     active_step = stored_state.get("step", "pick")
     _update_regex_state(
@@ -2197,14 +2200,15 @@ async def regex_test(
     safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
     module_obj = next((m for m in modules if m.name == module), None)
     raw_sample_lines: List[str] = []
+    sample_start_line: int = 1
     sample_error: Optional[str] = None
     safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        raw_sample_lines, _, _, sample_error = _get_sample_lines_for_module(
+        raw_sample_lines, sample_start_line, _, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
     filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
-    prepared_lines = _prepare_sample_lines(filtered_sample_lines)
+    prepared_lines = _prepare_sample_lines(filtered_sample_lines, first_line_number=sample_start_line)
 
     regex_issues = _lint_regex_input(regex_value)
     matches: List[int] = []
@@ -2271,15 +2275,16 @@ async def regex_suggest(
     safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
     module_obj = next((m for m in modules if m.name == module), None)
     raw_sample_lines: List[str] = []
+    sample_start_line: int = 1
     sample_error: Optional[str] = None
     safe_sample_source = _normalize_sample_source(sample_source)
     if module_obj is not None:
-        raw_sample_lines, _, _, sample_error = _get_sample_lines_for_module(
+        raw_sample_lines, sample_start_line, _, sample_error = _get_sample_lines_for_module(
             module_obj, safe_sample_source, max_lines=200
         )
 
     filtered_sample_lines = _filter_finding_intro_lines(raw_sample_lines)
-    prepared_lines = _prepare_sample_lines(filtered_sample_lines)
+    prepared_lines = _prepare_sample_lines(filtered_sample_lines, first_line_number=sample_start_line)
     selection = (sample_selection or "").strip()
 
     if not selection:
@@ -2370,8 +2375,10 @@ async def regex_save(
     if module_obj is None:
         return RedirectResponse(url=app.url_path_for("regex_lab"), status_code=status.HTTP_303_SEE_OTHER)
 
+    tail_lines_result, sample_start_line, _ = _tail_lines(Path(module_obj.path), max_lines=200)
     prepared_lines = _prepare_sample_lines(
-        _filter_finding_intro_lines(_tail_lines(Path(module_obj.path), max_lines=200)[0])
+        _filter_finding_intro_lines(tail_lines_result),
+        first_line_number=sample_start_line
     )
     wizard = _regex_wizard_metadata("save")
     step_hints = _build_all_regex_hints()
