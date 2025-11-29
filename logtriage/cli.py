@@ -18,6 +18,11 @@ from .version import __version__
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse command line arguments for logtriage.
+    
+    Returns:
+        argparse.Namespace: Parsed arguments
+    """
     p = argparse.ArgumentParser(
         description="log-triage: rule-based log triage and LLM payload generator."
     )
@@ -47,6 +52,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 
 def print_text_summary(findings: List[Finding], min_sev: Severity) -> None:
+    """Print findings in human-readable text format.
+    
+    Args:
+        findings: List of findings to print
+        min_sev: Minimum severity to include in output
+    """
     for f in findings:
         if f.severity < min_sev:
             continue
@@ -59,6 +70,11 @@ def print_text_summary(findings: List[Finding], min_sev: Severity) -> None:
 
 
 def print_json_summary(findings: List[Finding]) -> None:
+    """Print findings in JSON format.
+    
+    Args:
+        findings: List of findings to serialize and print
+    """
     out = []
     for f in findings:
         out.append(
@@ -83,6 +99,13 @@ def _modules_to_run(modules: List[ModuleConfig], selected_name: Optional[str]) -
     - When a specific module is requested, return that module even if it is disabled
       so the user can explicitly run it.
     - Otherwise, include all enabled modules (both batch and follow).
+    
+    Args:
+        modules: All available modules from config
+        selected_name: Specific module name requested by user
+        
+    Returns:
+        List of modules that should be executed
     """
 
     if selected_name:
@@ -93,6 +116,16 @@ def _modules_to_run(modules: List[ModuleConfig], selected_name: Optional[str]) -
 def run_module_batch(
     mod: ModuleConfig, pipelines: List[PipelineConfig], llm_defaults: "GlobalLLMConfig"
 ) -> List[Finding]:
+    """Execute a module in batch mode (scan once and exit).
+    
+    Args:
+        mod: Module configuration to execute
+        pipelines: Available pipelines for processing
+        llm_defaults: Global LLM configuration
+        
+    Returns:
+        List of findings discovered during processing
+    """
     pipeline_map: Dict[str, PipelineConfig] = {p.name: p for p in pipelines}
     findings = analyze_path(
         mod.path,
@@ -146,6 +179,16 @@ def run_module_follow(
     llm_defaults: "GlobalLLMConfig",
     should_reload=None,
 ) -> None:
+    """Execute a module in follow mode (continuous tailing).
+    
+    This function runs indefinitely until interrupted or reloaded.
+    
+    Args:
+        mod: Module configuration to execute
+        pipelines: Available pipelines for processing
+        llm_defaults: Global LLM configuration
+        should_reload: Optional callback to check for reload requests
+    """
     if not mod.path.is_file():
         print(f"Module {mod.name}: follow mode requires a file path, got {mod.path}", file=sys.stderr)
         sys.exit(1)
@@ -161,6 +204,15 @@ def run_module_follow(
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    """Main entry point for logtriage CLI.
+    
+    Loads configuration, sets up modules, and executes them according
+    to their mode (batch or follow). Handles configuration reloading
+    when requested.
+    
+    Args:
+        argv: Optional command line arguments (for testing)
+    """
     args = parse_args(argv)
 
     cfg_path = Path(args.config)

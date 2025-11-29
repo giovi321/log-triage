@@ -139,14 +139,7 @@ modules:
       username: ''
       password: ''
       min_severity: WARNING
-  baseline:
-    enabled: true
-    state_file: ./baseline/rsnapshot_baseline.json
-    window: 20
-    error_multiplier: 3.0
-    warning_multiplier: 3.0
-    severity_on_anomaly: ERROR
-- name: homeassistant
+  - name: homeassistant
   enabled: true
   path: /var/log/fluent-bit/homeassistant.log
   mode: follow
@@ -168,8 +161,6 @@ modules:
       port: 1883
       topic: logtriage/homeassistant
       min_severity: ERROR
-  baseline:
-    enabled: false
   stream:
     from_beginning: false
     interval: 1.0
@@ -194,8 +185,6 @@ modules:
       method: POST
       min_severity: ERROR
       headers: {}
-  baseline:
-    enabled: false
   stream:
     from_beginning: false
     interval: 1.0
@@ -213,8 +202,6 @@ modules:
     prompt_template: ./prompts/apache2.txt
     emit_llm_payloads_dir: ./apache_llm_payloads
     context_prefix_lines: 2
-  baseline:
-    enabled: false
   stream:
     from_beginning: false
     interval: 1.0
@@ -232,8 +219,6 @@ modules:
     prompt_template: ./prompts/apache2.txt
     emit_llm_payloads_dir: ./apache_llm_payloads
     context_prefix_lines: 2
-  baseline:
-    enabled: false
   stream:
     from_beginning: false
     interval: 1.0
@@ -258,8 +243,6 @@ modules:
       method: POST
       min_severity: ERROR
       headers: {}
-  baseline:
-    enabled: false
   stream:
     from_beginning: false
     interval: 1.0

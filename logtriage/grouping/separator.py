@@ -7,10 +7,24 @@ def group_by_separator(
     separator_re: Optional[re.Pattern],
     only_last: bool = False,
 ) -> List[List[str]]:
-    """Separator-based grouping for run boundaries.
+    """Group log lines using separator patterns for run boundaries.
 
-    A separator regex identifies the start of each run. When only_last is True,
-    only the last run (after the final separator) is processed.
+    A separator regex identifies the start of each run. This is commonly
+    used for logs where timestamps or specific headers mark different
+    execution runs (e.g., rsnapshot, cron jobs, service restarts).
+
+    When only_last is True, only the final run (after the last separator)
+    is processed, which is useful for focusing on the most recent activity
+    in historical log files.
+
+    Args:
+        lines: Log lines to group
+        separator_re: Pattern that identifies run boundaries
+        only_last: If True, only return the last run chunk
+        
+    Returns:
+        List of line chunks grouped by separators, or single chunk
+        if no separators are found
     """
     if not separator_re:
         return [lines] if lines else []

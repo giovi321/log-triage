@@ -11,7 +11,15 @@ def _split_runs(
 ) -> List[Tuple[int, List[str]]]:
     """Split rsnapshot logs into runs using marker regexes.
 
-    Returns a list of (start_offset, chunk_lines) tuples.
+    Identifies run boundaries using marker patterns and splits the log
+    into individual rsnapshot execution runs.
+
+    Args:
+        lines: Log lines to split
+        markers: Regex patterns that identify run boundaries
+        
+    Returns:
+        List of (start_offset, chunk_lines) tuples for each run
     """
 
     if not markers:
@@ -52,7 +60,26 @@ def classify_rsnapshot_basic(
     context_suffix_lines: int = 0,
     prefix_lines: List[str] | None = None,
 ) -> List[Finding]:
-    """Heuristic classifier for rsnapshot runs that emits per-line findings."""
+    """Heuristic classifier for rsnapshot backup logs.
+    
+    Specialized classifier that understands rsnapshot log patterns and
+    focuses on the most recent backup run. Uses built-in patterns for
+    common rsnapshot errors and warnings combined with user-defined patterns.
+    
+    Args:
+        pcfg: Pipeline configuration
+        file_path: Path to the log file
+        pipeline_name: Name of the processing pipeline
+        lines: Log lines to analyze
+        start_line: Line number of the first line
+        excerpt_limit: Maximum lines in finding excerpts
+        context_prefix_lines: Context lines before matches
+        context_suffix_lines: Context lines after matches
+        prefix_lines: Previous lines for additional context
+        
+    Returns:
+        List of findings for rsnapshot issues
+    """
     joined_all = "\n".join(lines)
 
     default_markers = [

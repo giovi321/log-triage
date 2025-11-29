@@ -16,6 +16,12 @@ from .app import app, settings
 
 
 def main():
+    """Entry point for the logtriage-webui command.
+    
+    Starts the FastAPI web server using the configured host and port
+    from the settings. This provides the dashboard interface for
+    viewing findings and managing configuration.
+    """
     host = settings.host
     port = settings.port
     uvicorn.run(app, host=host, port=port)

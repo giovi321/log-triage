@@ -7,6 +7,11 @@ from typing import Dict, List, Optional
 
 
 class Severity(enum.IntEnum):
+    """Severity levels for log findings.
+    
+    Higher values indicate more severe issues.
+    Used for filtering and alerting decisions.
+    """
     WARNING = 1
     ERROR = 2
     CRITICAL = 3
@@ -21,6 +26,11 @@ class Severity(enum.IntEnum):
 
 @dataclasses.dataclass
 class PipelineConfig:
+    """Configuration for a log processing pipeline.
+    
+    Defines how logs are grouped, classified, and filtered.
+    Each pipeline can be matched against files by regex pattern.
+    """
     name: str
     match_filename_regex: re.Pattern
     classifier_type: str
@@ -36,6 +46,11 @@ class PipelineConfig:
 
 @dataclasses.dataclass
 class Finding:
+    """Represents a classified log issue.
+    
+    Contains the location, severity, and context of a problem
+    detected in log files by the pipeline classifiers.
+    """
     file_path: Path
     pipeline_name: str
     finding_index: int
@@ -72,6 +87,11 @@ class AlertWebhookConfig:
 
 @dataclasses.dataclass
 class ModuleConfig:
+    """Configuration for a runtime module.
+    
+    Connects pipelines to specific file paths and defines
+    execution mode (batch/follow) and output options.
+    """
     name: str
     path: Path
     mode: str  # "batch" or "follow"
@@ -104,6 +124,11 @@ class LLMProviderConfig:
 
 @dataclasses.dataclass
 class GlobalLLMConfig:
+    """Global LLM provider configuration.
+    
+    Defines available providers and default settings
+    for LLM payload generation across all modules.
+    """
     enabled: bool
     min_severity: Severity
     default_provider: Optional[str]
@@ -115,6 +140,11 @@ class GlobalLLMConfig:
 
 @dataclasses.dataclass
 class ModuleLLMConfig:
+    """Module-specific LLM configuration.
+    
+    Overrides global settings for individual modules,
+    including prompt templates and output directories.
+    """
     enabled: bool
     min_severity: Severity
     max_excerpt_lines: int
@@ -128,6 +158,11 @@ class ModuleLLMConfig:
 
 @dataclasses.dataclass
 class LLMResponse:
+    """Response from an LLM provider.
+    
+    Contains the generated content and usage metadata
+    for a completed LLM request.
+    """
     provider: str
     model: str
     content: str
