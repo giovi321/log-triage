@@ -1,0 +1,361 @@
+llm:
+  enabled: true
+  min_severity: WARNING
+  default_provider: local_vllm
+  summary_prompt_path: ./prompts/ai_opinion_summary.txt
+  providers:
+    openai:
+      api_base: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      model: gpt-5-mini
+      max_excerpt_lines: 500
+      max_output_tokens: 512
+      request_timeout: 45
+      temperature: 0.2
+      top_p: 1.0
+    local_vllm:
+      api_base: http://192.168.56.106:8000/v1
+      api_key_env: null
+      model: TheBloke/Mistral-7B-Instruct-v0.1-GPTQ
+      max_excerpt_lines: 400
+      max_output_tokens: 2048
+      request_timeout: 60
+      temperature: 0.1
+      top_p: 1.0
+pipelines:
+- name: rsnapshot
+  match:
+    filename_regex: rsnapshot.*\.log
+  classifier:
+    type: rsnapshot_basic
+    error_regexes:
+    - 'ERROR:'
+    - rsync error
+    warning_regexes:
+    - WARNING
+    ignore_regexes:
+    - 'Could not write lockfile /var/run/rsnapshot\.pid: File exists'
+    - completed, but with some warnings
+    - some files vanished before they could be transferred
+    - /home/programmi/rsnapshot_log_webhook\.sh
+- name: homeassistant
+  match:
+    filename_regex: homeassistant.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - \berror\b
+    - Traceback
+    warning_regexes:
+    - \bwarning\b
+    - \bfailed to\b
+    ignore_regexes:
+    - Bbedroom
+    - '''dict object'''
+- name: nextcloud
+  match:
+    filename_regex: nextcloud.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - '"level"\\s*:\\s*(3|4)'
+    - PHP (Fatal error|Parse error)
+    warning_regexes:
+    - '"level"\\s*:\\s*2'
+    - 'Login failed:'
+    ignore_regexes:
+    - .*Trusted domain error.*
+- name: authentik
+  match:
+    filename_regex: authentik.*\\.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - '"level"\\s*:\\s*"(error|fatal|panic)"'
+    - '"status"\\s*:\\s*5\\d{2}'
+    warning_regexes:
+    - '"level"\\s*:\\s*"warning"'
+    - '"status"\\s*:\\s*4\\d{2}'
+    - No providers assigned to this outpost
+    ignore_regexes: []
+- name: rmfakecloud
+  match:
+    filename_regex: rmfakecloud.*\\.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - level=(error|fatal|panic)
+    - \\|\\s5\\d{2}\\s\\|
+    warning_regexes:
+    - level=warn
+    - \\|\\s4\\d{2}\\s\\|
+    ignore_regexes: []
+- name: jellyfin
+  match:
+    filename_regex: jellyfin.*\\.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - \\[ERR\\]
+    - UnauthorizedAccessException
+    - Permission denied
+    - Access to the path .* is denied
+    - Error in metadata saver
+    warning_regexes:
+    - \\[WRN\\]
+    - \\bwarning\\b
+    ignore_regexes:
+    - Optimizing and vacuuming jellyfin.db
+    - jellyfin.db optimized successfully
+- name: apache2_access
+  match:
+    filename_regex: .*access\\.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - '"\\s5\\d{2}\\s'
+    - upstream .* (error|timeout)
+    warning_regexes:
+    - '"\\s4\\d{2}\\s'
+    - connection (timed out|reset by peer)
+    ignore_regexes:
+    - '"\\s404\\s'
+    - (healthcheck|health-check|status|metrics)
+- name: apache2_error
+  match:
+    filename_regex: .*error\\.log
+  classifier:
+    type: regex_counter
+    error_regexes:
+    - \\[error\\]
+    - \\[(crit|alert|emerg)\\]
+    - client denied by server configuration
+    - Failed to (start|open|bind|connect|initialize)
+    warning_regexes:
+    - \\[warn\\]
+    - mod_(security|evasive)
+    ignore_regexes:
+    - 'AH00163: Apache/.* configured'
+modules:
+- name: rsnapshot
+  enabled: true
+  path: /var/log/rsnapshot.log
+  mode: batch
+  pipeline: rsnapshot
+  output_format: json
+  min_print_severity: WARNING
+  stale_after_minutes: 120
+  llm:
+    enabled: false
+    provider: local_vllm
+    prompt_template: ./prompts/rsnapshot.txt
+    emit_llm_payloads_dir: ./rsnapshot_payloads
+    context_prefix_lines: 2
+  alerts:
+    webhook:
+      enabled: false
+      url: https://example/rsnapshot-hook
+      method: POST
+      min_severity: ERROR
+      headers:
+        X-Source: logtriage
+    mqtt:
+      enabled: false
+      host: localhost
+      port: 1883
+      topic: logtriage/rsnapshot
+      username: ''
+      password: ''
+      min_severity: WARNING
+  baseline:
+    enabled: false
+    state_file: ./baseline/rsnapshot_baseline.json
+    window: 20
+    error_multiplier: 3.0
+    warning_multiplier: 3.0
+    severity_on_anomaly: ERROR
+- name: homeassistant
+  enabled: true
+  path: /var/log/fluent-bit/homeassistant.log
+  mode: follow
+  pipeline: homeassistant
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 60
+  llm:
+    enabled: true
+    provider: local_vllm
+    prompt_template: ./prompts/homeassistant.txt
+    emit_llm_payloads_dir: ./ha_llm_payloads
+    context_prefix_lines: 3
+  alerts:
+    mqtt:
+      enabled: false
+      host: localhost
+      port: 1883
+      topic: logtriage/homeassistant
+      min_severity: ERROR
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+- name: nextcloud
+  enabled: true
+  path: /var/log/fluent-bit/nextcloud.log
+  mode: follow
+  pipeline: nextcloud
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 60
+  llm:
+    enabled: true
+    provider: local_vllm
+    prompt_template: ./prompts/nextcloud.txt
+    emit_llm_payloads_dir: ./nextcloud_llm_payloads
+    context_prefix_lines: 3
+  alerts:
+    webhook:
+      enabled: false
+      url: ''
+      method: POST
+      min_severity: ERROR
+      headers: {}
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+- name: apache2_access
+  enabled: false
+  path: /var/log/apache2/vhosts
+  mode: follow
+  pipeline: apache2_access
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 60
+  llm:
+    provider: local_vllm
+    enabled: false
+    prompt_template: ./prompts/apache2.txt
+    emit_llm_payloads_dir: ./apache_llm_payloads
+    context_prefix_lines: 2
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+- name: apache2_error
+  enabled: false
+  path: /var/log/apache2/vhosts
+  mode: follow
+  pipeline: apache2_error
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 60
+  llm:
+    provider: local_vllm
+    enabled: true
+    prompt_template: ./prompts/apache2.txt
+    emit_llm_payloads_dir: ./apache_llm_payloads
+    context_prefix_lines: 2
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+- name: authentik
+  enabled: true
+  path: /var/log/fluent-bit/authentik.log
+  mode: follow
+  pipeline: authentik
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 60
+  llm:
+    provider: local_vllm
+    enabled: true
+    prompt_template: ./prompts/authentik.txt
+    emit_llm_payloads_dir: ./authentik_llm_payloads
+    context_prefix_lines: 3
+  alerts:
+    webhook:
+      enabled: false
+      url: ''
+      method: POST
+      min_severity: ERROR
+      headers: {}
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+- name: jellyfin
+  enabled: true
+  path: /var/log/fluent-bit/jellyfin.log
+  mode: follow
+  pipeline: jellyfin
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 90
+  llm:
+    provider: local_vllm
+    enabled: true
+    prompt_template: ./prompts/jellyfin.txt
+    emit_llm_payloads_dir: ./jellyfin_llm_payloads
+    context_prefix_lines: 3
+  alerts:
+    webhook:
+      enabled: false
+      url: ''
+      method: POST
+      min_severity: ERROR
+      headers: {}
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+- name: rmfakecloud
+  enabled: true
+  path: /var/log/fluent-bit/rmfakecloud.log
+  mode: follow
+  pipeline: rmfakecloud
+  output_format: text
+  min_print_severity: WARNING
+  stale_after_minutes: 60
+  llm:
+    provider: local_vllm
+    enabled: true
+    prompt_template: ./prompts/rmfakecloud.txt
+    emit_llm_payloads_dir: ./rmfakecloud_llm_payloads
+    context_prefix_lines: 3
+  alerts:
+    webhook:
+      enabled: false
+      url: ''
+      method: POST
+      min_severity: ERROR
+      headers: {}
+  baseline:
+    enabled: false
+  stream:
+    from_beginning: false
+    interval: 1.0
+database:
+  url: sqlite:///./logtriage.db
+  retention_days: 30
+webui:
+  enabled: true
+  host: 192.168.1.10
+  port: 8090
+  base_path: /
+  secret_key: CHANGE_THIS_TO_A_LONG_RANDOM_STRING
+  session_cookie_name: logtriage_session
+  dark_mode_default: true
+  allowed_ips:
+  - 192.168.2.2
+  - 10.10.10.2
+  admin_users:
+  - username: admin
+    password_hash: $2b$12$EwA1JG39.DQ4BK7YI33IxevagDfo4Nx5PvuRbVBA6.9ZmfPiVrAr.
