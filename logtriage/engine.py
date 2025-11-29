@@ -18,6 +18,22 @@ def analyze_file(
     context_prefix_lines: int,
     context_suffix_lines: int = 0,
 ) -> List[Finding]:
+    """Analyze a single log file using the specified pipeline.
+    
+    Reads the file, applies grouping and classification, and returns
+    a list of findings with context excerpts and LLM readiness flags.
+    
+    Args:
+        file_path: Path to the log file
+        pcfg: Pipeline configuration for processing
+        llm_cfg: LLM configuration for payload generation
+        excerpt_limit: Maximum lines in finding excerpts
+        context_prefix_lines: Context lines before matches
+        context_suffix_lines: Context lines after matches
+        
+    Returns:
+        List of findings discovered in the file
+    """
     try:
         with file_path.open("r", encoding="utf-8", errors="replace") as f:
             lines = [ln.rstrip("\n") for ln in f]
@@ -95,6 +111,23 @@ def analyze_path(
     context_suffix_lines: int = 0,
     pipeline_override: Optional[str] = None,
 ) -> List[Finding]:
+    """Analyze a path (file or directory) for log findings.
+    
+    Processes either a single file or all files in a directory tree,
+    applying appropriate pipelines and collecting all findings.
+    
+    Args:
+        root: Path to analyze (file or directory)
+        pipelines: Available pipeline configurations
+        llm_cfg: LLM configuration for payload generation
+        excerpt_limit: Maximum lines in finding excerpts
+        context_prefix_lines: Context lines before matches
+        context_suffix_lines: Context lines after matches
+        pipeline_override: Force use of specific pipeline
+        
+    Returns:
+        List of all findings discovered
+    """
     if not root.exists():
         add_notification(
             "error",

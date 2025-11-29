@@ -12,7 +12,6 @@
 - **Pipelines:** Reusable recipes that define how to group log lines, which regexes to ignore or count, and which prompt template to use for LLM payloads.
 - **Modules:** Runtime bindings that attach a pipeline to a file path and decide whether to scan once (batch) or tail continuously (follow) with rotation awareness.
 - **Findings:** Structured outputs for each grouped chunk, including severity (WARNING/ERROR/CRITICAL), counts, and optional LLM payloads.
-- **Baseline:** Optional anomaly detection that compares current counts to a rolling window and can bump severity when spikes occur.
 - **Addressed & false positives:** Workflow flags in the dashboard; marking a false positive also writes an ignore regex back to the pipeline to prevent repeats.
 
 ### How it works (process)
@@ -21,9 +20,8 @@
 1. **Collect:** Point a module at a log file (or directory) to read entries once or continuously with rotation handling.
 2. **Group:** Apply the pipeline's grouping strategy (whole-file or marker-based) to carve the stream into logical chunks.
 3. **Classify:** Count warnings and errors with regex rules, ignore known-noise patterns, and assign a severity.
-4. **Baseline:** Optionally compare the run to historical averages and flag anomalies, optionally elevating severity.
-5. **Enrich:** Generate an LLM payload per finding using your prompt template and context lines.
-6. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
+4. **Enrich:** Generate an LLM payload per finding using your prompt template and context lines.
+5. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
 
 ### Getting started
 1. **Install the package:**
@@ -78,7 +76,6 @@ details on pipelines, modules, and the Web UI.
 - Per-module options for:
   - context lines included ahead of each finding (`llm.context_prefix_lines`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)
-  - baseline / anomaly detection (`baseline` block)
 - Optional SQL database integration for storing per-finding records (SQLite or Postgres)
 - Web UI (FastAPI) to:
   - log in with username/password (bcrypt)

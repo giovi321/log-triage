@@ -2,9 +2,6 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from pathlib import Path
-from typing import Dict, List, Optional
-
 from .models import Finding, Severity, ModuleLLMConfig
 
 

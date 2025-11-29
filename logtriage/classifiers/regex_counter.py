@@ -12,6 +12,22 @@ def _build_excerpt(
     excerpt_limit: int,
     prefix_lines: List[str],
 ) -> List[str]:
+    """Build context excerpt around a matching line.
+    
+    Includes prefix and suffix context lines while respecting the excerpt limit.
+    Ensures the matching line is included in the excerpt.
+    
+    Args:
+        lines: All lines in the current chunk
+        offset: Index of the matching line
+        context_prefix_lines: Number of lines to include before the match
+        context_suffix_lines: Number of lines to include after the match
+        excerpt_limit: Maximum total lines to include in excerpt
+        prefix_lines: Lines from previous chunks for context
+        
+    Returns:
+        List of lines forming the excerpt
+    """
     excerpt_limit = max(1, excerpt_limit)
     prefix_lines = prefix_lines or []
 
@@ -62,9 +78,24 @@ def classify_regex_counter(
     context_suffix_lines: int = 0,
     prefix_lines: List[str] | None = None,
 ) -> List[Finding]:
-    """Emit one finding per matching rule line.
+    """Classify lines using regex patterns for errors and warnings.
 
+    Creates a separate finding for each line that matches error or warning patterns.
     Ignore patterns are applied before checking error/warning patterns.
+    
+    Args:
+        pcfg: Pipeline configuration with regex patterns
+        file_path: Path to the file being processed
+        pipeline_name: Name of the processing pipeline
+        lines: Lines to analyze
+        start_line: Line number of the first line in the chunk
+        excerpt_limit: Maximum lines to include in finding excerpts
+        context_prefix_lines: Number of context lines before matches
+        context_suffix_lines: Number of context lines after matches
+        prefix_lines: Previous lines for additional context
+        
+    Returns:
+        List of findings for matched patterns
     """
 
     findings: List[Finding] = []

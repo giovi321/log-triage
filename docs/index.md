@@ -40,11 +40,11 @@ pip install ".[webui,alerts]"
 
 `log-triage` is intended for trusted, internal environments and should not be exposed directly to the public internet. The Web UI currently has several security gaps that make it unsuitable for untrusted networks:
 
-- **No CSRF protections:** Cross-site requests can change configuration or baseline files if an administrator is logged in.
+- **No CSRF protections:** Cross-site requests can change configuration if an administrator is logged in.
 - **Weak session handling:** Sessions rely on a static, HMAC-only cookie with no rotation or expiry; the default `secret_key` of `CHANGE_ME` makes forgery trivial in default deployments.
 - **Insecure cookie attributes:** Login and session cookies are not limited to HTTPS or restrictive SameSite policies, increasing the risk of theft on shared networks.
 - **Fragile IP allowlisting:** Allow lists compare `request.client.host` strings directly and ignore proxy headers or CIDR ranges, so bypasses are likely behind proxies.
-- **Unvalidated editors:** Configuration and baseline file editors accept arbitrary content beyond basic YAML parsing, enabling malicious injections that redirect log ingestion to attacker-controlled files or endpoints.
+- **Unvalidated editors:** Configuration file editor accepts arbitrary content beyond basic YAML parsing, enabling malicious injections that redirect log ingestion to attacker-controlled files or endpoints.
 
 Run the UI only on private networks, behind strong network controls, and with a unique, secret `secret_key` until these issues are addressed.
 

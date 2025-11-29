@@ -14,6 +14,12 @@ _mqtt_warned = False
 
 
 def _send_webhook(mod: ModuleConfig, finding: Finding) -> None:
+    """Send webhook alert for a finding.
+    
+    Args:
+        mod: Module configuration with webhook settings
+        finding: The finding to send as alert
+    """
     cfg = mod.alert_webhook
     if cfg is None or not cfg.enabled:
         return
@@ -46,6 +52,12 @@ def _send_webhook(mod: ModuleConfig, finding: Finding) -> None:
 
 
 def _send_mqtt(mod: ModuleConfig, finding: Finding) -> None:
+    """Send MQTT alert for a finding.
+    
+    Args:
+        mod: Module configuration with MQTT settings
+        finding: The finding to send as alert
+    """
     global _mqtt_warned
     cfg = mod.alert_mqtt
     if cfg is None or not cfg.enabled:
@@ -87,6 +99,14 @@ def _send_mqtt(mod: ModuleConfig, finding: Finding) -> None:
 
 
 def send_alerts(mod: ModuleConfig, finding: Finding) -> None:
-    """Send alerts for a classified finding according to module settings."""
+    """Send alerts for a classified finding according to module settings.
+    
+    Dispatches the finding to all configured alert channels (webhook, MQTT)
+    if the finding severity meets the minimum requirements.
+    
+    Args:
+        mod: Module configuration with alert settings
+        finding: The classified finding to alert on
+    """
     _send_webhook(mod, finding)
     _send_mqtt(mod, finding)
