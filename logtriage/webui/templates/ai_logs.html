@@ -1329,6 +1329,12 @@
     const ids = new Set();
     const checked = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
     checked.forEach(cb => {
+      // First check the checkbox's own data-finding-id attribute
+      if (cb.dataset.findingId) {
+        ids.add(cb.dataset.findingId);
+        return;
+      }
+      // Fallback: check the parent element with data-finding-section
       const section = cb.closest('[data-finding-section="true"]');
       if (section && section.dataset.findingId) {
         ids.add(section.dataset.findingId);

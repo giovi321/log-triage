@@ -246,7 +246,9 @@
   }
 
   function setHint(text) {
-    hintBody.textContent = text;
+    if (hintBody) {
+      hintBody.textContent = text;
+    }
   }
 
   function setSearchStatus(text) {
