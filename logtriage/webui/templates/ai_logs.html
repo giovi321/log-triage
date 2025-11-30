@@ -203,8 +203,8 @@
                       <div class="log-section-body">
                         {% for line in section.lines %}
                           {% set line_finding = line.finding %}
-                          <div class="log-line {% if line_finding %}finding-line{% endif %}" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}" {% if line_finding %}data-finding-section="true" data-finding-id="{{ line_finding.id }}" data-finding-index="{{ line_finding.finding_index }}" data-rule-id="{{ line_finding.rule_id|default('', true)|e }}"{% endif %}>
-                            <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}" {% if line_finding %}data-finding-id="{{ line_finding.id }}"{% endif %}>
+                          <div class="log-line {% if line_finding %}finding-line{% endif %}" style="font-family:monospace; font-size:0.92rem;" data-line-index="{{ line.index }}" {% if line_finding and line_finding.id %}data-finding-section="true" data-finding-id="{{ line_finding.id }}" data-finding-index="{{ line_finding.finding_index }}" data-rule-id="{{ line_finding.rule_id|default('', true)|e }}"{% endif %}>
+                            <input type="checkbox" name="selected_line" value="{{ line.index }}" data-line-index="{{ line.index }}" data-line="{{ line.text|replace('\n','')|e }}" {% if line_finding and line_finding.id %}data-finding-id="{{ line_finding.id }}"{% endif %}>
                             <span style="min-width:2.5rem; color:#9fb1d3; flex-shrink:0;">{{ line.index }}:</span>
                             {% if line_finding %}
                               <span class="status-badge sev-{{ line_finding.severity }}" style="font-size:0.7rem; padding:0.1rem 0.35rem; margin-right:0.35rem;">{{ line_finding.severity }}</span>
