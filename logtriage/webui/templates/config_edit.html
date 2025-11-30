@@ -369,21 +369,36 @@
     if (firstWord) {
       for (let i = ancestors.length - 1; i >= 0; i--) {
         const prefix = normalizeSegment(ancestors[i]);
-        if (prefix) {
-          candidates.push(`${prefix}_${firstWord}`);
+        console.log('[ConfigEditor] hintForLine candidates:', candidates);
+        console.log('[ConfigEditor] Available hints with max_output:', Object.keys(safeHints).filter(k => k.includes('max_output')));
+        console.log('[ConfigEditor] Checking if safeHints has candidates:', candidates.map(c => `${c}: ${c in safeHints ? 'EXISTS' : 'MISSING'}`));
+        // Exact matches first
+        for (const key of candidates) {
+          if (key && safeHints[key]) {
+            console.log('[ConfigEditor] Found exact match:', key);
+            return safeHints[key];
+          }
+        }
+
+        // Wildcard matches (e.g., llm_providers_*_api_base)
+        const wildcardKeys = Object.keys(safeHints).filter((key) => key.includes('*'));
+        for (const candidate of candidates) {
+          for (const wildcard of wildcardKeys) {
+            const regex = new RegExp('^' + wildcard.replace(/\*/g, '[^_]+') + '$');
+            if (regex.test(candidate)) {
+              return safeHints[wildcard];
+            }
+          }
+        }
+
+        const joined = `${prefix}_${firstWord}`;
+        if (joined) {
+          candidates.push(joined);
         }
       }
       candidates.push(firstWord);
     }
 
-    // Exact matches first
-    for (const key of candidates) {
-      if (key && safeHints[key]) {
-        return safeHints[key];
-      }
-    }
-
-    // Wildcard matches (e.g., llm_providers_*_api_base)
     const wildcardKeys = Object.keys(safeHints).filter((key) => key.includes('*'));
     for (const candidate of candidates) {
       for (const wildcard of wildcardKeys) {
