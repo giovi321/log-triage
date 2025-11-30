@@ -343,16 +343,23 @@
     // Special handling for provider-specific fields (llm.providers.<name>.field)
     if (firstWord && ancestors.length >= 2) {
       const normalizedAncestors = ancestors.map(normalizeSegment).filter(Boolean);
+      console.log('[ConfigEditor] Provider check:', {
+        ancestors: ancestors,
+        normalizedAncestors: normalizedAncestors,
+        firstWord: firstWord
+      });
       // Check if we're under llm.providers.<name>
       if (normalizedAncestors[0] === 'llm' && normalizedAncestors[1] === 'providers' && normalizedAncestors.length >= 3) {
         // Create provider-specific patterns
         const providerPattern = `llm_providers_*_${firstWord}`;
         candidates.push(providerPattern);
+        console.log('[ConfigEditor] Added provider pattern:', providerPattern);
         
         // Also try the specific provider name if available
-        if (normalizedAncestors[3]) {
-          const specificPattern = `llm_providers_${normalizedAncestors[3]}_${firstWord}`;
+        if (normalizedAncestors[2]) {  // Fixed index: should be 2 not 3
+          const specificPattern = `llm_providers_${normalizedAncestors[2]}_${firstWord}`;
           candidates.push(specificPattern);
+          console.log('[ConfigEditor] Added specific pattern:', specificPattern);
         }
       }
     }
