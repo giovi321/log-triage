@@ -372,6 +372,8 @@ def _render_config_editor(
     message: Optional[str] = None,
     status_code: int = status.HTTP_200_OK,
 ):
+    # Reload hints to be safe
+    current_hints = _load_context_hints()
     return templates.TemplateResponse(
         "config_edit.html",
         {
@@ -380,7 +382,7 @@ def _render_config_editor(
             "config_text": config_text,
             "error": error,
             "message": message,
-            "context_hints": context_hints,
+            "context_hints": current_hints,
         },
         status_code=status_code,
     )

@@ -286,7 +286,9 @@
 
       const isListItem = /^-\s*/.test(trimmed);
       const keyPart = isListItem ? trimmed.replace(/^-\s*/, '') : trimmed;
-      const effectiveIndent = indent + (isListItem ? 1 : 0);
+      // For list items like "- name:", the key starts after "- " (approx +2 chars).
+      // This makes "name" (indent+2) and sibling "classifier" (indent+2) at same level.
+      const effectiveIndent = indent + (isListItem ? 2 : 0);
 
       const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
       if (!keyMatch) continue;
@@ -305,7 +307,7 @@
       const currentIndent = currentIndentMatch ? currentIndentMatch[1].length : 0;
       const currentTrimmed = currentLine.trim();
       const currentIsListItem = /^-\s*/.test(currentTrimmed);
-      const currentEffectiveIndent = currentIndent + (currentIsListItem ? 1 : 0);
+      const currentEffectiveIndent = currentIndent + (currentIsListItem ? 2 : 0);
       
       while (stack.length && stack[stack.length - 1].indent >= currentEffectiveIndent) {
         stack.pop();
