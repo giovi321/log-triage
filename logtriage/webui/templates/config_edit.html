@@ -416,9 +416,9 @@
     try {
       const pos = editor.getCursor();
       const lineText = editor.getLine(pos.line) || '';
+      const hint = hintForLine(lineText, pos.line);
       const ancestors = pathForCursor(editor, pos.line);
       const firstWord = firstWordForLine(lineText);
-      const hint = hintForLine(lineText);
       console.log('[ConfigEditor] updateHint:', { 
         line: pos.line, 
         text: lineText.substring(0, 50), 
@@ -426,7 +426,7 @@
         firstWord: firstWord,
         hint: hint ? hint.substring(0, 80) : null 
       });
-      if (hint) {
+      if (hint && hint !== defaultHint) {
         setHint(hint);
       } else {
         setHint(hintsLoaded
