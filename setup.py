@@ -44,6 +44,7 @@ setup(
         "logtriage": [
             "webui/templates/*.html",
             "webui/assets/*",
+            "webui/context_hints.json",
         ]
     },
     include_package_data=True,

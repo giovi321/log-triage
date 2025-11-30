@@ -105,44 +105,32 @@ def _load_context_hints() -> Dict[str, str]:
         BASE_DIR / "context_hints.json",
         ASSETS_DIR / "context_hints.json",
     ]
-    
-    debug_log = []
 
     for path in candidates:
         try:
-            debug_log.append(f"Checking {path}")
             if not path.exists():
-                debug_log.append(f"File not found at {path}")
                 continue
-            
-            debug_log.append(f"Found at {path}, reading...")
             raw = path.read_text(encoding="utf-8")
             # The JSON file should be valid as-is; only apply escape fix if needed
             try:
                 data = json.loads(raw)
-            except json.JSONDecodeError as e:
-                debug_log.append(f"JSON error: {e}")
+            except json.JSONDecodeError:
                 # Fix common invalid escape in JSON like `\.` (used in regex examples)
                 # which otherwise triggers `Invalid \escape` errors.
                 raw_fixed = raw.replace("\\.", "\\\\.")
                 data = json.loads(raw_fixed)
-                
             if isinstance(data, dict):
                 data.setdefault(
                     "root",
                     "Top-level sections mirror the README. Move the cursor to a section to see details.",
                 )
-                # Inject debug info just in case
-                data["__debug_info__"] = debug_log
                 return data
-        except Exception as err:
-            debug_log.append(f"Exception: {err}")
+        except Exception:
             continue
 
     # Fallback: generic root hint only
     return {
-        "root": "Top-level sections mirror the README. Move the cursor to a section to see details.",
-        "__debug_info__": debug_log
+        "root": "Top-level sections mirror the README. Move the cursor to a section to see details."
     }
 
 
