@@ -35,6 +35,7 @@
   .hint-panel {
     position: sticky;
     top: 1.5rem;
+    min-height: 100px;
   }
 
   #config-text {
@@ -170,7 +171,7 @@
       <div class="hint-panel" id="hint-panel">
         <h3>Context hints</h3>
         <div class="hint-body" id="hint-body">
-          {{ context_hints.root or "Top-level sections mirror the README. Move the cursor to a section to see details." }}
+          {{ context_hints.get('root', "Top-level sections mirror the README. Move the cursor to a section to see details.") }}
         </div>
       </div>
     </div>
@@ -396,8 +397,16 @@
     try {
       const pos = editor.getCursor();
       const lineText = editor.getLine(pos.line) || '';
+      const ancestors = pathForCursor(editor, pos.line);
+      const firstWord = firstWordForLine(lineText);
       const hint = hintForLine(lineText);
-      console.log('[ConfigEditor] updateHint:', { line: pos.line, text: lineText.substring(0, 50), hint: hint ? hint.substring(0, 50) + '...' : null });
+      console.log('[ConfigEditor] updateHint:', { 
+        line: pos.line, 
+        text: lineText.substring(0, 50), 
+        ancestors: ancestors,
+        firstWord: firstWord,
+        hint: hint ? hint.substring(0, 80) : null 
+      });
       if (hint) {
         setHint(hint);
       } else {

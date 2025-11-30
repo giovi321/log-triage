@@ -29,7 +29,7 @@ else:
     _sqlalchemy_import_error = None
 
 Base = declarative_base() if declarative_base else None
-SessionLocal = sessionmaker(autocommit=False, autoflush=False) if sessionmaker else None
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False) if sessionmaker else None
 
 _engine = None
 _db_url: Optional[str] = None
