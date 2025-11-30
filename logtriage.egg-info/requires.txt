@@ -1,0 +1,14 @@
+pyyaml>=6.0
+
+[alerts]
+paho-mqtt>=1.6
+
+[webui]
+fastapi>=0.109
+uvicorn>=0.23
+jinja2>=3.1
+python-multipart>=0.0.5
+passlib[bcrypt]<1.7.5,>=1.7.4
+bcrypt<4.2.0
+sqlalchemy>=2.0
+itsdangerous>=2.1

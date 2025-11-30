@@ -341,6 +341,23 @@
       }
     }
 
+    // Special handling for provider-specific fields (llm.providers.<name>.field)
+    if (firstWord && ancestors.length >= 2) {
+      const normalizedAncestors = ancestors.map(normalizeSegment).filter(Boolean);
+      // Check if we're under llm.providers.<name>
+      if (normalizedAncestors[0] === 'llm' && normalizedAncestors[1] === 'providers' && normalizedAncestors.length >= 3) {
+        // Create provider-specific patterns
+        const providerPattern = `llm_providers_*_${firstWord}`;
+        candidates.push(providerPattern);
+        
+        // Also try the specific provider name if available
+        if (normalizedAncestors[3]) {
+          const specificPattern = `llm_providers_${normalizedAncestors[3]}_${firstWord}`;
+          candidates.push(specificPattern);
+        }
+      }
+    }
+
     // Backwards compatibility with older hint keys like "modules_name"
     if (firstWord) {
       for (let i = ancestors.length - 1; i >= 0; i--) {
