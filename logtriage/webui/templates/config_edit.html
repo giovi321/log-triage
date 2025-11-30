@@ -350,6 +350,7 @@
       });
       // Check if we're under llm.providers.<name>
       if (normalizedAncestors[0] === 'llm' && normalizedAncestors[1] === 'providers' && normalizedAncestors.length >= 3) {
+        console.log('[ConfigEditor] Inside provider condition - should add patterns');
         // Create provider-specific patterns
         const providerPattern = `llm_providers_*_${firstWord}`;
         candidates.push(providerPattern);
