@@ -404,14 +404,15 @@
     const wildcardKeys = Object.keys(safeHints).filter((key) => key.includes('*'));
     for (const candidate of candidates) {
       for (const wildcard of wildcardKeys) {
-        const regex = new RegExp('^' + wildcard.replace(/\*/g, '[^_]+') + '$');
+        // Use .+ to match segments that might contain underscores (like module names)
+        const regex = new RegExp('^' + wildcard.replace(/\*/g, '.+') + '$');
         if (regex.test(candidate)) {
           return safeHints[wildcard];
         }
       }
     }
 
-    return safeHints.root || defaultHint;
+    return null;
   }
 
   function validateYaml() {
@@ -450,12 +451,18 @@
         firstWord: firstWord,
         hint: hint ? hint.substring(0, 80) : null 
       });
-      if (hint && hint !== defaultHint) {
+      if (hint) {
         setHint(hint);
       } else {
-        setHint(hintsLoaded
-          ? 'No hint available for this section yet.'
-          : 'Loading context hints...');
+        // No specific hint found.
+        if (!hintsLoaded) {
+          setHint('Loading context hints...');
+        } else if (ancestors.length === 0) {
+           // At root level, show the root/default hint
+           setHint(defaultHint);
+        } else {
+           setHint('No hint available for this section yet.');
+        }
       }
     } catch (err) {
       console.error('Hint update error', err);
