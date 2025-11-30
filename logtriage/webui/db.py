@@ -204,6 +204,28 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
     llm_response = getattr(finding, "llm_response", None)
     created_at = _normalize_created_at(getattr(finding, "created_at", None))
 
+    # Check for duplicate finding to prevent re-inserting the same issue
+    try:
+        existing = (
+            sess.query(FindingRecord)
+            .filter(FindingRecord.module_name == module_name)
+            .filter(FindingRecord.file_path == str(getattr(finding, "file_path", "")))
+            .filter(FindingRecord.line_start == int(getattr(finding, "line_start", 0)))
+            .filter(FindingRecord.line_end == int(getattr(finding, "line_end", 0)))
+            .filter(FindingRecord.message == str(getattr(finding, "message", "")))
+            .filter(FindingRecord.severity == str(
+                getattr(getattr(finding, "severity", None), "name", getattr(finding, "severity", "UNKNOWN"))
+            ))
+            .first()
+        )
+        if existing:
+            # Duplicate found, don't store again
+            sess.close()
+            return
+    except Exception:
+        # If duplicate check fails, continue with storing
+        pass
+
     record_kwargs = dict(
         module_name=module_name,
         pipeline_name=getattr(finding, "pipeline_name", None),

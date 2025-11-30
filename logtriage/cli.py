@@ -98,7 +98,7 @@ def _modules_to_run(modules: List[ModuleConfig], selected_name: Optional[str]) -
 
     - When a specific module is requested, return that module even if it is disabled
       so the user can explicitly run it.
-    - Otherwise, include all enabled modules (both batch and follow).
+    - Otherwise, include only enabled follow modules (batch modules must be explicitly requested).
     
     Args:
         modules: All available modules from config
@@ -110,7 +110,7 @@ def _modules_to_run(modules: List[ModuleConfig], selected_name: Optional[str]) -
 
     if selected_name:
         return [m for m in modules if m.name == selected_name]
-    return [m for m in modules if m.enabled]
+    return [m for m in modules if m.enabled and m.mode == "follow"]
 
 
 def run_module_batch(
