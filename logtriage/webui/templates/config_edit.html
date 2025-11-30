@@ -321,9 +321,8 @@
     return match ? normalizeSegment(match[1]) : null;
   }
 
-  function hintForLine(line) {
-    const pos = editor.getCursor();
-    const ancestors = pathForCursor(editor, pos.line);
+  function hintForLine(line, lineNumber) {
+    const ancestors = pathForCursor(editor, lineNumber);
     const firstWord = firstWordForLine(line);
 
     const candidates = [];
