@@ -63,6 +63,60 @@ def _chat_completion_url(api_base: str) -> str:
     return f"{normalized_base}/v1/chat/completions"
 
 
+def _normalize_messages_for_strict_alternation(messages: List[dict]) -> List[dict]:
+    system_parts: List[str] = []
+    normalized: List[dict] = []
+
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        role = (m.get("role") or "").strip().lower()
+        content = m.get("content")
+        if content is None:
+            continue
+        if not isinstance(content, str):
+            content = str(content)
+        if not content.strip():
+            continue
+
+        if role == "system":
+            system_parts.append(content)
+            continue
+
+        if role not in ("user", "assistant"):
+            role = "user"
+
+        if normalized and normalized[-1].get("role") == role:
+            normalized[-1]["content"] = f"{normalized[-1].get('content', '').rstrip()}\n\n{content.lstrip()}"
+            continue
+
+        normalized.append({"role": role, "content": content})
+
+    if system_parts:
+        system_block = "\n\n".join(system_parts)
+        if not normalized:
+            normalized = [{"role": "user", "content": system_block}]
+        elif normalized[0].get("role") != "user":
+            normalized.insert(0, {"role": "user", "content": system_block})
+        else:
+            normalized[0]["content"] = f"{system_block}\n\n{normalized[0].get('content', '')}"
+
+    if normalized and normalized[0].get("role") == "assistant":
+        normalized[0]["role"] = "user"
+
+    if not normalized:
+        return []
+
+    out: List[dict] = []
+    for m in normalized:
+        if out and out[-1].get("role") == m.get("role"):
+            out[-1]["content"] = f"{out[-1].get('content', '').rstrip()}\n\n{m.get('content', '').lstrip()}"
+        else:
+            out.append(m)
+
+    return out
+
+
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
     headers = {"Content-Type": "application/json"}
     if provider.api_key_env:
@@ -79,12 +133,37 @@ def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
         headers["OpenAI-Organization"] = provider.organization
 
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=provider.request_timeout) as resp:
+
+    def _do_request(req_obj: urllib.request.Request) -> dict:
+        with urllib.request.urlopen(req_obj, timeout=provider.request_timeout) as resp:
             body = resp.read().decode("utf-8")
             return json.loads(body)
+
+    try:
+        return _do_request(req)
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else exc.reason
+        if exc.code == 400 and isinstance(payload, dict):
+            detail_text = detail if isinstance(detail, str) else str(detail)
+            if "Conversation roles must alternate" in detail_text and "messages" in payload:
+                messages = payload.get("messages")
+                if isinstance(messages, list):
+                    normalized = _normalize_messages_for_strict_alternation(messages)
+                    if normalized and normalized != messages:
+                        retry_payload = dict(payload)
+                        retry_payload["messages"] = normalized
+                        retry_data = json.dumps(retry_payload).encode("utf-8")
+                        retry_req = urllib.request.Request(url, data=retry_data, headers=headers, method="POST")
+                        try:
+                            return _do_request(retry_req)
+                        except Exception:
+                            pass
+
+                    roles = [m.get("role") for m in messages if isinstance(m, dict)]
+                    raise RuntimeError(
+                        f"LLM provider {provider.name} HTTP {exc.code}: {detail} (roles={roles})"
+                    )
+
         raise RuntimeError(f"LLM provider {provider.name} HTTP {exc.code}: {detail}")
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Failed to reach LLM provider {provider.name}: {exc.reason}")
