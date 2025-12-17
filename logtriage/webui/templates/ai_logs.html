@@ -446,7 +446,7 @@
   const modulePromptTemplate = JSON.parse((document.getElementById('module-prompt-template-json') || {}).textContent || 'null');
   const summaryPromptTemplate = JSON.parse((document.getElementById('summary-prompt-template-json') || {}).textContent || 'null');
   const regexPresets = JSON.parse((document.getElementById('regex-presets-json') || {}).textContent || '{}');
-  const SUMMARY_PLACEHOLDER = '{{' + 'AI_OPINION' + '}}';
+  const SUMMARY_PLACEHOLDER = '{' + '{' + 'AI_OPINION' + '}' + '}';
   const recordedSummaries = {};
 
   // Pagination state
