@@ -41,7 +41,7 @@ from ..llm_payload import write_llm_payloads, should_send_to_llm
 from ..utils import select_pipeline
 from ..stream import stream_file
 from ..alerts import send_alerts
-from ..webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
+from ..webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index, update_finding_llm_data
 from ..version import __version__
 from ..notifications import add_notification, list_notifications, notification_summary
 from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
@@ -1459,6 +1459,17 @@ async def llm_query_finding(
             rag_client=rag_client,
             module_name=module_name
         )
+        
+        # Update the database record with the LLM response
+        if finding.llm_response:
+            update_finding_llm_data(
+                finding.id,
+                provider=finding.llm_response.provider,
+                model=finding.llm_response.model,
+                content=finding.llm_response.content,
+                prompt_tokens=finding.llm_response.prompt_tokens,
+                completion_tokens=finding.llm_response.completion_tokens,
+            )
         
         # Return the LLM response
         if finding.llm_response:

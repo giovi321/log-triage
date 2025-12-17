@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional, Dict, List, TYPE_CHECKING
 
-from ..models import Severity
+from ..models import Severity, LLMResponse
 
 _sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
 if _sqlalchemy_spec is None:
@@ -135,6 +135,19 @@ if Base is not None:
                 return Severity.from_string(self.severity or "WARNING")
             except (ValueError, AttributeError):
                 return Severity.WARNING
+
+        @property
+        def llm_response(self):
+            """Reconstruct LLMResponse object from database columns."""
+            if not self.llm_provider:
+                return None
+            return LLMResponse(
+                provider=self.llm_provider,
+                model=self.llm_model or "unknown",
+                content=self.llm_response_content or "",
+                prompt_tokens=self.llm_prompt_tokens,
+                completion_tokens=self.llm_completion_tokens,
+            )
 
 
 else:  # pragma: no cover - used when sqlalchemy is absent
