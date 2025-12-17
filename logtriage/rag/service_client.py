@@ -128,31 +128,24 @@ class RAGServiceClient:
             return None
         
         # Convert response back to RetrievalResult
-        from ..models import DocumentChunk, Citation
+        from ..models import DocumentChunk
         
         chunks = []
         for chunk_data in result.get("chunks", []):
             chunks.append(DocumentChunk(
-                content=chunk_data["content"],
-                source=chunk_data["source"],
+                chunk_id=chunk_data["chunk_id"],
                 repo_id=chunk_data["repo_id"],
                 file_path=chunk_data["file_path"],
-                line_start=chunk_data["line_start"],
-                line_end=chunk_data["line_end"],
-                score=chunk_data["score"]
-            ))
-        
-        citations = []
-        for citation_data in result.get("citations", []):
-            citations.append(Citation(
-                content=citation_data["content"],
-                source=citation_data["source"]
+                heading=chunk_data["heading"],
+                content=chunk_data["content"],
+                commit_hash="",  # Not provided in API response
+                metadata={}  # Not provided in API response
             ))
         
         return RetrievalResult(
             chunks=chunks,
-            context=result.get("context", ""),
-            citations=citations
+            query="",  # Not provided in API response
+            total_retrieved=len(chunks)
         )
     
     def get_status(self) -> Dict[str, Any]:
