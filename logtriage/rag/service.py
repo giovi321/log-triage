@@ -421,7 +421,9 @@ async def retrieve_for_finding(module_name: str, finding: FindingRequest):
         message=finding.message,
         line_start=finding.line_start,
         line_end=finding.line_end,
-        excerpt=finding.excerpt
+        rule_id=None,  # Not provided in the request
+        excerpt=finding.excerpt,
+        needs_llm=False,  # Not relevant for RAG retrieval
     )
     
     result = rag_client.retrieve_for_finding(finding_obj, module_name)
