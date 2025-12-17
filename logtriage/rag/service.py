@@ -5,7 +5,6 @@ import os
 import sys
 import threading
 import time
-import psutil
 import gc
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -124,77 +123,6 @@ def background_initialize_rag_client(config_path: Path) -> None:
     """Background thread to initialize the RAG client with configurable memory management."""
     global rag_client, llm_defaults, modules, initialization_status, rag_config
     
-    def check_memory_usage():
-        """Check memory usage and force cleanup if needed."""
-        try:
-            process = psutil.Process()
-            memory_info = process.memory_info()
-            memory_gb = memory_info.rss / 1024**3
-            
-            # Use configurable memory limits from raw config
-            raw_config = load_config(config_path)
-            memory_config = raw_config.get("rag", {}).get("memory", {})
-            max_memory_gb = memory_config.get("max_memory_gb", 3.0)
-            warning_memory_gb = memory_config.get("warning_memory_gb", 2.0)
-            
-            # Detailed memory breakdown
-            memory_percent = process.memory_percent()
-            
-            logger.info(f"Memory check: {memory_gb:.2f}GB ({memory_percent:.1f}%) - limits: warning={warning_memory_gb}GB, max={max_memory_gb}GB")
-            
-            if memory_gb > max_memory_gb:
-                logger.error(f"CRITICAL memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%) exceeds limit {max_memory_gb}GB - KILLING PROCESS")
-                
-                # Force aggressive cleanup
-                gc.collect()
-                
-                # Try to clear SentenceTransformer cache if it exists
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        logger.info("Cleared CUDA cache")
-                except ImportError:
-                    pass
-                
-                # Kill the process to prevent OOM
-                import os
-                import signal
-                logger.error("Terminating process to prevent OOM kill")
-                os.kill(os.getpid(), signal.SIGTERM)
-                return False
-            
-            elif memory_gb > warning_memory_gb:
-                logger.warning(f"High memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%) exceeds warning threshold {warning_memory_gb}GB")
-                
-                # Force aggressive cleanup
-                gc.collect()
-                
-                # Try to clear SentenceTransformer cache if it exists
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                        logger.info("Cleared CUDA cache")
-                except ImportError:
-                    pass
-                
-                # Check memory after cleanup
-                memory_gb_after = process.memory_info().rss / 1024**3
-                logger.warning(f"Memory after cleanup: {memory_gb_after:.2f}GB")
-                
-                if memory_gb_after > max_memory_gb:
-                    logger.error(f"CRITICAL memory usage: {memory_gb_after:.2f}GB exceeds limit {max_memory_gb}GB - KILLING PROCESS")
-                    import os
-                    import signal
-                    os.kill(os.getpid(), signal.SIGTERM)
-                    return False
-            
-            return True
-        except Exception as e:
-            logger.warning(f"Failed to check memory usage: {e}")
-            return True
-    
     def update_progress(phase: str, step: int, total: int, description: str):
         """Update progress information."""
         with init_lock:
@@ -219,10 +147,6 @@ def background_initialize_rag_client(config_path: Path) -> None:
         initialization_status["updating"] = True
     
     try:
-        # Check memory before starting
-        if not check_memory_usage():
-            return
-        
         # Phase 1: Loading configuration
         update_progress("loading_config", 1, 5, "Loading configuration...")
         logger.info(f"Loading configuration from {config_path}")
@@ -242,10 +166,6 @@ def background_initialize_rag_client(config_path: Path) -> None:
         update_progress("initializing_client", 2, 5, "Initializing RAG client...")
         logger.info("Initializing RAG client...")
         rag_client = RAGClient(rag_config)
-        
-        # Check memory after client initialization
-        if not check_memory_usage():
-            return
         
         # Phase 3: Building modules
         update_progress("adding_modules", 3, 5, "Building module configurations...")
@@ -277,10 +197,6 @@ def background_initialize_rag_client(config_path: Path) -> None:
                         total_repos,
                         repo_progress
                     )
-                
-                # Check memory after each module
-                if not check_memory_usage():
-                    return
         
         # Phase 5: Updating knowledge base
         update_progress("updating_knowledge", 5, 5, "Updating knowledge base...")
@@ -290,9 +206,6 @@ def background_initialize_rag_client(config_path: Path) -> None:
         update_repo_progress("Knowledge base indexing", completed_repos, total_repos + 1, 0.0)
         rag_client.update_knowledge_base()
         update_repo_progress("Knowledge base indexing", completed_repos, total_repos + 1, 100.0)
-        
-        # Final memory check
-        check_memory_usage()
         
         # Mark as completed
         update_progress("completed", 5, 5, "RAG service ready")

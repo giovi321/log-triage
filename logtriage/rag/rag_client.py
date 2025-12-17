@@ -21,22 +21,13 @@ class RAGClient:
         self.global_config = global_config
         self.module_configs: Dict[str, RAGModuleConfig] = {}
         
-        # Prepare memory configuration
-        memory_config = {
-            'max_memory_gb': global_config.max_memory_gb,
-            'warning_memory_gb': global_config.warning_memory_gb,
-            'embedding_max_memory_gb': global_config.embedding_max_memory_gb,
-            'max_texts_per_batch': global_config.max_texts_per_batch
-        }
-        
         # Initialize components
         self.knowledge_manager = KnowledgeManager(global_config.cache_dir)
         self.document_processor = DocumentProcessor()
         self.embedding_service = EmbeddingService(
             model_name=global_config.embedding_model,
             device=global_config.device,
-            batch_size=global_config.embedding_batch_size,
-            memory_config=memory_config
+            batch_size=global_config.embedding_batch_size
         )
         self.vector_store = VectorStore(global_config.vector_store_dir)
         self.retrieval_engine = RetrievalEngine(
@@ -195,54 +186,21 @@ class RAGClient:
         # Delete old chunks for this repo
         self.vector_store.delete_by_repo(repo_id)
         
-        # Use configurable limits
-        max_files_to_process = self.global_config.max_files_per_repo
-        max_chunks_per_file = self.global_config.max_chunks_per_file
         total_chunks_processed = 0
         total_files_processed = 0
         
-        logger.info(f"Starting memory-efficient reindex for {repo_id} (limits: {max_files_to_process} files, {max_chunks_per_file} chunks/file)")
-        
-        # Check memory before starting
-        try:
-            import psutil
-            memory_gb = psutil.Process().memory_info().rss / 1024**3
-            if memory_gb > self.global_config.warning_memory_gb:
-                logger.warning(f"High memory usage before reindex: {memory_gb:.2f}GB - aborting")
-                return
-        except:
-            pass
+        logger.info(f"Starting reindex for {repo_id}")
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
-            # Limit total files processed
-            if total_files_processed >= max_files_to_process:
-                logger.warning(f"Reached file limit ({max_files_to_process}), stopping reindex")
-                break
-            
             # Process files one by one to minimize memory
-            for file_path in files[:max_files_to_process - total_files_processed]:
-                # Check memory before each file
-                try:
-                    import psutil
-                    memory_gb = psutil.Process().memory_info().rss / 1024**3
-                    if memory_gb > self.global_config.max_memory_gb:
-                        logger.warning(f"Memory threshold reached ({memory_gb:.2f}GB), stopping reindex")
-                        break
-                except:
-                    pass
-                
+            for file_path in files:
                 try:
                     # Process single file
                     chunks = self.document_processor.process_file(
                         file_path, repo_id, repo_state.last_commit_hash
                     )
-                    
-                    # Use configurable chunk limiting per file
-                    if len(chunks) > max_chunks_per_file:
-                        logger.warning(f"Too many chunks in {file_path.name} ({len(chunks)}), limiting to {max_chunks_per_file}")
-                        chunks = chunks[:max_chunks_per_file]
                     
                     if chunks:
                         # Process this file immediately
@@ -272,8 +230,8 @@ class RAGClient:
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed (memory-limited)",
-                f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files (memory-efficient mode)"
+                "Repository reindexed",
+                f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files"
             )
         else:
             logger.warning(f"No chunks processed for repository {repo_id}")

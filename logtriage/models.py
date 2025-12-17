@@ -186,13 +186,6 @@ class RAGGlobalConfig:
     # Hidden advanced settings with sensible defaults
     embedding_batch_size: int = 32  # Keep for backward compatibility
     vector_store_type: str = "chroma"
-    # Memory management settings with sensible defaults
-    max_memory_gb: float = 3.0
-    warning_memory_gb: float = 2.0
-    embedding_max_memory_gb: float = 2.5
-    max_files_per_repo: int = 5
-    max_chunks_per_file: int = 3
-    max_texts_per_batch: int = 10
 
 
 @dataclasses.dataclass
