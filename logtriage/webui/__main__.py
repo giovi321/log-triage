@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import importlib.util
@@ -15,6 +16,18 @@ import uvicorn
 from .app import app, settings
 
 
+def configure_webui_logging():
+    """Configure basic logging for the WebUI."""
+    # Basic configuration that can be overridden by config.yaml later
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True
+    )
+    logger = logging.getLogger(__name__)
+    logger.info("WebUI logging configured")
+
+
 def main():
     """Entry point for the logtriage-webui command.
     
@@ -22,8 +35,14 @@ def main():
     from the settings. This provides the dashboard interface for
     viewing findings and managing configuration.
     """
+    # Configure logging before importing app
+    configure_webui_logging()
+    logger = logging.getLogger(__name__)
+    
     host = settings.host
     port = settings.port
+    logger.info(f"Starting WebUI on {host}:{port}")
+    
     uvicorn.run(app, host=host, port=port)
 
 

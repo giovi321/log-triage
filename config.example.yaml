@@ -37,6 +37,7 @@ rag:
     top_k: 5
     similarity_threshold: 0.7
     max_chunks: 10
+
 pipelines:
 - name: rsnapshot
   match:
@@ -298,3 +299,15 @@ webui:
   admin_users:
   - username: admin
     password_hash: $2b$12$EwA1JG39.DQ4BK7YI33IxevagDfo4Nx5PvuRbVBA6.9ZmfPiVrAr. # This password is 'admin123'
+
+# Logging configuration
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s %(levelname)s %(name)s: %(message)s"
+  file: "./logtriage.log"  # Optional: log to file (comment out to only log to stdout/stderr)
+  loggers:
+    # Configure specific loggers with different levels
+    logtriage.rag: "DEBUG"  # Verbose logging for RAG operations
+    logtriage.engine: "INFO"
+    logtriage.llm_client: "INFO"
+    logtriage.stream: "WARNING"  # Reduce noise from stream processing

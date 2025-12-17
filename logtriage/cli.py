@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from threading import Event
@@ -15,6 +16,64 @@ from .stream import stream_file
 from .alerts import send_alerts
 from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
 from .version import __version__
+
+
+def configure_logging(cfg: Dict) -> None:
+    """Configure logging based on configuration.
+    
+    Args:
+        cfg: Configuration dictionary containing logging settings
+    """
+    logging_config = cfg.get("logging", {})
+    
+    # Default logging settings
+    level = logging_config.get("level", "INFO")
+    format_str = logging_config.get("format", "%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log_file = logging_config.get("file")
+    logger_levels = logging_config.get("loggers", {})
+    
+    # Convert string level to logging constant
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
+    
+    # Configure handlers
+    handlers = []
+    
+    # Console handler (always included)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(logging.Formatter(format_str))
+    handlers.append(console_handler)
+    
+    # File handler (optional)
+    if log_file:
+        try:
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(logging.Formatter(format_str))
+            handlers.append(file_handler)
+        except Exception as e:
+            print(f"Warning: Could not create log file handler: {e}", file=sys.stderr)
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=numeric_level,
+        handlers=handlers,
+        format=format_str,
+        force=True  # Override any existing configuration
+    )
+    
+    # Configure specific loggers
+    for logger_name, logger_level in logger_levels.items():
+        try:
+            logger = logging.getLogger(logger_name)
+            logger_numeric_level = getattr(logging, logger_level.upper(), logging.INFO)
+            logger.setLevel(logger_numeric_level)
+        except Exception as e:
+            print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
+    
+    # Log that configuration is complete
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging configured at level {level}")
+    if log_file:
+        logger.info(f"Also logging to file: {log_file}")
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -216,6 +275,15 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
 
     cfg_path = Path(args.config)
+    
+    # Initial configuration load
+    cfg = load_config(cfg_path)
+    
+    # Configure logging based on config
+    configure_logging(cfg)
+    logger = logging.getLogger(__name__)
+    logger.info(f"logtriage starting with config: {cfg_path}")
+    
     reload_event = Event()
     last_cfg_mtime_ns: Optional[int] = None
 
@@ -239,6 +307,12 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     while True:
         cfg = load_config(cfg_path)
+        
+        # Reconfigure logging when config is reloaded
+        configure_logging(cfg)
+        logger = logging.getLogger(__name__)
+        logger.info("Configuration reloaded")
+        
         pipelines = build_pipelines(cfg)
         llm_defaults = build_llm_config(cfg)
         modules = build_modules(cfg, llm_defaults)
@@ -265,11 +339,17 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         modules_to_run = _modules_to_run(modules, args.module)
 
+        logger.info(f"Found {len(modules)} total modules, {len(modules_to_run)} to run")
+        for mod in modules_to_run:
+            logger.info(f"Module: {mod.name} (mode: {mod.mode}, enabled: {mod.enabled})")
+
         if args.module and not modules_to_run:
+            logger.error(f"No module named {args.module} found in config")
             print(f"No module named {args.module} found in config.", file=sys.stderr)
             sys.exit(1)
 
         if not args.module and not modules_to_run:
+            logger.error("No enabled modules found in config")
             print("No enabled modules found in config.", file=sys.stderr)
             sys.exit(1)
 
@@ -278,6 +358,7 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         for mod in modules_to_run:
             if mod.mode == "follow":
+                logger.info(f"Starting follow mode for module: {mod.name}")
                 run_module_follow(
                     mod,
                     pipelines,
@@ -285,9 +366,11 @@ def main(argv: Optional[List[str]] = None) -> None:
                     should_reload=_should_reload if args.reload_on_change else None,
                 )
             else:
+                logger.info(f"Running batch mode for module: {mod.name}")
                 run_module_batch(mod, pipelines, llm_defaults)
 
             if args.reload_on_change and reload_event.is_set():
+                logger.info("Reload requested; reloading configuration...")
                 print("Reload requested; reloading configuration...", file=sys.stderr)
                 break
 
