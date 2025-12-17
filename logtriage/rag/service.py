@@ -462,11 +462,11 @@ async def update_module_config(module_name: str, config: ModuleConfigRequest):
     if rag_client is None:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     
-    from ..models import RAGModuleConfig, KnowledgeSource
+    from ..models import RAGModuleConfig, KnowledgeSourceConfig
     
     knowledge_sources = []
     for source in config.knowledge_sources:
-        knowledge_sources.append(KnowledgeSource(
+        knowledge_sources.append(KnowledgeSourceConfig(
             repo_url=source["repo_url"],
             branch=source["branch"],
             include_paths=source["include_paths"]

@@ -61,7 +61,7 @@ class VectorStore:
     def _init_sqlite(self):
         """Initialize SQLite database for metadata."""
         try:
-            self.conn = sqlite3.connect(str(self.metadata_db_path))
+            self.conn = sqlite3.connect(str(self.metadata_db_path), check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
             
             # Create tables
