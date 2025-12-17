@@ -88,7 +88,6 @@ rag:
   
   # Vector store configuration for storing document embeddings
   vector_store:
-    type: "chroma"  # Only chroma is supported currently
     persist_directory: "./rag_vector_store"
   
   # Embedding model configuration
