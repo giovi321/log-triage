@@ -193,10 +193,13 @@ class KnowledgeSourceConfig:
     repo_url: str
     branch: str = "main"
     include_paths: List[str] = None
+    include_extensions: List[str] = None
     
     def __post_init__(self):
         if self.include_paths is None:
             self.include_paths = []
+        if self.include_extensions is None:
+            self.include_extensions = ['.md', '.rst', '.txt']
 
 
 @dataclasses.dataclass

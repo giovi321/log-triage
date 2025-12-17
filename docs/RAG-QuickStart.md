@@ -49,7 +49,28 @@ modules:
       knowledge_sources:
         - repo_url: "https://github.com/myorg/docs"
           branch: "main"
+          include_paths:
+            - "docs/**/*.md"      # All .md files in docs and subdirectories
+            - "README.md"          # Specific file in root
+          include_extensions:
+            - ".md"
+            - ".rst"
 ```
+
+### Understanding include_paths and include_extensions
+
+#### include_paths (Glob Patterns)
+Use glob patterns to specify which files to include:
+- `"docs/**/*.md"` - All .md files in docs directory and all subdirectories
+- `"README.md"` - Specific file in repository root  
+- `"troubleshooting/*.md"` - .md files in troubleshooting directory only
+- `"**/*.md"` - All .md files in entire repository
+
+#### include_extensions (File Types)
+Specify which file extensions to process:
+- Default: `[".md", ".rst", ".txt"]`
+- Can include custom extensions like `[".markdown"]`
+- Extensions are checked after glob matching
 
 ### 3. Restart log-triage
 

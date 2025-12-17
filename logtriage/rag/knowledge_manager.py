@@ -112,30 +112,39 @@ class KnowledgeManager:
         if repo_id in self.repositories:
             self.repositories[repo_id].last_indexed_hash = self.repositories[repo_id].last_commit_hash
     
-    def get_repo_files(self, repo_id: str, include_paths: List[str]) -> List[Path]:
-        """Get all documentation files from repository."""
+    def get_repo_files(self, repo_id: str, include_paths: List[str], include_extensions: List[str]) -> List[Path]:
+        """Get all documentation files from repository using glob patterns."""
         if repo_id not in self.repositories:
             return []
         
         state = self.repositories[repo_id]
         repo_path = state.local_path
         
-        # Whitelisted extensions
-        allowed_extensions = {'.md', '.rst', '.txt'}
+        # Use provided extensions or default to common ones
+        allowed_extensions = set(ext.lower() for ext in (include_extensions or ['.md', '.rst', '.txt']))
         
         files = []
-        for include_path in include_paths or [""]:
-            search_path = repo_path / include_path
-            if not search_path.exists():
+        for include_path in include_paths or ["**/*.md", "**/*.rst", "**/*.txt"]:
+            try:
+                # Use glob patterns - handle both directory patterns and file patterns
+                for file_path in repo_path.glob(include_path):
+                    if (file_path.is_file() and 
+                        file_path.suffix.lower() in allowed_extensions and
+                        not any(part.startswith('.') for part in file_path.parts)):
+                        files.append(file_path)
+            except Exception as e:
+                logger.warning(f"Failed to glob pattern '{include_path}' in {repo_path}: {e}")
                 continue
-                
-            for file_path in search_path.rglob("*"):
-                if (file_path.is_file() and 
-                    file_path.suffix.lower() in allowed_extensions and
-                    not any(part.startswith('.') for part in file_path.parts)):
-                    files.append(file_path)
         
-        return files
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_files = []
+        for file_path in files:
+            if file_path not in seen:
+                seen.add(file_path)
+                unique_files.append(file_path)
+        
+        return unique_files
     
     def get_repo_state(self, repo_id: str) -> Optional[RepoState]:
         """Get repository state."""

@@ -52,14 +52,37 @@ modules:
         - repo_url: "https://github.com/myorg/service-docs"
           branch: "main"
           include_paths:
-            - "docs/*.md"
-            - "README.md"
-            - "troubleshooting/*.md"
+            - "docs/**/*.md"      # All .md files in docs and subdirectories
+            - "README.md"          # Specific file in root
+            - "troubleshooting/*.md"  # .md files in troubleshooting directory only
+          include_extensions:
+            - ".md"
+            - ".rst"
         - repo_url: "https://github.com/myorg/troubleshooting-guide"
           branch: "main"
           include_paths:
-            - "troubleshooting/*.md"
+            - "**/*.md"           # All .md files in entire repository
+            - "**/*.markdown"     # All .markdown files in entire repository
+          include_extensions:
+            - ".md"
+            - ".markdown"
 ```
+
+#### include_paths
+
+Use glob patterns to specify which files to include:
+- `"docs/**/*.md"` - All .md files in docs directory and all subdirectories
+- `"README.md"` - Specific file in repository root
+- `"troubleshooting/*.md"` - .md files in troubleshooting directory only
+- `"**/*.md"` - All .md files in entire repository
+- `"docs/**/*.rst"` - All .rst files in docs and subdirectories
+
+#### include_extensions
+
+Specify which file extensions to process:
+- Default: `[".md", ".rst", ".txt"]`
+- Can include custom extensions like `[".markdown"]`
+- Extensions are checked after glob matching
 
 ## Features
 
@@ -68,7 +91,7 @@ modules:
 - **Automatic Cloning**: Repositories are cloned to a local cache directory
 - **Incremental Updates**: Only reindexes when commits change
 - **Security**: Git hooks are disabled for security
-- **File Filtering**: Only processes allowed file types (.md, .rst, .txt)
+- **File Filtering**: Processes files based on configurable include_paths (glob patterns) and include_extensions
 
 ### Document Processing
 

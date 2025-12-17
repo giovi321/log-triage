@@ -14,14 +14,18 @@ logger = logging.getLogger(__name__)
 class DocumentProcessor:
     """Processes documentation files into indexed chunks."""
     
-    def __init__(self, target_chunk_size: int = 400, overlap_ratio: float = 0.1):
+    def __init__(self, target_chunk_size: int = 400, overlap_ratio: float = 0.1, 
+                 allowed_extensions: List[str] = None):
         self.target_chunk_size = target_chunk_size
         self.overlap_size = int(target_chunk_size * overlap_ratio)
-        self.allowed_extensions = {'.md', '.rst', '.txt'}
+        self.allowed_extensions = set(ext.lower() for ext in (allowed_extensions or ['.md', '.rst', '.txt']))
     
-    def process_file(self, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
+    def process_file(self, file_path: Path, repo_id: str, commit_hash: str, 
+                     allowed_extensions: List[str] = None) -> List[DocumentChunk]:
         """Process a single documentation file into chunks."""
-        if file_path.suffix.lower() not in self.allowed_extensions:
+        extensions_to_check = set(ext.lower() for ext in (allowed_extensions or list(self.allowed_extensions)))
+        
+        if file_path.suffix.lower() not in extensions_to_check:
             logger.debug(f"Skipping file with unsupported extension: {file_path}")
             return []
         

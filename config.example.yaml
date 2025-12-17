@@ -22,6 +22,21 @@ llm:
       request_timeout: 60
       temperature: 0.1
       top_p: 1.0
+
+# RAG configuration for enhanced log analysis with documentation context
+rag:
+  enabled: true
+  cache_dir: "./rag_cache"
+  vector_store:
+    persist_directory: "./rag_vector_store"
+  embedding:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    device: "cpu"  # Use "cuda" for GPU acceleration
+    batch_size: 32
+  retrieval:
+    top_k: 5
+    similarity_threshold: 0.7
+    max_chunks: 10
 pipelines:
 - name: rsnapshot
   match:
@@ -148,12 +163,31 @@ modules:
   min_print_severity: WARNING
   stale_after_minutes: 60
   llm:
-    enabled: false
+    enabled: true
     provider: local_vllm
     prompt_template: ./prompts/homeassistant.txt
     emit_llm_payloads_dir: ./ha_llm_payloads
     context_prefix_lines: 2
     context_suffix_lines: 2
+  rag:
+    enabled: true
+    knowledge_sources:
+      - repo_url: "https://github.com/home-assistant/developers.home-assistant"
+        branch: "master"
+        include_paths:
+          - "docs/**/*.md"
+          - "docs/**/*.rst"
+        include_extensions:
+          - ".md"
+          - ".rst"
+      - repo_url: "https://github.com/home-assistant/home-assistant.io"
+        branch: "current"
+        include_paths:
+          - "source/**/*.md"
+          - "source/**/*.markdown"
+        include_extensions:
+          - ".md"
+          - ".markdown"
   alerts:
     mqtt:
       enabled: false
