@@ -370,7 +370,7 @@ def _refresh_rag_client() -> None:
     """Initialize or update the RAG client based on configuration."""
     global rag_client
     
-    # Try to use RAG service client first
+    # Try to use RAG service client
     if create_rag_client is not None:
         try:
             logger.info("Initializing RAG service client...")
@@ -395,52 +395,18 @@ def _refresh_rag_client() -> None:
                     rag_client.update_knowledge_base()
                     logger.info("RAG service client initialization completed")
                 else:
-                    logger.warning("RAG service is not healthy, falling back to local client")
-                    rag_client = None
-                    _fallback_to_local_rag()
+                    logger.warning("RAG service is not available, RAG functionality will be disabled")
+                    # Keep rag_client as NoOp (already returned by create_rag_client)
             else:
                 logger.info("RAG disabled in configuration")
                 rag_client = None
         except Exception as exc:
             logger.error(f"RAG service client initialization failed: {exc}", exc_info=True)
-            add_notification("error", "RAG service client initialization failed", str(exc))
+            add_notification("warning", "RAG service unavailable", "RAG functionality will be disabled")
             rag_client = None
-            _fallback_to_local_rag()
     else:
-        _fallback_to_local_rag()
-
-def _fallback_to_local_rag() -> None:
-    """Fallback to local RAG client if service client is not available."""
-    global rag_client
-    if RAGClient is None:
-        logger.info("RAGClient not available (missing dependencies)")
-        return
-    
-    try:
-        logger.info("Falling back to local RAG client...")
-        rag_config = build_rag_config(raw_config)
-        if rag_config and rag_config.enabled:
-            logger.info(f"RAG config found and enabled: {rag_config}")
-            rag_client = RAGClient(rag_config)
-            # Add module configurations to RAG client
-            modules = _build_modules_from_config()
-            logger.info(f"Adding {len(modules)} modules to local RAG client")
-            for module in modules:
-                if module.rag and module.rag.enabled:
-                    logger.info(f"Adding RAG config for module: {module.name}")
-                    rag_client.add_module_config(module.name, module.rag)
-            # Update knowledge base
-            logger.info("Updating local RAG knowledge base...")
-            rag_client.update_knowledge_base()
-            logger.info("Local RAG client initialization completed")
-        else:
-            logger.info("RAG disabled in configuration")
-            rag_client = None
-    except Exception as exc:
-        logger.error(f"Local RAG client initialization failed: {exc}", exc_info=True)
-        add_notification("error", "Local RAG client initialization failed", str(exc))
+        logger.info("RAG service client not available, RAG functionality disabled")
         rag_client = None
-
 
 def _build_modules_from_config() -> List[ModuleConfig]:
     try:
@@ -591,12 +557,19 @@ async def dashboard(request: Request):
     
     # Get RAG status
     rag_status = None
+    rag_service_available = False
     if rag_client:
-        logger.info("RAG client found, getting status...")
-        rag_status = rag_client.get_status()
-        logger.info(f"RAG status: {rag_status}")
+        try:
+            logger.info("RAG client found, getting status...")
+            rag_status = rag_client.get_status()
+            rag_service_available = True
+            logger.info(f"RAG status: {rag_status}")
+        except Exception as e:
+            logger.warning(f"Failed to get RAG status: {e}")
+            rag_status = {"enabled": False, "error": str(e)}
     else:
         logger.info("RAG client not initialized")
+        rag_status = {"enabled": False, "message": "RAG service unavailable"}
     
     return templates.TemplateResponse(
         "dashboard.html",
@@ -610,11 +583,40 @@ async def dashboard(request: Request):
             "ingestion_status": ingestion_status,
             "notif_summary": notif_summary,
             "rag_status": rag_status,
+            "rag_service_available": rag_service_available,
         },
     )
 
 
 
+
+@app.get("/api/rag/status")
+async def get_rag_status():
+    """Get RAG service status for AJAX calls."""
+    global rag_client
+    
+    if not rag_client:
+        return {
+            "enabled": False,
+            "message": "RAG service unavailable",
+            "service_available": False
+        }
+    
+    try:
+        status = rag_client.get_status()
+        return {
+            "enabled": status.get("enabled", False),
+            "service_available": True,
+            "total_repositories": status.get("total_repositories", 0),
+            "vector_store_stats": status.get("vector_store_stats", {}),
+            "repositories": status.get("repositories", [])
+        }
+    except Exception as e:
+        return {
+            "enabled": False,
+            "message": f"Error getting RAG status: {str(e)}",
+            "service_available": False
+        }
 
 @app.get("/config/edit", name="edit_config")
 async def edit_config(request: Request):

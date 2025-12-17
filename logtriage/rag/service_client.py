@@ -2,6 +2,7 @@
 
 import logging
 import requests
+import time
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
@@ -13,39 +14,72 @@ logger = logging.getLogger(__name__)
 class RAGServiceClient:
     """Client for communicating with the standalone RAG service."""
     
-    def __init__(self, service_url: str = "http://127.0.0.1:8091", timeout: int = 30):
+    def __init__(self, service_url: str = "http://127.0.0.1:8091", timeout: int = 10):
         self.service_url = service_url.rstrip('/')
-        self.timeout = timeout
+        self.timeout = timeout  # Shorter timeout for better responsiveness
         self.session = requests.Session()
+        # Configure session for better performance
+        self.session.headers.update({
+            'User-Agent': 'logtriage-rag-client/1.0'
+        })
         
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict[str, Any]]:
-        """Make a request to the RAG service."""
+    def _make_request(self, method: str, endpoint: str, max_retries: int = 2, **kwargs) -> Optional[Dict[str, Any]]:
+        """Make a request to the RAG service with retry logic."""
         url = f"{self.service_url}{endpoint}"
-        try:
-            response = self.session.request(method, url, timeout=self.timeout, **kwargs)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.ConnectionError:
-            logger.error(f"Cannot connect to RAG service at {self.service_url}")
-            add_notification("error", "RAG service unavailable", f"Cannot connect to {self.service_url}")
-            return None
-        except requests.exceptions.Timeout:
-            logger.error(f"RAG service request timeout to {self.service_url}")
-            add_notification("error", "RAG service timeout", f"Request to {self.service_url} timed out")
-            return None
-        except requests.exceptions.RequestException as e:
-            logger.error(f"RAG service request failed: {e}")
-            add_notification("error", "RAG service error", str(e))
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error communicating with RAG service: {e}")
-            add_notification("error", "RAG service error", str(e))
-            return None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.session.request(method, url, timeout=self.timeout, **kwargs)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.ConnectionError:
+                if attempt == max_retries:
+                    logger.error(f"Cannot connect to RAG service at {self.service_url} after {max_retries + 1} attempts")
+                    return None
+                logger.debug(f"Connection failed to RAG service, retry {attempt + 1}/{max_retries + 1}")
+                time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+            except requests.exceptions.Timeout:
+                if attempt == max_retries:
+                    logger.error(f"RAG service request timeout to {self.service_url} after {max_retries + 1} attempts")
+                    return None
+                logger.debug(f"Request timeout to RAG service, retry {attempt + 1}/{max_retries + 1}")
+                time.sleep(0.5 * (attempt + 1))
+            except requests.exceptions.RequestException as e:
+                logger.error(f"RAG service request failed: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Unexpected error communicating with RAG service: {e}")
+                return None
+        
+        return None
     
     def is_healthy(self) -> bool:
         """Check if the RAG service is healthy."""
         result = self._make_request("GET", "/health")
-        return result is not None and result.get("status") == "healthy"
+        if result is None:
+            return False
+        
+        # Check if initialization is still in progress
+        init_status = result.get("initialization", {})
+        if init_status.get("updating", False):
+            logger.info("RAG service is still initializing")
+            return True  # Service is healthy, just initializing
+        
+        return result.get("status") == "healthy"
+    
+    def is_ready(self) -> bool:
+        """Check if the RAG service is ready to serve requests."""
+        result = self._make_request("GET", "/health")
+        if result is None:
+            return False
+        
+        init_status = result.get("initialization", {})
+        return (
+            result.get("status") == "healthy" and 
+            init_status.get("started", False) and 
+            not init_status.get("updating", False) and
+            not init_status.get("error")
+        )
     
     def add_module_config(self, module_name: str, config: RAGModuleConfig):
         """Add RAG configuration for a module."""
@@ -89,7 +123,7 @@ class RAGServiceClient:
             "excerpt": finding.excerpt
         }
         
-        result = self._make_request("POST", f"/retrieve/{module_name}", json=data)
+        result = self._make_request("POST", f"/retrieve/{module_name}", json=data, max_retries=1)
         if result is None:
             return None
         
@@ -161,14 +195,17 @@ class NoOpRAGClient:
             "repositories": []
         }
 
-def create_rag_client(service_url: str = "http://127.0.0.1:8091", timeout: int = 30, fallback: bool = True):
+def create_rag_client(service_url: str = "http://127.0.0.1:8091", timeout: int = 10, fallback: bool = True):
     """Create a RAG client, optionally with fallback to NoOp client."""
     client = RAGServiceClient(service_url, timeout)
     
     if fallback:
-        # Test if service is available, otherwise return NoOp client
-        if not client.is_healthy():
-            logger.warning(f"RAG service at {service_url} is not available, using fallback client")
+        # Test if service is ready, otherwise return NoOp client
+        if not client.is_ready():
+            if client.is_healthy():
+                logger.warning(f"RAG service at {service_url} is still initializing, using NoOp client")
+            else:
+                logger.warning(f"RAG service at {service_url} is not available, using NoOp client")
             return NoOpRAGClient()
     
     return client

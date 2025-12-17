@@ -203,9 +203,12 @@ def run_module_batch(
             if rag_config and rag_config.enabled:
                 rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
                 rag_client = create_rag_client(rag_service_url, fallback=True)
-                logger.info(f"RAG service client configured for module {mod.name}")
+                if rag_client.is_healthy():
+                    logger.info(f"RAG service client configured for module {mod.name}")
+                else:
+                    logger.info(f"RAG service unavailable for module {mod.name}, proceeding without RAG")
         except Exception as e:
-            logger.warning(f"Failed to initialize RAG service client for {mod.name}: {e}")
+            logger.warning(f"Failed to initialize RAG service client for {mod.name}: {e}, proceeding without RAG")
     
     findings = analyze_path(
         mod.path,

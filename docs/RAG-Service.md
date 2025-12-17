@@ -1,4 +1,4 @@
-# RAG Service - Standalone Documentation Retrieval
+# RAG Service - Resilient Documentation Retrieval
 
 ## Overview
 
@@ -11,11 +11,34 @@ The RAG (Retrieval-Augmented Generation) service is a standalone FastAPI applica
 - CLI doesn't use RAG in stream mode
 - Heavy embedding models block main processes
 
-### After (Standalone Service)
+### After (Standalone & Resilient)
 - RAG service runs independently on port 8091
-- WebUI/CLI make lightweight HTTP API calls
-- Service can be scaled and restarted independently
-- Fallback to local RAG if service unavailable
+- **Non-blocking startup**: Service starts immediately, initializes in background
+- **Graceful degradation**: WebUI/CLI work without RAG if service is down
+- **Background updates**: Knowledge base updates don't block API requests
+- **Retry logic**: Clients handle temporary failures automatically
+
+## Resilience Features
+
+### 1. Fast Startup
+- RAG service starts immediately (doesn't wait for embeddings)
+- Heavy initialization runs in background threads
+- Health endpoint responds instantly
+
+### 2. Graceful Degradation
+- If RAG service is unavailable → WebUI/CLI work without RAG
+- No blocking local fallback that hangs startup
+- Clear status indicators in WebUI
+
+### 3. Background Operations
+- Knowledge base updates run in background
+- API requests return empty results during updates (not errors)
+- No service downtime during repository updates
+
+### 4. Client Resilience
+- Automatic retry with exponential backoff
+- Short timeouts (10s) for better responsiveness
+- Distinguishes between "service down" and "service initializing"
 
 ## Installation
 
@@ -59,13 +82,19 @@ logtriage-rag --config ./config.yaml --host 127.0.0.1 --port 8091
 python -m logtriage.rag.service --config ./config.yaml
 ```
 
+The service will:
+1. Start immediately and begin accepting requests
+2. Initialize RAG components in background
+3. Show "initializing" status during setup
+4. Become fully ready once knowledge base is loaded
+
 ### Starting WebUI (with RAG service)
 
 ```bash
 # Start RAG service first
 logtriage-rag --config ./config.yaml &
 
-# Then start WebUI (will automatically connect to RAG service)
+# Then start WebUI (will work even if RAG is still initializing)
 logtriage-webui --config ./config.yaml
 ```
 
@@ -75,7 +104,7 @@ logtriage-webui --config ./config.yaml
 # Start RAG service first
 logtriage-rag --config ./config.yaml &
 
-# Then start CLI (will automatically connect to RAG service)
+# Then start CLI (will work even if RAG is still initializing)
 logtriage --config ./config.yaml --module homeassistant
 ```
 
@@ -85,13 +114,25 @@ logtriage --config ./config.yaml --module homeassistant
 ```http
 GET /health
 ```
-Returns service health status.
+Returns service health and initialization status:
+```json
+{
+  "status": "healthy",
+  "rag_enabled": true,
+  "initialization": {
+    "started": true,
+    "completed": false,
+    "updating": true,
+    "error": null
+  }
+}
+```
 
 ### Status
 ```http
 GET /status
 ```
-Returns RAG system status including repository information.
+Returns RAG system status including repository information. During initialization, returns basic status without blocking.
 
 ### Retrieve Documentation
 ```http
@@ -109,12 +150,13 @@ Content-Type: application/json
   "excerpt": ["Error line 1", "Error line 2"]
 }
 ```
+During initialization, returns empty results instead of blocking.
 
 ### Update Knowledge Base
 ```http
 POST /update-knowledge
 ```
-Triggers knowledge base reindexing.
+Triggers knowledge base reindexing in background.
 
 ### Update Module Configuration
 ```http
@@ -134,13 +176,39 @@ Content-Type: application/json
 }
 ```
 
+## Behavior During Different States
+
+### Normal Operation
+- All RAG features work normally
+- WebUI shows full RAG status
+- CLI enriches findings with documentation
+
+### During Initialization
+- Service responds to health checks immediately
+- Retrieval requests return empty results (no errors)
+- WebUI shows "initializing" status
+- CLI works without RAG enrichment
+
+### During Knowledge Base Updates
+- API requests continue working
+- Retrieval may use slightly stale data
+- Updates run in background
+- No service interruption
+
+### When Service is Down
+- WebUI starts immediately without RAG
+- CLI works without RAG enrichment
+- Clear status indicators
+- No blocking or hanging
+
 ## Performance Benefits
 
-1. **Faster WebUI Startup**: WebUI no longer waits for embedding models to load
-2. **Better Responsiveness**: RAG operations don't block the main UI thread
-3. **Independent Scaling**: RAG service can be restarted without affecting WebUI
-4. **Resource Isolation**: Heavy RAG operations run in separate process
-5. **Graceful Degradation**: Falls back to local RAG if service unavailable
+1. **Instant WebUI startup** - No waiting for embedding models
+2. **Better responsiveness** - RAG operations don't block UI
+3. **Independent scaling** - RAG service can be restarted separately
+4. **Resource isolation** - Heavy operations in separate process
+5. **Zero downtime** - Updates don't affect other services
+6. **Graceful degradation** - System works without RAG
 
 ## Troubleshooting
 
@@ -153,11 +221,17 @@ Content-Type: application/json
 - Ensure RAG service is running: `logtriage-rag --config ./config.yaml`
 - Check service URL in config matches actual service
 - Verify network connectivity between services
+- Service may still be initializing - check health endpoint
 
 ### Performance Issues
 - Consider using GPU acceleration: `device: "cuda"` in config
 - Reduce `batch_size` if memory is limited
 - Use smaller embedding model for faster initialization
+
+### RAG Not Working But Service is Running
+- Check if initialization completed: `GET /health`
+- Verify knowledge base was loaded successfully
+- Check module configurations are correct
 
 ## Development
 
@@ -171,6 +245,15 @@ When the service is running, visit:
 - Swagger UI: http://127.0.0.1:8091/docs
 - ReDoc: http://127.0.0.1:8091/redoc
 
+### Monitoring Status
+```bash
+# Check health and initialization status
+curl http://127.0.0.1:8091/health
+
+# Check detailed RAG status
+curl http://127.0.0.1:8091/status
+```
+
 ## Migration from Local RAG
 
 1. Install FastAPI dependencies
@@ -178,4 +261,4 @@ When the service is running, visit:
 3. Start RAG service: `logtriage-rag --config ./config.yaml`
 4. Restart WebUI/CLI applications
 
-The system will automatically detect and use the RAG service if available, with graceful fallback to local RAG if needed.
+The system will automatically detect and use the RAG service if available, with graceful fallback to no RAG if needed. **No blocking local fallback** - WebUI will start immediately even if RAG service is down.

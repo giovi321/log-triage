@@ -3,6 +3,8 @@
 import logging
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import importlib.util
@@ -13,7 +15,7 @@ if importlib.util.find_spec("fastapi") is None:
     )
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from ..config import load_config, build_rag_config, build_modules, build_llm_config
@@ -22,6 +24,19 @@ from ..notifications import add_notification, list_notifications
 from .rag_client import RAGClient
 
 logger = logging.getLogger(__name__)
+
+# Global state
+rag_client: Optional[RAGClient] = None
+llm_defaults: Optional[GlobalLLMConfig] = None
+modules: List[ModuleConfig] = []
+initialization_status = {
+    "started": False,
+    "completed": False,
+    "error": None,
+    "updating": False,
+    "last_update": None
+}
+init_lock = threading.Lock()
 
 # Pydantic models for API
 class FindingRequest(BaseModel):
@@ -49,11 +64,6 @@ class ModuleConfigRequest(BaseModel):
     module_name: str
     enabled: bool
     knowledge_sources: List[Dict[str, Any]]
-
-# Global RAG client instance
-rag_client: Optional[RAGClient] = None
-llm_defaults: Optional[GlobalLLMConfig] = None
-modules: List[ModuleConfig] = []
 
 def configure_logging_from_config(cfg: dict) -> None:
     """Configure logging based on configuration dictionary."""
@@ -94,22 +104,27 @@ def configure_logging_from_config(cfg: dict) -> None:
         except Exception as e:
             print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
 
-def initialize_rag_client(config_path: Path) -> None:
-    """Initialize the RAG client from configuration."""
-    global rag_client, llm_defaults, modules
+def background_initialize_rag_client(config_path: Path) -> None:
+    """Background thread to initialize the RAG client."""
+    global rag_client, llm_defaults, modules, initialization_status
+    
+    with init_lock:
+        initialization_status["started"] = True
+        initialization_status["completed"] = False
+        initialization_status["error"] = None
+        initialization_status["updating"] = True
     
     try:
         logger.info(f"Loading configuration from {config_path}")
         raw_config = load_config(config_path)
         
-        # Configure logging
-        configure_logging_from_config(raw_config)
-        
         # Build RAG configuration
         rag_config = build_rag_config(raw_config)
         if not rag_config or not rag_config.enabled:
             logger.info("RAG disabled in configuration")
-            rag_client = None
+            with init_lock:
+                initialization_status["completed"] = True
+                initialization_status["updating"] = False
             return
         
         logger.info("Initializing RAG client...")
@@ -126,15 +141,29 @@ def initialize_rag_client(config_path: Path) -> None:
                 logger.info(f"Adding RAG config for module: {module.name}")
                 rag_client.add_module_config(module.name, module.rag)
         
-        # Update knowledge base
+        # Update knowledge base - this is the heavy operation
         logger.info("Updating RAG knowledge base...")
         rag_client.update_knowledge_base()
         logger.info("RAG service initialization completed")
         
+        with init_lock:
+            initialization_status["completed"] = True
+            initialization_status["updating"] = False
+            initialization_status["last_update"] = time.time()
+        
     except Exception as exc:
         logger.error(f"RAG service initialization failed: {exc}", exc_info=True)
-        rag_client = None
-        raise
+        with init_lock:
+            initialization_status["error"] = str(exc)
+            initialization_status["updating"] = False
+        # Don't set rag_client = None here - we might have a partially initialized client
+
+def initialize_rag_client(config_path: Path) -> None:
+    """Initialize the RAG client from configuration in background thread."""
+    # Start background initialization
+    init_thread = threading.Thread(target=background_initialize_rag_client, args=(config_path,))
+    init_thread.daemon = True
+    init_thread.start()
 
 # Create FastAPI app
 app = FastAPI(
@@ -147,16 +176,59 @@ app = FastAPI(
 async def startup_event():
     """Initialize RAG service on startup."""
     config_path = Path(os.environ.get("LOGTRIAGE_CONFIG", "./config.yaml"))
+    
+    # Configure logging first
+    try:
+        raw_config = load_config(config_path)
+        configure_logging_from_config(raw_config)
+    except Exception as e:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        )
+        logger.warning(f"Failed to load config for logging setup: {e}")
+    
+    # Start background initialization
     initialize_rag_client(config_path)
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "rag_enabled": rag_client is not None}
+    """Health check endpoint - always responds quickly."""
+    with init_lock:
+        return {
+            "status": "healthy", 
+            "rag_enabled": rag_client is not None,
+            "initialization": {
+                "started": initialization_status["started"],
+                "completed": initialization_status["completed"],
+                "updating": initialization_status["updating"],
+                "error": initialization_status["error"]
+            }
+        }
 
 @app.get("/status", response_model=StatusResponse)
 async def get_status():
     """Get RAG system status."""
+    with init_lock:
+        if not initialization_status["started"]:
+            return StatusResponse(
+                enabled=False,
+                total_repositories=0,
+                vector_store_stats={},
+                repositories=[]
+            )
+        
+        if initialization_status["updating"]:
+            return StatusResponse(
+                enabled=True,
+                total_repositories=0,
+                vector_store_stats={"status": "initializing"},
+                repositories=[]
+            )
+        
+        if initialization_status["error"]:
+            raise HTTPException(status_code=503, detail=f"RAG initialization failed: {initialization_status['error']}")
+    
     if rag_client is None:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     
@@ -166,6 +238,14 @@ async def get_status():
 @app.post("/retrieve/{module_name}", response_model=RetrievalResponse)
 async def retrieve_for_finding(module_name: str, finding: FindingRequest):
     """Retrieve relevant documentation for a finding."""
+    with init_lock:
+        if initialization_status["updating"]:
+            # Return empty result during initialization instead of blocking
+            return RetrievalResponse(chunks=[], context="", citations=[])
+        
+        if initialization_status["error"]:
+            raise HTTPException(status_code=503, detail=f"RAG initialization failed: {initialization_status['error']}")
+    
     if rag_client is None:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     
@@ -204,17 +284,25 @@ async def retrieve_for_finding(module_name: str, finding: FindingRequest):
     )
 
 @app.post("/update-knowledge")
-async def update_knowledge_base():
-    """Update the knowledge base."""
+async def update_knowledge_base(background_tasks: BackgroundTasks):
+    """Update the knowledge base in background."""
     if rag_client is None:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     
-    rag_client.update_knowledge_base()
-    return {"message": "Knowledge base update initiated"}
+    # Run update in background to avoid blocking
+    background_tasks.add_task(rag_client.update_knowledge_base)
+    return {"message": "Knowledge base update initiated in background"}
 
 @app.post("/module/{module_name}/config")
 async def update_module_config(module_name: str, config: ModuleConfigRequest):
     """Update RAG configuration for a module."""
+    with init_lock:
+        if initialization_status["updating"]:
+            raise HTTPException(status_code=509, detail="RAG service is currently initializing, please try again later")
+        
+        if initialization_status["error"]:
+            raise HTTPException(status_code=503, detail=f"RAG initialization failed: {initialization_status['error']}")
+    
     if rag_client is None:
         raise HTTPException(status_code=503, detail="RAG service not initialized")
     
