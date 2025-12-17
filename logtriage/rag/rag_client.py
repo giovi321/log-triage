@@ -164,7 +164,7 @@ class RAGClient:
         return status
     
     def _reindex_repository(self, repo_id: str):
-        """Reindex a repository with configurable memory management."""
+        """Reindex a repository with incremental processing for memory efficiency."""
         # Find which module(s) this repo belongs to
         modules_for_repo = []
         for module_name, config in self.module_configs.items():
@@ -189,48 +189,62 @@ class RAGClient:
         total_chunks_processed = 0
         total_files_processed = 0
         
-        logger.info(f"Starting reindex for {repo_id}")
+        logger.info(f"Starting incremental reindex for {repo_id}")
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
-            # Process files one by one to minimize memory
+            # Process files one by one with immediate storage
             for file_path in files:
                 try:
+                    logger.debug(f"Processing file: {file_path.name}")
+                    
                     # Process single file
                     chunks = self.document_processor.process_file(
                         file_path, repo_id, repo_state.last_commit_hash
                     )
                     
                     if chunks:
-                        # Process this file immediately
-                        texts = [chunk.content for chunk in chunks]
-                        embeddings = self.embedding_service.embed_texts(texts)
-                        
-                        if embeddings.size > 0:
-                            # Add to vector store right away
-                            self.vector_store.add_chunks(chunks, embeddings)
-                            total_chunks_processed += len(chunks)
-                            
-                            # Force cleanup after each file
-                            import gc
-                            gc.collect()
-                            
-                            logger.debug(f"Processed {file_path.name}: {len(chunks)} chunks, total: {total_chunks_processed}")
+                        # Process this file incrementally - one chunk at a time
+                        for chunk in chunks:
+                            try:
+                                # Generate embedding for single chunk
+                                embedding = self.embedding_service.embed_texts([chunk.content])
+                                
+                                if embedding.size > 0:
+                                    # Store immediately in vector store
+                                    self.vector_store.add_chunks([chunk], embedding)
+                                    total_chunks_processed += 1
+                                    
+                                    # Aggressive cleanup after each chunk
+                                    del embedding
+                                    import gc
+                                    gc.collect()
+                                    
+                            except Exception as e:
+                                logger.error(f"Failed to process chunk from {file_path.name}: {e}")
+                                continue
                     
                     total_files_processed += 1
+                    
+                    # Force cleanup after each file
+                    import gc
+                    gc.collect()
+                    
+                    if total_files_processed % 10 == 0:
+                        logger.info(f"Processed {total_files_processed} files, {total_chunks_processed} chunks")
                     
                 except Exception as e:
                     logger.error(f"Failed to process file {file_path}: {e}")
                     continue
         
-        # Mark as indexed even if truncated
+        # Mark as indexed
         self.knowledge_manager.mark_indexed(repo_id)
         
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed",
+                "Repository reindexed (incremental)",
                 f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files"
             )
         else:
