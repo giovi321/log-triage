@@ -215,9 +215,6 @@ rag_client: Optional[RAGClient] = None
 context_hints = _load_context_hints()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
 
-# Initialize RAG client
-_refresh_rag_client()
-
 REGEX_WIZARD_STEPS = [
     ("pick", "Pick sample lines"),
     ("draft", "Draft regex"),
@@ -386,6 +383,9 @@ def _refresh_rag_client() -> None:
     except Exception as exc:
         add_notification("error", "RAG client initialization failed", str(exc))
         rag_client = None
+
+# Initialize RAG client after function definition
+_refresh_rag_client()
 
 
 def _build_modules_from_config() -> List[ModuleConfig]:
