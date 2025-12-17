@@ -1423,8 +1423,16 @@ async def llm_query_finding(
         )
 
     try:
+        # Validate finding_id parameter
+        try:
+            finding_id_int = int(finding_id)
+            if finding_id_int <= 0:
+                return JSONResponse({"error": "Invalid finding ID"}, status_code=400)
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "Invalid finding ID format"}, status_code=400)
+        
         # Get the finding from database
-        finding = get_finding_by_id(finding_id)
+        finding = get_finding_by_id(finding_id_int)
         if not finding:
             return JSONResponse({"error": "Finding not found"}, status_code=404)
         
@@ -1501,8 +1509,9 @@ async def llm_query_finding(
             return JSONResponse({"error": "No LLM response generated"}, status_code=500)
             
     except Exception as e:
-        add_notification("error", "LLM query failed", str(e))
-        return JSONResponse({"error": str(e)}, status_code=500)
+        logger.error(f"LLM query failed for finding_id {finding_id}: {e}", exc_info=True)
+        add_notification("error", "LLM query failed", f"Finding {finding_id}: {str(e)}")
+        return JSONResponse({"error": f"LLM query failed: {str(e)}"}, status_code=500)
 
 
 @app.post("/llm/query", name="llm_query")

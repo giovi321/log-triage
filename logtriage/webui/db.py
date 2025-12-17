@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import datetime
 import importlib.util
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Dict, List, TYPE_CHECKING
 
 from ..models import Severity, LLMResponse
+
+logger = logging.getLogger(__name__)
 
 _sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
 if _sqlalchemy_spec is None:
@@ -133,8 +136,13 @@ if Base is not None:
         def severity_enum(self):
             """Convert string severity back to Severity enum for compatibility."""
             try:
-                return Severity.from_string(self.severity or "WARNING")
-            except (ValueError, AttributeError):
+                severity_value = self.severity or "WARNING"
+                if not isinstance(severity_value, str):
+                    severity_value = str(severity_value)
+                return Severity.from_string(severity_value)
+            except (ValueError, AttributeError, TypeError) as e:
+                # Log the error for debugging
+                logger.warning(f"Invalid severity value '{self.severity}' in finding {self.id}: {e}")
                 return Severity.WARNING
 
         @property
