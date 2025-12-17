@@ -37,7 +37,7 @@ from ..stream import stream_file
 from ..alerts import send_alerts
 from ..webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
 from ..version import __version__
-from ..ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
+from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
 
 # Import RAG client (optional import to avoid circular dependencies)
 try:
