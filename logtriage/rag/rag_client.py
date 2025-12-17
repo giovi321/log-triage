@@ -164,7 +164,34 @@ class RAGClient:
         return status
     
     def _reindex_repository(self, repo_id: str):
-        """Reindex a repository with incremental processing for memory efficiency."""
+        """Reindex a repository with ultra-aggressive memory management."""
+        # Import memory monitoring functions
+        import os
+        import psutil
+        
+        def get_memory_usage():
+            """Get current memory usage in GB."""
+            try:
+                process = psutil.Process(os.getpid())
+                return process.memory_info().rss / 1024**3
+            except:
+                return 0.0
+        
+        def force_cleanup():
+            """Force aggressive memory cleanup."""
+            # Multiple garbage collection passes
+            for _ in range(3):
+                import gc
+                gc.collect()
+            
+            # Clear any cached data
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+        
         # Find which module(s) this repo belongs to
         modules_for_repo = []
         for module_name, config in self.module_configs.items():
@@ -189,14 +216,25 @@ class RAGClient:
         total_chunks_processed = 0
         total_files_processed = 0
         
-        logger.info(f"Starting incremental reindex for {repo_id}")
+        memory_start = get_memory_usage()
+        logger.info(f"Starting ultra-aggressive reindex for {repo_id} (memory: {memory_start:.2f}GB)")
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
             # Process files one by one with immediate storage
-            for file_path in files:
+            for file_idx, file_path in enumerate(files):
                 try:
+                    # Monitor memory before each file
+                    if file_idx % 5 == 0:
+                        current_memory = get_memory_usage()
+                        logger.info(f"Processing file {file_idx+1}/{len(files)}: {file_path.name} (memory: {current_memory:.2f}GB)")
+                        
+                        # Force cleanup if memory is growing too much
+                        if current_memory > memory_start + 2.0:  # 2GB increase threshold
+                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing aggressive cleanup")
+                            force_cleanup()
+                    
                     logger.debug(f"Processing file: {file_path.name}")
                     
                     # Process single file
@@ -204,10 +242,18 @@ class RAGClient:
                         file_path, repo_id, repo_state.last_commit_hash
                     )
                     
+                    # Force cleanup after document processing
+                    force_cleanup()
+                    
                     if chunks:
                         # Process this file incrementally - one chunk at a time
-                        for chunk in chunks:
+                        for chunk_idx, chunk in enumerate(chunks):
                             try:
+                                # Monitor memory before each chunk
+                                if chunk_idx % 10 == 0:
+                                    chunk_memory = get_memory_usage()
+                                    logger.debug(f"Processing chunk {chunk_idx+1}/{len(chunks)} from {file_path.name} (memory: {chunk_memory:.2f}GB)")
+                                
                                 # Generate embedding for single chunk
                                 embedding = self.embedding_service.embed_texts([chunk.content])
                                 
@@ -216,35 +262,45 @@ class RAGClient:
                                     self.vector_store.add_chunks([chunk], embedding)
                                     total_chunks_processed += 1
                                     
-                                    # Aggressive cleanup after each chunk
+                                    # Ultra-aggressive cleanup after each chunk
                                     del embedding
-                                    import gc
-                                    gc.collect()
+                                    force_cleanup()
                                     
                             except Exception as e:
-                                logger.error(f"Failed to process chunk from {file_path.name}: {e}")
+                                logger.error(f"Failed to process chunk {chunk_idx} from {file_path.name}: {e}")
                                 continue
                     
                     total_files_processed += 1
                     
-                    # Force cleanup after each file
-                    import gc
-                    gc.collect()
+                    # Ultra-aggressive cleanup after each file
+                    force_cleanup()
                     
                     if total_files_processed % 10 == 0:
-                        logger.info(f"Processed {total_files_processed} files, {total_chunks_processed} chunks")
+                        current_memory = get_memory_usage()
+                        logger.info(f"Progress: {total_files_processed} files, {total_chunks_processed} chunks (memory: {current_memory:.2f}GB)")
+                        
+                        # Force cleanup if memory is growing too much
+                        if current_memory > memory_start + 2.0:
+                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing aggressive cleanup")
+                            force_cleanup()
                     
                 except Exception as e:
                     logger.error(f"Failed to process file {file_path}: {e}")
+                    # Force cleanup after error
+                    force_cleanup()
                     continue
         
-        # Mark as indexed
+        # Final cleanup and mark as indexed
+        force_cleanup()
         self.knowledge_manager.mark_indexed(repo_id)
+        
+        memory_end = get_memory_usage()
+        logger.info(f"Completed reindex for {repo_id}: {total_chunks_processed} chunks from {total_files_processed} files (memory: {memory_end:.2f}GB, delta: {memory_end - memory_start:.2f}GB)")
         
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed (incremental)",
+                "Repository reindexed (ultra-aggressive)",
                 f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files"
             )
         else:
