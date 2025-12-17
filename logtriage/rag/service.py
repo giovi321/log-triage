@@ -439,11 +439,8 @@ async def retrieve_for_finding(module_name: str, finding: FindingRequest):
             "chunk_id": chunk.chunk_id,
             "heading": chunk.heading
         } for chunk in result.chunks],
-        context=result.context,
-        citations=[{
-            "content": citation.content,
-            "source": citation.source
-        } for citation in result.citations]
+        context="",
+        citations=[]
     )
 
 @app.post("/update-knowledge")
