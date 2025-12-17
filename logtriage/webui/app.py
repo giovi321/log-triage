@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 import re
 import urllib.parse
@@ -29,6 +30,8 @@ except ImportError:
     RAGClient = None
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
+
+logger = logging.getLogger(__name__)
 from .db import (
     delete_all_findings,
     delete_findings_for_module,
@@ -365,22 +368,31 @@ def _refresh_rag_client() -> None:
     """Initialize or update the RAG client based on configuration."""
     global rag_client
     if RAGClient is None:
+        logger.info("RAGClient not available (missing dependencies)")
         return
     
     try:
+        logger.info("Initializing RAG client...")
         rag_config = build_rag_config(raw_config)
         if rag_config and rag_config.enabled:
+            logger.info(f"RAG config found and enabled: {rag_config}")
             rag_client = RAGClient(rag_config)
             # Add module configurations to RAG client
             modules = _build_modules_from_config()
+            logger.info(f"Adding {len(modules)} modules to RAG client")
             for module in modules:
                 if module.rag and module.rag.enabled:
+                    logger.info(f"Adding RAG config for module: {module.name}")
                     rag_client.add_module_config(module.name, module.rag)
             # Update knowledge base
+            logger.info("Updating RAG knowledge base...")
             rag_client.update_knowledge_base()
+            logger.info("RAG client initialization completed")
         else:
+            logger.info("RAG disabled in configuration")
             rag_client = None
     except Exception as exc:
+        logger.error(f"RAG client initialization failed: {exc}", exc_info=True)
         add_notification("error", "RAG client initialization failed", str(exc))
         rag_client = None
 
@@ -534,7 +546,11 @@ async def dashboard(request: Request):
     # Get RAG status
     rag_status = None
     if rag_client:
+        logger.info("RAG client found, getting status...")
         rag_status = rag_client.get_status()
+        logger.info(f"RAG status: {rag_status}")
+    else:
+        logger.info("RAG client not initialized")
     
     return templates.TemplateResponse(
         "dashboard.html",
