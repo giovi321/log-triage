@@ -396,9 +396,6 @@ def _refresh_rag_client() -> None:
         add_notification("error", "RAG client initialization failed", str(exc))
         rag_client = None
 
-# Initialize RAG client after function definition
-_refresh_rag_client()
-
 
 def _build_modules_from_config() -> List[ModuleConfig]:
     try:
@@ -406,6 +403,10 @@ def _build_modules_from_config() -> List[ModuleConfig]:
     except Exception as exc:
         add_notification("error", "Module configuration error", str(exc))
         return []
+
+
+# Initialize RAG client after function definition
+_refresh_rag_client()
 
 
 from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
