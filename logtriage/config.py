@@ -399,13 +399,6 @@ def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
         # Hidden advanced settings with sensible defaults
         embedding_batch_size=int(rag_cfg.get("embedding", {}).get("batch_size", 32)),
         vector_store_type=rag_cfg.get("vector_store", {}).get("type", "chroma"),
-        # Memory management settings with sensible defaults
-        max_memory_gb=float(rag_cfg.get("memory", {}).get("max_memory_gb", 3.0)),
-        warning_memory_gb=float(rag_cfg.get("memory", {}).get("warning_memory_gb", 2.0)),
-        embedding_max_memory_gb=float(rag_cfg.get("memory", {}).get("embedding_max_memory_gb", 2.5)),
-        max_files_per_repo=int(rag_cfg.get("memory", {}).get("max_files_per_repo", 5)),
-        max_chunks_per_file=int(rag_cfg.get("memory", {}).get("max_chunks_per_file", 3)),
-        max_texts_per_batch=int(rag_cfg.get("memory", {}).get("max_texts_per_batch", 10)),
     )
 
 
