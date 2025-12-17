@@ -156,7 +156,22 @@ def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
                         retry_req = urllib.request.Request(url, data=retry_data, headers=headers, method="POST")
                         try:
                             return _do_request(retry_req)
+                        except urllib.error.HTTPError as retry_exc:
+                            # If retry also fails with the same error, provide detailed debugging info
+                            if retry_exc.code == 400:
+                                retry_detail = retry_exc.read().decode("utf-8", errors="ignore") if retry_exc.fp else retry_exc.reason
+                                if "Conversation roles must alternate" in retry_detail:
+                                    roles = [m.get("role") for m in normalized if isinstance(m, dict)]
+                                    raise RuntimeError(
+                                        f"LLM provider {provider.name}: Even after normalization, conversation roles don't alternate. "
+                                        f"Original roles: {[m.get('role') for m in messages if isinstance(m, dict)]}. "
+                                        f"Normalized roles: {roles}. "
+                                        f"Provider error: {retry_detail}"
+                                    )
+                            # If retry fails with a different error, re-raise it
+                            raise
                         except Exception:
+                            # If retry fails with non-HTTP error, continue to original error handling
                             pass
 
                     roles = [m.get("role") for m in messages if isinstance(m, dict)]

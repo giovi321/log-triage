@@ -160,6 +160,22 @@ if Base is not None:
                 completion_tokens=self.llm_completion_tokens,
             )
 
+        @llm_response.setter
+        def llm_response(self, value):
+            """Set LLMResponse object by updating individual database columns."""
+            if value is None:
+                self.llm_provider = None
+                self.llm_model = None
+                self.llm_response_content = None
+                self.llm_prompt_tokens = None
+                self.llm_completion_tokens = None
+            else:
+                self.llm_provider = value.provider
+                self.llm_model = value.model
+                self.llm_response_content = value.content
+                self.llm_prompt_tokens = value.prompt_tokens
+                self.llm_completion_tokens = value.completion_tokens
+
         @property
         def excerpt_as_list(self):
             """Convert excerpt string to list for compatibility with LLM functions."""
