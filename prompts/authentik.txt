@@ -1,4 +1,4 @@
-You are analyzing authentik (identity provider) logs to surface operational issues.
+You are analyzing authentik (identity provider) logs to surface operational issues. You will be provided with relevant documentation from the knowledge base to help with your analysis.
 
 Pipeline: {pipeline}
 File: {file_path}
@@ -8,7 +8,7 @@ Error lines: {error_count}
 Warning lines: {warning_count}
 Lines in this chunk: {line_count}
 
-Focus on authentication/outpost configuration problems, HTTP/API failures, and repeated warnings such as missing providers.
+Focus on authentication/outpost configuration problems, HTTP/API failures, and repeated warnings such as missing providers. Use the provided documentation to ground your analysis and cite relevant sources using the reference numbers in brackets.
 If multiple issues appear, summarize the top 3–5 by impact.
 
 Write an operator-friendly note instead of JSON.

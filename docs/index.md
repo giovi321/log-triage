@@ -10,6 +10,7 @@
 - **Pluggable classifiers.** Swap between built-in regex or rsnapshot heuristics, or register your own (see [Classifiers](classifiers.md)).
 - **Severity-aware.** Findings are labeled `WARNING`, `ERROR`, or `CRITICAL`, and can be escalated when anomalies are detected.
 - **LLM-ready payloads.** Generate concise payloads with prompt templates, without coupling to a specific provider.
+- **RAG-enhanced analysis.** Automatically retrieve relevant documentation from knowledge bases to provide more accurate, context-aware AI responses with citations.
 - **Web dashboard.** Explore findings, edit configuration, and tune regexes in a dark-mode UI.
 - **Alerts and storage.** Send webhook or MQTT alerts, and persist findings in SQLite or Postgres for the Web UI.
 
@@ -21,12 +22,25 @@
 
 ## Installation
 
-Create a virtual environment and install the package (including the Web UI and MQTT extras):
+Create a virtual environment and install the package (including the Web UI, alerts, and RAG extras):
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
+pip install ".[webui,alerts,rag]"
+```
+
+### RAG Dependencies
+
+The `rag` extra includes dependencies for Retrieval-Augmented Generation:
+- `sentence-transformers` for document embeddings
+- `chromadb` for vector storage and semantic search
+- `GitPython` for repository cloning and management
+- `markdown` for document processing
+
+If you don't need RAG functionality, you can install without it:
+```bash
 pip install ".[webui,alerts]"
 ```
 
@@ -35,6 +49,8 @@ pip install ".[webui,alerts]"
 - Read the [Getting started](getting-started.md) guide to run your first module.
 - Explore [Configuration](configuration.md) to see how pipelines, modules, and prompts fit together.
 - Visit [Web UI](web-ui.md) to learn how to browse findings and edit the config from the dashboard.
+- Check out the [RAG Quick Start Guide](RAG-QuickStart.md) to enable AI-powered analysis with documentation context.
+- See the full [RAG documentation](RAG.md) for advanced configuration and troubleshooting.
 
 ## Security disclaimer concerning the Web UI
 

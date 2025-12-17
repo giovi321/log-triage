@@ -45,5 +45,4 @@ CLI runs honor module-level alert and LLM settings:
 ## Troubleshooting tips
 
 - Run `logtriage --help` for the full list of global and subcommand flags.
-- Use `--verbose` to print debug logging when diagnosing regex grouping or follow-mode timing.
 - If regexes seem off, open the Web UI regex lab to refine them and re-run the CLI with `--reload-on-change` enabled.

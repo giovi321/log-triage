@@ -34,19 +34,22 @@
 <div class="card">
   <h2>Knowledge Base (RAG) Status</h2>
   <div class="status-strip">
-    {% if rag_status.enabled %}
+    {% if rag_service_available and rag_service_ready %}
       <span class="status-chip ok">RAG Enabled</span>
       <span class="status-chip">Repositories: {{ rag_status.total_repositories }}</span>
       <span class="status-chip">Total chunks: {{ rag_status.vector_store_stats.total_chunks }}</span>
       <span class="status-chip">Storage: {{ rag_status.vector_store_stats.persist_directory }}</span>
+    {% elif rag_service_available and not rag_service_ready %}
+      <span class="status-chip warn">RAG Initializing</span>
+      <span class="status-chip">Please wait and refresh the page to see the real status</span>
     {% else %}
       <span class="status-chip warn">RAG Disabled</span>
+      <span class="status-chip">Service unavailable</span>
     {% endif %}
   </div>
   
-  {% if rag_status.enabled and rag_status.repositories %}
+  {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
   <div style="margin-top: 1rem;">
-    <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Repository Status</h3>
     <table style="font-size:0.85rem;">
       <thead>
         <tr>
@@ -88,7 +91,7 @@
       </tbody>
     </table>
   {% else %}
-  {% if rag_status.enabled %}
+  {% if rag_service_available and rag_service_ready %}
   <div style="margin-top: 1rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px; font-size: 0.8rem;">
     <strong>No repositories configured</strong><br>
     Add RAG knowledge sources to module configurations to enable documentation indexing.
@@ -97,6 +100,8 @@
   {% endif %}
 </div>
 {% endif %}
+
+<br>
 
 <div class="card">
   <h2>Modules</h2>

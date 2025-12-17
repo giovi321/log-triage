@@ -1,5 +1,7 @@
-You will be given an AI-generated opinion about an error detected in application logs.
-Write a brief, plain-text summary that captures what the error means and the most likely next step to fix or verify it.
+You will be given an AI-generated opinion about an error detected in application logs, along with relevant documentation from the knowledge base.
+
+Write a brief, plain-text summary that captures what the error means and the most likely next step to fix or verify it. Use the provided documentation to ground your analysis and cite relevant sources using the reference numbers in brackets.
+
 Keep it concise (2-4 sentences maximum) and avoid bullet points or heavy formatting.
 
 AI opinion:

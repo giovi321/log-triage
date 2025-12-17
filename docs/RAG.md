@@ -108,6 +108,61 @@ Use glob patterns to specify which files to include:
 - **Context Injection**: Relevant documentation is added to LLM prompts
 - **Citations**: AI responses include source references
 - **Fallback**: Gracefully handles cases with no relevant documentation
+- **RAG-Enhanced Prompts**: All built-in prompt templates have been updated to leverage RAG context
+
+## Prompt Templates and RAG Integration
+
+The prompt templates in the `prompts/` directory have been enhanced to take full advantage of RAG functionality. When RAG is enabled, the system automatically:
+
+1. **Retrieves Relevant Documentation**: For each finding, the RAG system searches the knowledge base for relevant documentation chunks
+2. **Injects Context**: Retrieved documentation is appended to the prompt after the log chunk
+3. **Enables Citations**: The LLM is instructed to use reference numbers in brackets to cite sources
+
+### Updated Prompt Templates
+
+All prompt templates now include RAG-aware instructions:
+
+- **ai_opinion_summary.txt**: Enhanced to reference documentation and include citations
+- **authentik.txt**: Added documentation grounding and citation instructions for Authentik-specific analysis
+- **homeassistant.txt**: Updated to leverage Home Assistant documentation from knowledge base
+- **nextcloud.txt**: Enhanced to use Nextcloud documentation for more accurate troubleshooting
+- **rsnapshot.txt**: Updated to reference backup documentation and best practices
+
+### How RAG Context is Added
+
+The RAG context is automatically appended to prompts in this format:
+
+```
+--- Relevant Documentation ---
+
+1. [Document Heading]
+[Document content]
+
+2. [Document Heading]
+[Document content]
+...
+```
+
+Each prompt template now instructs the LLM to:
+- Use the provided documentation to ground analysis
+- Cite relevant sources using reference numbers in brackets
+- Provide more accurate, context-aware responses
+
+### Example: Before vs After RAG
+
+**Before RAG:**
+```
+You are analyzing authentik logs...
+Focus on authentication/outpost configuration problems...
+```
+
+**After RAG:**
+```
+You are analyzing authentik logs... You will be provided with relevant documentation from the knowledge base to help with your analysis.
+Focus on authentication/outpost configuration problems... Use the provided documentation to ground your analysis and cite relevant sources using the reference numbers in brackets.
+```
+
+This ensures that when RAG is enabled, the LLM actively references the provided documentation and includes proper citations in its responses.
 
 ## Dashboard Integration
 
