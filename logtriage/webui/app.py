@@ -685,6 +685,53 @@ async def dashboard(request: Request):
     # Get RAG status from monitor
     rag_monitor_data = get_rag_monitor_status()
     
+    # Ensure we always have detailed status, even when RAG is not ready
+    if rag_monitor_data["detailed_status"] is None:
+        # Create a default detailed status when service is not available
+        rag_monitor_data["detailed_status"] = {
+            "initialization": {
+                "started": False,
+                "completed": False,
+                "updating": False,
+                "error": None,
+                "current_phase": "unavailable",
+                "progress": {
+                    "current_step": 0,
+                    "total_steps": 5,
+                    "step_description": "RAG service not available",
+                    "percentage": 0.0
+                },
+                "repository_updates": {
+                    "current_repo": None,
+                    "total_repos": 0,
+                    "completed_repos": 0,
+                    "current_progress": 0.0
+                }
+            }
+        }
+    elif rag_monitor_data["rag_available"] and not rag_monitor_data["rag_ready"]:
+        # Ensure detailed status shows initialization progress when available but not ready
+        if rag_monitor_data["detailed_status"].get("initialization") is None:
+            rag_monitor_data["detailed_status"]["initialization"] = {
+                "started": True,
+                "completed": False,
+                "updating": True,
+                "error": None,
+                "current_phase": "initializing",
+                "progress": {
+                    "current_step": 0,
+                    "total_steps": 5,
+                    "step_description": "RAG service initializing...",
+                    "percentage": 0.0
+                },
+                "repository_updates": {
+                    "current_repo": None,
+                    "total_repos": 0,
+                    "completed_repos": 0,
+                    "current_progress": 0.0
+                }
+            }
+    
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -711,12 +758,37 @@ async def get_rag_status():
     """Get RAG service status for AJAX calls."""
     monitor_data = get_rag_monitor_status()
     
+    # Ensure we always have detailed status
+    if monitor_data["detailed_status"] is None:
+        monitor_data["detailed_status"] = {
+            "initialization": {
+                "started": False,
+                "completed": False,
+                "updating": False,
+                "error": None,
+                "current_phase": "unavailable",
+                "progress": {
+                    "current_step": 0,
+                    "total_steps": 5,
+                    "step_description": "RAG service not available",
+                    "percentage": 0.0
+                },
+                "repository_updates": {
+                    "current_repo": None,
+                    "total_repos": 0,
+                    "completed_repos": 0,
+                    "current_progress": 0.0
+                }
+            }
+        }
+    
     if not monitor_data["rag_available"]:
         return {
             "enabled": False,
             "message": "RAG service unavailable",
             "service_available": False,
             "service_ready": False,
+            "detailed_status": monitor_data["detailed_status"],
             "monitor": monitor_data
         }
     
@@ -726,8 +798,8 @@ async def get_rag_status():
             "message": "RAG service initializing",
             "service_available": True,
             "service_ready": False,
-            "monitor": monitor_data,
-            "detailed_status": monitor_data["detailed_status"]
+            "detailed_status": monitor_data["detailed_status"],
+            "monitor": monitor_data
         }
     
     # RAG is ready
