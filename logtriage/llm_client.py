@@ -131,9 +131,17 @@ def analyze_findings_with_llm(
             f"in brackets.{' Include citations in your response.' if citations else ''}"
         )
 
-        chat_payload = {
-            "model": provider.model,
-            "messages": [
+        # For VLLM providers, avoid system messages as some models don't support them properly
+        # Instead, include the system instruction as part of the user message
+        if "vllm" in provider.api_base.lower():
+            messages = [
+                {
+                    "role": "user",
+                    "content": f"{system_message}\n\n{payload_text}",
+                }
+            ]
+        else:
+            messages = [
                 {
                     "role": "system",
                     "content": system_message,
@@ -142,7 +150,11 @@ def analyze_findings_with_llm(
                     "role": "user", 
                     "content": payload_text,
                 }
-            ],
+            ]
+
+        chat_payload = {
+            "model": provider.model,
+            "messages": messages,
             "temperature": provider.temperature,
             "top_p": provider.top_p,
             "max_tokens": max_tokens,
