@@ -386,26 +386,26 @@ def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
     if not rag_cfg or not rag_cfg.get("enabled", False):
         return None
     
-    memory_cfg = rag_cfg.get("memory", {})
-    
     return RAGGlobalConfig(
         enabled=True,
         cache_dir=Path(rag_cfg.get("cache_dir", "./rag_cache")),
-        embedding_model=rag_cfg.get("embedding", {}).get("model", "sentence-transformers/all-MiniLM-L6-v2"),
-        embedding_device=rag_cfg.get("embedding", {}).get("device", "cpu"),
+        vector_store_dir=Path(rag_cfg.get("vector_store_dir", "./rag_vector_store")),
+        embedding_model=rag_cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2"),
+        device=rag_cfg.get("device", "cpu"),
+        batch_size=int(rag_cfg.get("batch_size", 32)),
+        top_k=int(rag_cfg.get("top_k", 5)),
+        similarity_threshold=float(rag_cfg.get("similarity_threshold", 0.7)),
+        max_chunks=int(rag_cfg.get("max_chunks", 10)),
+        # Hidden advanced settings with sensible defaults
         embedding_batch_size=int(rag_cfg.get("embedding", {}).get("batch_size", 32)),
         vector_store_type=rag_cfg.get("vector_store", {}).get("type", "chroma"),
-        vector_store_dir=Path(rag_cfg.get("vector_store", {}).get("persist_directory", "./rag_db")),
-        retrieval_top_k=int(rag_cfg.get("retrieval", {}).get("top_k", 5)),
-        similarity_threshold=float(rag_cfg.get("retrieval", {}).get("similarity_threshold", 0.7)),
-        max_chunks=int(rag_cfg.get("retrieval", {}).get("max_chunks", 10)),
-        # Memory management settings
-        max_memory_gb=float(memory_cfg.get("max_memory_gb", 3.0)),
-        warning_memory_gb=float(memory_cfg.get("warning_memory_gb", 2.0)),
-        embedding_max_memory_gb=float(memory_cfg.get("embedding_max_memory_gb", 2.5)),
-        max_files_per_repo=int(memory_cfg.get("max_files_per_repo", 5)),
-        max_chunks_per_file=int(memory_cfg.get("max_chunks_per_file", 3)),
-        max_texts_per_batch=int(memory_cfg.get("max_texts_per_batch", 10)),
+        # Memory management settings with sensible defaults
+        max_memory_gb=float(rag_cfg.get("memory", {}).get("max_memory_gb", 3.0)),
+        warning_memory_gb=float(rag_cfg.get("memory", {}).get("warning_memory_gb", 2.0)),
+        embedding_max_memory_gb=float(rag_cfg.get("memory", {}).get("embedding_max_memory_gb", 2.5)),
+        max_files_per_repo=int(rag_cfg.get("memory", {}).get("max_files_per_repo", 5)),
+        max_chunks_per_file=int(rag_cfg.get("memory", {}).get("max_chunks_per_file", 3)),
+        max_texts_per_batch=int(rag_cfg.get("memory", {}).get("max_texts_per_batch", 10)),
     )
 
 

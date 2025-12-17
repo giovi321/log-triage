@@ -22,16 +22,13 @@ Add a `rag` section to your existing `config.yaml`:
 rag:
   enabled: true
   cache_dir: "./rag_cache"
-  vector_store:
-    persist_directory: "./rag_vector_store"
-  embedding:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
-    device: "cpu"  # or "cuda" for GPU acceleration
-    batch_size: 32
-  retrieval:
-    top_k: 5
-    similarity_threshold: 0.7
-    max_chunks: 10
+  vector_store_dir: "./rag_vector_store"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"  # or "cuda" for GPU acceleration
+  batch_size: 32
+  top_k: 5
+  similarity_threshold: 0.7
+  max_chunks: 10
 ```
 
 ### Module-Specific RAG Configuration
@@ -45,7 +42,7 @@ modules:
     pipeline: "my_pipeline"
     llm:
       enabled: true
-      provider_name: "openai"
+      provider: "openai"
     rag:
       enabled: true
       knowledge_sources:
@@ -55,17 +52,11 @@ modules:
             - "docs/**/*.md"      # All .md files in docs and subdirectories
             - "README.md"          # Specific file in root
             - "troubleshooting/*.md"  # .md files in troubleshooting directory only
-          include_extensions:
-            - ".md"
-            - ".rst"
         - repo_url: "https://github.com/myorg/troubleshooting-guide"
           branch: "main"
           include_paths:
             - "**/*.md"           # All .md files in entire repository
             - "**/*.markdown"     # All .markdown files in entire repository
-          include_extensions:
-            - ".md"
-            - ".markdown"
 ```
 
 #### include_paths
@@ -204,7 +195,6 @@ The AI logs explorer has been updated to:
 - Use GPU acceleration by setting `device: "cuda"` if available
 
 #### Memory Usage
-- Reduce `batch_size` in embedding configuration
 - Limit the number of repositories per module
 - Monitor vector store size and clean up if needed
 
@@ -215,38 +205,25 @@ The AI logs explorer has been updated to:
 Here's a complete example of RAG configuration in your existing `config.yaml`:
 
 ```yaml
-# Your existing config.yaml with RAG added
-llm:
-  enabled: true
-  default_provider: "openai"
-  providers:
-    openai:
-      name: "openai"
-      api_key: "${OPENAI_API_KEY}"
-      model: "gpt-4"
-      temperature: 0.3
-
-# Add RAG configuration
 rag:
   enabled: true
   cache_dir: "./rag_cache"
-  vector_store:
-    persist_directory: "./rag_vector_store"
-  embedding:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
-    device: "cpu"
-    batch_size: 32
-  retrieval:
-    top_k: 5
-    similarity_threshold: 0.7
-    max_chunks: 10
+  vector_store_dir: "./rag_vector_store"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"
+  batch_size: 32
+  top_k: 5
+  similarity_threshold: 0.7
+  max_chunks: 10
 
 pipelines:
   web_service:
-    name: "web_service"
-    patterns:
-      - regex: "ERROR.*Exception"
-        severity: "ERROR"
+    match:
+      filename_regex: "web.*\.log"
+    classifier:
+      type: regex_counter
+      error_regexes:
+        - "ERROR.*Exception"
 
 modules:
   web_api:
@@ -254,7 +231,7 @@ modules:
     pipeline: "web_service"
     llm:
       enabled: true
-      provider_name: "openai"
+      provider: "openai"
     rag:
       enabled: true
       knowledge_sources:

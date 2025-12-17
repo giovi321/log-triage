@@ -29,12 +29,13 @@ Add RAG configuration to your existing `config.yaml`:
 rag:
   enabled: true
   cache_dir: "./rag_cache"
-  embedding:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
-    device: "cpu"
-  retrieval:
-    top_k: 5
-    similarity_threshold: 0.7
+  vector_store_dir: "./rag_vector_store"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"
+  batch_size: 32
+  top_k: 5
+  similarity_threshold: 0.7
+  max_chunks: 10
 
 # Add rag section to existing modules
 modules:
@@ -43,7 +44,7 @@ modules:
     pipeline: "my_pipeline"
     llm:
       enabled: true
-      provider_name: "openai"
+      provider: "openai"
     rag:
       enabled: true
       knowledge_sources:
@@ -133,22 +134,17 @@ ssh-keyscan github.com >> ~/.ssh/known_hosts
 
 ```yaml
 rag:
-  embedding:
-    device: "cuda"  # If GPU available
-    batch_size: 64
-  retrieval:
-    similarity_threshold: 0.8  # Higher threshold = faster
+  device: "cuda"  # If GPU available
+  similarity_threshold: 0.8  # Higher threshold = faster
 ```
 
 ### For Better Quality
 
 ```yaml
 rag:
-  embedding:
-    model_name: "sentence-transformers/all-mpnet-base-v2"  # Better model
-  retrieval:
-    top_k: 10  # More context
-    similarity_threshold: 0.6  # Lower threshold = more results
+  embedding_model: "sentence-transformers/all-mpnet-base-v2"  # Better model
+  top_k: 10  # More context
+  similarity_threshold: 0.6  # Lower threshold = more results
 ```
 
 ## Troubleshooting
@@ -162,22 +158,20 @@ rag:
 
 ### Slow Performance?
 
-1. Reduce `batch_size` if memory limited
-2. Use smaller embedding model
-3. Increase `similarity_threshold`
-4. Consider GPU acceleration
+1. Use smaller embedding model
+2. Increase `similarity_threshold`
+3. Consider GPU acceleration
 
 ### Memory Issues?
 
-1. Reduce `batch_size` to 16 or 8
-2. Use CPU instead of GPU if limited VRAM
-3. Limit number of knowledge sources
-4. Monitor vector store size
+1. Use CPU instead of GPU if limited VRAM
+2. Limit number of knowledge sources
+3. Monitor vector store size
 
 ## Next Steps
 
 - Review full [RAG documentation](RAG.md)
-- Check [example configuration](../config.example.rag.yaml)
+- Check [example configuration](../config.example.yaml)
 - Explore advanced configuration options
 - Set up monitoring and alerts
 

@@ -80,51 +80,31 @@ rag:
   # Enable/disable RAG functionality
   enabled: true
   
-  # URL of the standalone RAG service
-  service_url: "http://127.0.0.1:8091"
-  
   # Directory for caching downloaded repositories and processed data
   cache_dir: "./rag_cache"
   
-  # Vector store configuration for storing document embeddings
-  vector_store:
-    persist_directory: "./rag_vector_store"
+  # Directory where the vector database stores embeddings and metadata
+  vector_store_dir: "./rag_vector_store"
   
-  # Embedding model configuration
-  embedding:
-    # Model to use for creating text embeddings
-    model: "sentence-transformers/all-MiniLM-L6-v2"
-    
-    # Device to run embeddings on: "cpu" or "cuda"
-    device: "cpu"
-    
-    # Batch size for processing multiple texts at once
-    # Larger batches are faster but use more memory
-    batch_size: 32
+  # Model to use for creating text embeddings
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   
-  # Retrieval configuration
-  retrieval:
-    # Maximum number of document chunks to retrieve for each query
-    top_k: 5
-    
-    # Minimum similarity score (0.0-1.0) for retrieved documents
-    # Higher values = more relevant but fewer results
-    similarity_threshold: 0.7
-    
-    # Maximum number of chunks to include in the final context
-    max_chunks: 10
+  # Device to run embeddings on: "cpu" or "cuda"
+  device: "cpu"
   
-  # Memory management settings
-  memory:
-    # Memory limits in GB to prevent system overload
-    max_memory_gb: 3.0          # Kill process if exceeds this
-    warning_memory_gb: 2.0      # Force cleanup at this level
-    embedding_max_memory_gb: 2.5 # Embedding service specific limit
-    
-    # Processing limits to control memory usage
-    max_files_per_repo: 5       # Maximum files to process per repository
-    max_chunks_per_file: 3      # Maximum chunks per file
-    max_texts_per_batch: 10     # Maximum texts per embedding batch
+  # Batch size for processing multiple texts at once
+  # Larger batches are faster but use more memory
+  batch_size: 32
+  
+  # Maximum number of document chunks to retrieve for each query
+  top_k: 5
+  
+  # Minimum similarity score (0.0-1.0) for retrieved documents
+  # Higher values = more relevant but fewer results
+  similarity_threshold: 0.7
+  
+  # Maximum number of chunks to include in the final context
+  max_chunks: 10
 
 # =============================================================================
 # PIPELINE CONFIGURATION

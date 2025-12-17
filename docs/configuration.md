@@ -251,16 +251,13 @@ RAG enhances log analysis by automatically retrieving relevant documentation fro
 rag:
   enabled: true
   cache_dir: "./rag_cache"
-  vector_store:
-    persist_directory: "./rag_vector_store"
-  embedding:
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"
-    device: "cpu"  # or "cuda" for GPU acceleration
-    batch_size: 32
-  retrieval:
-    top_k: 5
-    similarity_threshold: 0.7
-    max_chunks: 10
+  vector_store_dir: "./rag_vector_store"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"  # or "cuda" for GPU acceleration
+  batch_size: 32
+  top_k: 5
+  similarity_threshold: 0.7
+  max_chunks: 10
 ```
 
 ### Module-Level RAG Configuration
@@ -274,7 +271,7 @@ modules:
     pipeline: "my_pipeline"
     llm:
       enabled: true
-      provider_name: "openai"
+      provider: "openai"
     rag:
       enabled: true
       knowledge_sources:
