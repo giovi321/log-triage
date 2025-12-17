@@ -70,14 +70,14 @@
           <td style="font-family:monospace; font-size:0.8rem;">
             {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
           </td>
-          <td style="text-align:right; font-family:monospace;">{{ repo.chunk_count }}</td>
+          <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
           <td>
             {% if repo.needs_reindexing %}
-              <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️ Needs reindex</span>
+              <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️</span>
             {% elif repo.chunk_count == 0 %}
-              <span class="status-badge sev-ERROR" title="Repository cloned but no indexed content">❌ No chunks</span>
+              <span class="status-badge sev-ERROR" title="Repository cloned but no indexed content">❌</span>
             {% else %}
-              <span class="status-badge sev-OK" title="Repository indexed and current">✅ Up to date</span>
+              <span class="status-badge sev-OK" title="Repository indexed and current">✅</span>
             {% endif %}
           </td>
           <td style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{{ repo.local_path }}">

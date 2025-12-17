@@ -746,15 +746,26 @@ async def dashboard(request: Request):
         try:
             real_status = rag_client.get_status()
             if real_status:
+                logger.debug(f"Real RAG status received: {real_status}")
                 # Ensure vector_store_stats is properly merged
-                if "vector_store_stats" in real_status:
+                if "vector_store_stats" in real_status and real_status["vector_store_stats"]:
                     normalized_rag_status["vector_store_stats"] = real_status["vector_store_stats"]
+                else:
+                    # Service is up but returned empty stats - provide defaults
+                    normalized_rag_status["vector_store_stats"] = {
+                        "total_chunks": 0,
+                        "persist_directory": "Service running but no data"
+                    }
                 # Update other fields
                 for key, value in real_status.items():
                     if key != "vector_store_stats":
                         normalized_rag_status[key] = value
+            else:
+                logger.warning("RAG client get_status() returned None")
         except Exception as e:
             logger.warning(f"Failed to get real RAG status: {e}")
+            # Update to show service is not working
+            normalized_rag_status["vector_store_stats"]["persist_directory"] = "Service error"
     
     return templates.TemplateResponse(
         "dashboard.html",
@@ -830,12 +841,16 @@ async def get_rag_status():
     try:
         if rag_client:
             status = rag_client.get_status()
+            vector_stats = status.get("vector_store_stats", {})
+            if not vector_stats:
+                vector_stats = {"total_chunks": 0, "persist_directory": "Service running but no data"}
+            
             return {
                 "enabled": status.get("enabled", False),
                 "service_available": True,
                 "service_ready": True,
                 "total_repositories": status.get("total_repositories", 0),
-                "vector_store_stats": status.get("vector_store_stats", {}),
+                "vector_store_stats": vector_stats,
                 "repositories": status.get("repositories", []),
                 "monitor": monitor_data
             }
