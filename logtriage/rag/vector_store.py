@@ -35,25 +35,11 @@ class VectorStore:
         logger.info("FAISS vector store initialized")
     
     def _init_faiss(self):
-        """Initialize FAISS index."""
+        """Initialize FAISS index path (don't load into memory)."""
         try:
-            import faiss
+            # Just ensure the directory exists, don't load the index
+            logger.info("FAISS vector store initialized (streaming mode)")
             
-            # Load existing index or create new one
-            if self.faiss_index_path.exists():
-                logger.info("Loading existing FAISS index")
-                self.index = faiss.read_index(str(self.faiss_index_path))
-                self.embedding_dimension = self.index.d
-            else:
-                logger.info(f"Creating new FAISS index with dimension {self.embedding_dimension}")
-                # Use Inner Product (IP) for normalized embeddings
-                self.index = faiss.IndexFlatIP(self.embedding_dimension)
-            
-            logger.info(f"FAISS index ready: {self.index.ntotal} vectors")
-            
-        except ImportError:
-            logger.error("FAISS not installed. Install with: pip install faiss-cpu")
-            raise
         except Exception as e:
             logger.error(f"Failed to initialize FAISS: {e}")
             raise
@@ -90,7 +76,7 @@ class VectorStore:
             raise
     
     def add_chunks(self, chunks: List[DocumentChunk], embeddings: np.ndarray):
-        """Add document chunks with their embeddings to FAISS and SQLite."""
+        """Add document chunks with their embeddings to FAISS and SQLite with streaming approach."""
         if not chunks or embeddings.size == 0:
             logger.debug("No chunks or embeddings to add")
             return
@@ -100,14 +86,21 @@ class VectorStore:
             return
         
         try:
-            logger.debug(f"Adding {len(chunks)} chunks to FAISS vector store")
+            logger.debug(f"Adding {len(chunks)} chunks to FAISS vector store (streaming)")
+            
+            # Load existing index from disk (don't keep in memory)
+            import faiss
+            if self.faiss_index_path.exists():
+                index = faiss.read_index(str(self.faiss_index_path))
+            else:
+                index = faiss.IndexFlatIP(self.embedding_dimension)
             
             # Normalize embeddings for Inner Product similarity
             normalized_embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
             
             # Add to FAISS index
-            start_idx = self.index.ntotal
-            self.index.add(normalized_embeddings)
+            start_idx = index.ntotal
+            index.add(normalized_embeddings)
             
             # Store metadata in SQLite
             for i, chunk in enumerate(chunks):
@@ -131,15 +124,18 @@ class VectorStore:
             
             self.conn.commit()
             
-            # Save FAISS index to disk
-            import faiss
-            faiss.write_index(self.index, str(self.faiss_index_path))
+            # Save FAISS index to disk immediately
+            faiss.write_index(index, str(self.faiss_index_path))
             
-            logger.debug(f"Successfully added {len(chunks)} chunks to FAISS store")
-            
-            # Cleanup
+            # CRITICAL: Unload index from memory
+            del index
             del normalized_embeddings
-            gc.collect()
+            
+            # Aggressive cleanup
+            for _ in range(3):
+                gc.collect()
+            
+            logger.debug(f"Successfully added {len(chunks)} chunks to FAISS store (streaming)")
             
         except Exception as e:
             logger.error(f"Failed to add chunks to FAISS store: {e}", exc_info=True)
@@ -147,14 +143,22 @@ class VectorStore:
     
     def query(self, query_embedding: np.ndarray, repo_ids: Optional[List[str]] = None, 
               n_results: int = 5) -> Tuple[List[DocumentChunk], List[float]]:
-        """Query for similar documents using FAISS."""
+        """Query for similar documents using FAISS with streaming approach."""
         try:
+            # Load index from disk (don't keep in memory)
+            import faiss
+            if not self.faiss_index_path.exists():
+                logger.warning("FAISS index file not found")
+                return [], []
+            
+            index = faiss.read_index(str(self.faiss_index_path))
+            
             # Normalize query embedding
             normalized_query = query_embedding / np.linalg.norm(query_embedding)
             
             # Search FAISS index
-            search_k = min(n_results * 2, self.index.ntotal)  # Get more to filter by repo
-            scores, indices = self.index.search(normalized_query.reshape(1, -1), search_k)
+            search_k = min(n_results * 2, index.ntotal)  # Get more to filter by repo
+            scores, indices = index.search(normalized_query.reshape(1, -1), search_k)
             
             chunks = []
             distances = []
@@ -196,10 +200,17 @@ class VectorStore:
                     if len(chunks) >= n_results:
                         break
             
+            # CRITICAL: Unload index from memory
+            del index
+            
+            # Aggressive cleanup
+            for _ in range(3):
+                gc.collect()
+            
             return chunks, distances
             
         except Exception as e:
-            logger.error(f"Failed to query FAISS store: {e}")
+            logger.error(f"Failed to query FAISS store: {e}", exc_info=True)
             return [], []
     
     def delete_by_repo(self, repo_id: str):

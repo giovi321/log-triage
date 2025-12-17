@@ -237,6 +237,10 @@ class RAGClient:
                     
                     logger.debug(f"Processing file: {file_path.name}")
                     
+                    # UNLOAD MODEL to free memory before document processing
+                    self.embedding_service._unload_model()
+                    force_cleanup()
+                    
                     # Process single file
                     chunks = self.document_processor.process_file(
                         file_path, repo_id, repo_state.last_commit_hash
@@ -254,6 +258,9 @@ class RAGClient:
                                     chunk_memory = get_memory_usage()
                                     logger.debug(f"Processing chunk {chunk_idx+1}/{len(chunks)} from {file_path.name} (memory: {chunk_memory:.2f}GB)")
                                 
+                                # LOAD MODEL for single chunk processing
+                                self.embedding_service._load_model()
+                                
                                 # Generate embedding for single chunk
                                 embedding = self.embedding_service.embed_texts([chunk.content])
                                 
@@ -264,6 +271,7 @@ class RAGClient:
                                     
                                     # Ultra-aggressive cleanup after each chunk
                                     del embedding
+                                    self.embedding_service._unload_model()
                                     force_cleanup()
                                     
                             except Exception as e:
@@ -273,6 +281,7 @@ class RAGClient:
                     total_files_processed += 1
                     
                     # Ultra-aggressive cleanup after each file
+                    self.embedding_service._unload_model()
                     force_cleanup()
                     
                     if total_files_processed % 10 == 0:
@@ -287,6 +296,7 @@ class RAGClient:
                 except Exception as e:
                     logger.error(f"Failed to process file {file_path}: {e}")
                     # Force cleanup after error
+                    self.embedding_service._unload_model()
                     force_cleanup()
                     continue
         
