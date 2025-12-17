@@ -1,6 +1,9 @@
 """Embedding services with CPU and GPU optimized strategies."""
 
 import logging
+import subprocess
+import json
+import sys
 from typing import List, Optional
 import numpy as np
 import gc
@@ -29,6 +32,102 @@ def force_cleanup():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:
+        pass
+
+class SubprocessEmbeddingService:
+    """Subprocess-based embedding service for complete memory isolation."""
+    
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu"):
+        self.model_name = model_name
+        self.device = device
+        self.subprocess_script = os.path.join(os.path.dirname(__file__), "subprocess_embeddings.py")
+        
+        logger.info(f"SubprocessEmbeddingService initialized with model: {model_name}, device: {device}")
+    
+    def embed_texts_streaming(self, texts: List[str]) -> np.ndarray:
+        """Generate embeddings using subprocess isolation."""
+        if not texts:
+            logger.debug("No texts provided for embedding")
+            return np.array([])
+        
+        try:
+            memory_before = get_memory_usage()
+            logger.debug(f"Generating embeddings for {len(texts)} texts (subprocess, memory: {memory_before:.2f}GB)")
+            
+            # Process one text at a time in separate subprocesses
+            all_embeddings = []
+            
+            for i, text in enumerate(texts):
+                try:
+                    # Monitor memory before processing
+                    if i % 5 == 0:
+                        current_memory = get_memory_usage()
+                        logger.debug(f"Processing text {i+1}/{len(texts)} (memory: {current_memory:.2f}GB)")
+                    
+                    # Run embedding in subprocess for complete memory isolation
+                    result = subprocess.run([
+                        sys.executable, self.subprocess_script, 
+                        text, self.model_name, self.device
+                    ], capture_output=True, text=True, timeout=30)
+                    
+                    if result.returncode == 0:
+                        try:
+                            response = json.loads(result.stdout)
+                            if response.get("success") and "embedding" in response:
+                                embedding = np.array(response["embedding"])
+                                all_embeddings.append(embedding)
+                            else:
+                                logger.error(f"Subprocess embedding failed: {response.get('error', 'Unknown error')}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse subprocess response: {e}")
+                    else:
+                        logger.error(f"Subprocess failed with return code {result.returncode}: {result.stderr}")
+                    
+                    # Force cleanup after each subprocess
+                    force_cleanup()
+                    
+                except subprocess.TimeoutExpired:
+                    logger.error(f"Subprocess embedding timed out for text {i+1}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Failed to process text {i+1}: {e}")
+                    continue
+            
+            if all_embeddings:
+                result = np.array(all_embeddings)
+                logger.debug(f"Generated embeddings for {len(result)} texts")
+                
+                # Final cleanup
+                del all_embeddings
+                force_cleanup()
+                
+                memory_after = get_memory_usage()
+                logger.debug(f"Completed embedding generation (memory: {memory_after:.2f}GB)")
+                
+                return result
+            else:
+                logger.warning("No embeddings were generated")
+                return np.array([])
+                
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {e}")
+            return np.array([])
+    
+    def embed_single(self, text: str) -> np.ndarray:
+        """Generate embedding for a single text."""
+        try:
+            result = self.embed_texts_streaming([text])
+            return result[0] if result.size > 0 else np.array([])
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for single text: {e}")
+            return np.array([])
+    
+    def _load_model(self):
+        """No-op for subprocess service - model is loaded per subprocess."""
+        pass
+    
+    def _unload_model(self):
+        """No-op for subprocess service - model is unloaded when subprocess exits."""
         pass
 
 class CPUEmbeddingService:
@@ -274,9 +373,10 @@ class EmbeddingService:
     """Factory class that creates appropriate embedding service based on device."""
     
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", 
-                 device: str = "cpu", batch_size: int = 16):  # Reduced default batch size
+                 device: str = "cpu", batch_size: int = 16, use_subprocess: bool = True):  # Default to subprocess for memory safety
         self.device = device.lower()
         self.model_name = model_name
+        self.use_subprocess = use_subprocess
         
         if self.device == "cuda":
             # Check if CUDA is actually available
@@ -290,16 +390,21 @@ class EmbeddingService:
                 self.device = "cpu"
         
         # Create appropriate service
-        if self.device == "cuda":
+        if self.use_subprocess:
+            self.service = SubprocessEmbeddingService(model_name, self.device)
+            logger.info("Created subprocess-based embedding service for maximum memory safety")
+        elif self.device == "cuda":
             self.service = GPUEmbeddingService(model_name, batch_size)
         else:
             self.service = CPUEmbeddingService(model_name)
         
-        logger.info(f"Created {self.device}-optimized embedding service")
+        logger.info(f"Created {self.device}-optimized embedding service (subprocess={self.use_subprocess})")
     
     def embed_texts(self, texts: List[str]) -> np.ndarray:
         """Generate embeddings using the appropriate strategy."""
-        if isinstance(self.service, CPUEmbeddingService):
+        if isinstance(self.service, SubprocessEmbeddingService):
+            return self.service.embed_texts_streaming(texts)
+        elif isinstance(self.service, CPUEmbeddingService):
             return self.service.embed_texts_streaming(texts)
         else:
             return self.service.embed_texts_batched(texts)
