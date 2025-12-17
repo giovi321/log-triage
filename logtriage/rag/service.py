@@ -116,7 +116,7 @@ def initialize_rag_client(config_path: Path) -> None:
         rag_client = RAGClient(rag_config)
         
         # Build modules configuration
-        llm_defaults = None  # Not needed for RAG service
+        llm_defaults = build_llm_config(raw_config)
         modules = build_modules(raw_config, llm_defaults)
         
         # Add module configurations to RAG client
