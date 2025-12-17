@@ -42,7 +42,7 @@ class RAGClient:
         self.retrieval_engine = RetrievalEngine(
             embedding_service=self.embedding_service,
             vector_store=self.vector_store,
-            top_k=global_config.retrieval_top_k,
+            top_k=global_config.top_k,
             similarity_threshold=global_config.similarity_threshold,
             max_chunks=global_config.max_chunks
         )
