@@ -307,3 +307,13 @@ class EmbeddingService:
     def embed_single(self, text: str) -> np.ndarray:
         """Generate embedding for a single text."""
         return self.service.embed_single(text)
+    
+    def _load_model(self):
+        """Load model on the underlying service."""
+        if hasattr(self.service, '_load_model'):
+            self.service._load_model()
+    
+    def _unload_model(self):
+        """Unload model on the underlying service."""
+        if hasattr(self.service, '_unload_model'):
+            self.service._unload_model()
