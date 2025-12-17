@@ -21,7 +21,7 @@ setup(
     install_requires=[
         "pyyaml>=6.0",
         "sentence-transformers>=2.2.0",
-        "chromadb>=0.4.0",
+        "faiss-cpu>=1.7.0",
         "GitPython>=3.1.0",
         "markdown>=3.4.0",
     ],
