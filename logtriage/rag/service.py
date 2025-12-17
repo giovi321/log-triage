@@ -136,7 +136,29 @@ def background_initialize_rag_client(config_path: Path) -> None:
             
             logger.info(f"Memory check: {memory_gb:.2f}GB ({memory_percent:.1f}%)")
             
-            if memory_gb > 4:  # Lower threshold for aggressive monitoring
+            if memory_gb > 2.0:  # Ultra-aggressive threshold
+                logger.error(f"CRITICAL memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%) - KILLING PROCESS")
+                
+                # Force aggressive cleanup
+                gc.collect()
+                
+                # Try to clear SentenceTransformer cache if it exists
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logger.info("Cleared CUDA cache")
+                except ImportError:
+                    pass
+                
+                # Kill the process to prevent OOM
+                import os
+                import signal
+                logger.error("Terminating process to prevent OOM kill")
+                os.kill(os.getpid(), signal.SIGTERM)
+                return False
+            
+            elif memory_gb > 1.5:  # Warning threshold
                 logger.warning(f"High memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%)")
                 
                 # Force aggressive cleanup
@@ -155,14 +177,13 @@ def background_initialize_rag_client(config_path: Path) -> None:
                 memory_gb_after = process.memory_info().rss / 1024**3
                 logger.warning(f"Memory after cleanup: {memory_gb_after:.2f}GB")
                 
-                if memory_gb_after > 6:  # Critical threshold
-                    logger.error(f"CRITICAL memory usage: {memory_gb_after:.2f}GB - stopping")
-                    with init_lock:
-                        initialization_status["error"] = f"Memory limit exceeded: {memory_gb_after:.2f}GB"
-                        initialization_status["updating"] = False
-                        initialization_status["current_phase"] = "error"
-                        initialization_status["progress"]["step_description"] = f"Memory limit exceeded: {memory_gb_after:.2f}GB"
+                if memory_gb_after > 2.0:  # Critical threshold
+                    logger.error(f"CRITICAL memory usage: {memory_gb_after:.2f}GB - KILLING PROCESS")
+                    import os
+                    import signal
+                    os.kill(os.getpid(), signal.SIGTERM)
                     return False
+            
             return True
         except Exception as e:
             logger.warning(f"Failed to check memory usage: {e}")

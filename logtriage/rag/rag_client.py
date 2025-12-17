@@ -187,12 +187,22 @@ class RAGClient:
         self.vector_store.delete_by_repo(repo_id)
         
         # Ultra-aggressive limits to prevent any memory issues
-        max_total_chunks = 100  # Reduced from 1000
-        max_files_to_process = 20  # Process only 20 files total
+        max_total_chunks = 20  # Reduced from 100
+        max_files_to_process = 5  # Process only 5 files total
         total_chunks_processed = 0
         total_files_processed = 0
         
         logger.info(f"Starting ultra-memory-efficient reindex for {repo_id}")
+        
+        # Check memory before starting
+        try:
+            import psutil
+            memory_gb = psutil.Process().memory_info().rss / 1024**3
+            if memory_gb > 2.0:
+                logger.warning(f"High memory usage before reindex: {memory_gb:.2f}GB - aborting")
+                return
+        except:
+            pass
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
@@ -208,16 +218,26 @@ class RAGClient:
                     logger.warning(f"Reached chunk limit ({max_total_chunks}), stopping reindex")
                     break
                 
+                # Check memory before each file
+                try:
+                    import psutil
+                    memory_gb = psutil.Process().memory_info().rss / 1024**3
+                    if memory_gb > 2.5:
+                        logger.warning(f"Memory threshold reached ({memory_gb:.2f}GB), stopping reindex")
+                        break
+                except:
+                    pass
+                
                 try:
                     # Process single file
                     chunks = self.document_processor.process_file(
                         file_path, repo_id, repo_state.last_commit_hash
                     )
                     
-                    # Aggressive chunk limiting per file
-                    if len(chunks) > 10:  # Max 10 chunks per file
-                        logger.warning(f"Too many chunks in {file_path.name} ({len(chunks)}), limiting to 10")
-                        chunks = chunks[:10]
+                    # Ultra-aggressive chunk limiting per file
+                    if len(chunks) > 3:  # Max 3 chunks per file
+                        logger.warning(f"Too many chunks in {file_path.name} ({len(chunks)}), limiting to 3")
+                        chunks = chunks[:3]
                     
                     if chunks:
                         # Process this file immediately
@@ -237,16 +257,6 @@ class RAGClient:
                     
                     total_files_processed += 1
                     
-                    # Check memory after each file
-                    try:
-                        import psutil
-                        memory_gb = psutil.Process().memory_info().rss / 1024**3
-                        if memory_gb > 3:  # Very low threshold
-                            logger.warning(f"Memory threshold reached ({memory_gb:.2f}GB), stopping reindex")
-                            break
-                    except:
-                        pass
-                    
                 except Exception as e:
                     logger.error(f"Failed to process file {file_path}: {e}")
                     continue
@@ -257,7 +267,7 @@ class RAGClient:
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed (memory-limited)",
+                "Repository reindexed (ultra memory-limited)",
                 f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files (ultra memory-efficient mode)"
             )
         else:
