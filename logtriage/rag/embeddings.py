@@ -37,45 +37,48 @@ def force_cleanup():
 class SubprocessEmbeddingService:
     """Subprocess-based embedding service for complete memory isolation."""
     
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu"):
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu", batch_size: int = 4):
         self.model_name = model_name
         self.device = device
+        self.batch_size = batch_size
         self.subprocess_script = os.path.join(os.path.dirname(__file__), "subprocess_embeddings.py")
         
-        logger.info(f"SubprocessEmbeddingService initialized with model: {model_name}, device: {device}")
+        logger.info(f"SubprocessEmbeddingService initialized: model={model_name}, device={device}, batch_size={batch_size}")
     
     def embed_texts_streaming(self, texts: List[str]) -> np.ndarray:
-        """Generate embeddings using subprocess isolation."""
+        """Generate embeddings using subprocess isolation with batch processing."""
         if not texts:
             logger.debug("No texts provided for embedding")
             return np.array([])
         
         try:
             memory_before = get_memory_usage()
-            logger.debug(f"Generating embeddings for {len(texts)} texts (subprocess, memory: {memory_before:.2f}GB)")
+            logger.debug(f"Generating embeddings for {len(texts)} texts (subprocess batched, memory: {memory_before:.2f}GB)")
             
-            # Process one text at a time in separate subprocesses
+            # Process in batches using subprocesses
             all_embeddings = []
             
-            for i, text in enumerate(texts):
+            for i in range(0, len(texts), self.batch_size):
+                batch_texts = texts[i:i + self.batch_size]
+                
                 try:
                     # Monitor memory before processing
-                    if i % 5 == 0:
+                    if i % (self.batch_size * 2) == 0:
                         current_memory = get_memory_usage()
-                        logger.debug(f"Processing text {i+1}/{len(texts)} (memory: {current_memory:.2f}GB)")
+                        logger.debug(f"Processing batch {i//self.batch_size + 1} (memory: {current_memory:.2f}GB)")
                     
-                    # Run embedding in subprocess for complete memory isolation
+                    # Run batch embedding in subprocess
                     result = subprocess.run([
                         sys.executable, self.subprocess_script, 
-                        text, self.model_name, self.device
-                    ], capture_output=True, text=True, timeout=30)
+                        json.dumps(batch_texts), self.model_name, self.device, str(self.batch_size)
+                    ], capture_output=True, text=True, timeout=60)
                     
                     if result.returncode == 0:
                         try:
                             response = json.loads(result.stdout)
-                            if response.get("success") and "embedding" in response:
-                                embedding = np.array(response["embedding"])
-                                all_embeddings.append(embedding)
+                            if response.get("success") and "embeddings" in response:
+                                batch_embeddings = [np.array(emb) for emb in response["embeddings"]]
+                                all_embeddings.extend(batch_embeddings)
                             else:
                                 logger.error(f"Subprocess embedding failed: {response.get('error', 'Unknown error')}")
                         except json.JSONDecodeError as e:
@@ -87,10 +90,10 @@ class SubprocessEmbeddingService:
                     force_cleanup()
                     
                 except subprocess.TimeoutExpired:
-                    logger.error(f"Subprocess embedding timed out for text {i+1}")
+                    logger.error(f"Subprocess embedding timed out for batch {i//self.batch_size + 1}")
                     continue
                 except Exception as e:
-                    logger.error(f"Failed to process text {i+1}: {e}")
+                    logger.error(f"Failed to process batch {i//self.batch_size + 1}: {e}")
                     continue
             
             if all_embeddings:
@@ -102,7 +105,7 @@ class SubprocessEmbeddingService:
                 force_cleanup()
                 
                 memory_after = get_memory_usage()
-                logger.debug(f"Completed embedding generation (memory: {memory_after:.2f}GB)")
+                logger.debug(f"Completed batched subprocess embedding (memory: {memory_after:.2f}GB)")
                 
                 return result
             else:
@@ -528,8 +531,8 @@ class EmbeddingService:
     """Factory class that creates appropriate embedding service based on device."""
     
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", 
-                 device: str = "cpu", batch_size: int = 16, use_subprocess: bool = False, 
-                 memory_limit_gb: float = 6.0):  # Default to balanced approach
+                 device: str = "cpu", batch_size: int = 16, use_subprocess: bool = True, 
+                 memory_limit_gb: float = 6.0):  # Default to subprocess for memory safety
         self.device = device.lower()
         self.model_name = model_name
         self.use_subprocess = use_subprocess
@@ -546,15 +549,13 @@ class EmbeddingService:
                 logger.warning("PyTorch not available, falling back to CPU")
                 self.device = "cpu"
         
-        # Create appropriate service
-        if self.use_subprocess:
-            self.service = SubprocessEmbeddingService(model_name, self.device)
-            logger.info("Created subprocess-based embedding service for maximum memory safety")
-        elif memory_limit_gb < 3.0:
-            # Low memory limit - use subprocess
-            self.service = SubprocessEmbeddingService(model_name, self.device)
-            logger.info("Created subprocess service for low memory configuration")
-        elif memory_limit_gb > 10.0:
+        # Create appropriate service - default to subprocess for memory safety
+        if self.use_subprocess or memory_limit_gb < 10.0:
+            # Use subprocess with appropriate batch size
+            subprocess_batch_size = min(batch_size, 8)  # Limit batch size for subprocess efficiency
+            self.service = SubprocessEmbeddingService(model_name, self.device, subprocess_batch_size)
+            logger.info(f"Created subprocess embedding service (batch_size={subprocess_batch_size}) for memory safety")
+        elif memory_limit_gb > 15.0:
             # High memory limit - use standard GPU/CPU service
             if self.device == "cuda":
                 self.service = GPUEmbeddingService(model_name, batch_size)
@@ -562,9 +563,10 @@ class EmbeddingService:
                 self.service = CPUEmbeddingService(model_name)
             logger.info("Created standard embedding service for high memory configuration")
         else:
-            # Balanced approach
-            self.service = HybridEmbeddingService(model_name, self.device, batch_size, memory_limit_gb)
-            logger.info(f"Created hybrid embedding service (memory_limit: {memory_limit_gb}GB)")
+            # Medium memory limit - still use subprocess to be safe
+            subprocess_batch_size = min(batch_size, 6)
+            self.service = SubprocessEmbeddingService(model_name, self.device, subprocess_batch_size)
+            logger.info(f"Created subprocess embedding service (batch_size={subprocess_batch_size}) for medium memory configuration")
         
         logger.info(f"Created {self.device}-optimized embedding service (subprocess={self.use_subprocess}, memory_limit={memory_limit_gb}GB)")
     
