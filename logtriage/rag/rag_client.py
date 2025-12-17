@@ -189,11 +189,11 @@ class RAGClient:
         # Process all relevant sources
         all_chunks = []
         for module_name, source in modules_for_repo:
-            files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths, source.include_extensions)
+            files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
             for file_path in files:
                 chunks = self.document_processor.process_file(
-                    file_path, repo_id, repo_state.last_commit_hash, source.include_extensions
+                    file_path, repo_id, repo_state.last_commit_hash
                 )
                 all_chunks.extend(chunks)
         

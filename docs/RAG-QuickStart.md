@@ -52,12 +52,9 @@ modules:
           include_paths:
             - "docs/**/*.md"      # All .md files in docs and subdirectories
             - "README.md"          # Specific file in root
-          include_extensions:
-            - ".md"
-            - ".rst"
 ```
 
-### Understanding include_paths and include_extensions
+### Understanding include_paths
 
 #### include_paths (Glob Patterns)
 Use glob patterns to specify which files to include:
@@ -65,12 +62,10 @@ Use glob patterns to specify which files to include:
 - `"README.md"` - Specific file in repository root  
 - `"troubleshooting/*.md"` - .md files in troubleshooting directory only
 - `"**/*.md"` - All .md files in entire repository
+- `"docs/**/*.rst"` - All .rst files in docs and subdirectories
+- `"source/**/*.markdown"` - All .markdown files in source directory
 
-#### include_extensions (File Types)
-Specify which file extensions to process:
-- Default: `[".md", ".rst", ".txt"]`
-- Can include custom extensions like `[".markdown"]`
-- Extensions are checked after glob matching
+**Note**: File extensions are specified directly in the glob patterns. No separate include_extensions field is needed.
 
 ### 3. Restart log-triage
 

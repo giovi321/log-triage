@@ -178,17 +178,11 @@ modules:
         include_paths:
           - "docs/**/*.md"
           - "docs/**/*.rst"
-        include_extensions:
-          - ".md"
-          - ".rst"
       - repo_url: "https://github.com/home-assistant/home-assistant.io"
         branch: "current"
         include_paths:
           - "source/**/*.md"
           - "source/**/*.markdown"
-        include_extensions:
-          - ".md"
-          - ".markdown"
   alerts:
     mqtt:
       enabled: false

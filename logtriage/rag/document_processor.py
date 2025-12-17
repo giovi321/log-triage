@@ -14,21 +14,12 @@ logger = logging.getLogger(__name__)
 class DocumentProcessor:
     """Processes documentation files into indexed chunks."""
     
-    def __init__(self, target_chunk_size: int = 400, overlap_ratio: float = 0.1, 
-                 allowed_extensions: List[str] = None):
+    def __init__(self, target_chunk_size: int = 400, overlap_ratio: float = 0.1):
         self.target_chunk_size = target_chunk_size
         self.overlap_size = int(target_chunk_size * overlap_ratio)
-        self.allowed_extensions = set(ext.lower() for ext in (allowed_extensions or ['.md', '.rst', '.txt']))
     
-    def process_file(self, file_path: Path, repo_id: str, commit_hash: str, 
-                     allowed_extensions: List[str] = None) -> List[DocumentChunk]:
+    def process_file(self, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
         """Process a single documentation file into chunks."""
-        extensions_to_check = set(ext.lower() for ext in (allowed_extensions or list(self.allowed_extensions)))
-        
-        if file_path.suffix.lower() not in extensions_to_check:
-            logger.debug(f"Skipping file with unsupported extension: {file_path}")
-            return []
-        
         try:
             logger.debug(f"Processing file: {file_path}")
             content = file_path.read_text(encoding='utf-8')
@@ -148,7 +139,8 @@ class DocumentProcessor:
         """Create document chunks, splitting if too large."""
         # If content is small enough, create single chunk
         if len(content.split()) <= self.target_chunk_size * 1.5:
-            chunk_id = f"{repo_id}:{file_path.relative_to(Path.cwd())}:{hash(content) % 10000}"
+            # Use file_path.name instead of relative_to to avoid path issues
+            chunk_id = f"{repo_id}:{file_path.name}:{hash(content) % 10000}"
             return [DocumentChunk(
                 chunk_id=chunk_id,
                 repo_id=repo_id,
@@ -174,7 +166,8 @@ class DocumentProcessor:
             end_idx = min(start_idx + self.target_chunk_size, len(words))
             chunk_content = ' '.join(words[start_idx:end_idx])
             
-            chunk_id = f"{repo_id}:{file_path.relative_to(Path.cwd())}:{hash(chunk_content) % 10000}_{chunk_num}"
+            # Use file_path.name instead of relative_to to avoid path issues
+            chunk_id = f"{repo_id}:{file_path.name}:{hash(chunk_content) % 10000}_{chunk_num}"
             chunk_heading = f"{heading} (part {chunk_num + 1})" if chunk_num > 0 else heading
             
             chunks.append(DocumentChunk(

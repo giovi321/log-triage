@@ -76,13 +76,9 @@ Use glob patterns to specify which files to include:
 - `"troubleshooting/*.md"` - .md files in troubleshooting directory only
 - `"**/*.md"` - All .md files in entire repository
 - `"docs/**/*.rst"` - All .rst files in docs and subdirectories
+- `"source/**/*.markdown"` - All .markdown files in source directory and subdirectories
 
-#### include_extensions
-
-Specify which file extensions to process:
-- Default: `[".md", ".rst", ".txt"]`
-- Can include custom extensions like `[".markdown"]`
-- Extensions are checked after glob matching
+**Note**: File extensions are specified directly in the glob patterns. No separate include_extensions field is needed.
 
 ## Features
 
@@ -91,7 +87,7 @@ Specify which file extensions to process:
 - **Automatic Cloning**: Repositories are cloned to a local cache directory
 - **Incremental Updates**: Only reindexes when commits change
 - **Security**: Git hooks are disabled for security
-- **File Filtering**: Processes files based on configurable include_paths (glob patterns) and include_extensions
+- **File Filtering**: Processes files based on configurable include_paths (glob patterns)
 
 ### Document Processing
 
