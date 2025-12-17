@@ -34,7 +34,21 @@ initialization_status = {
     "completed": False,
     "error": None,
     "updating": False,
-    "last_update": None
+    "last_update": None,
+    "current_phase": "starting",  # "starting", "loading_config", "initializing_client", "adding_modules", "updating_knowledge", "completed", "error"
+    "progress": {
+        "current_step": 0,
+        "total_steps": 5,
+        "step_description": "Starting...",
+        "percentage": 0.0
+    },
+    "repository_updates": {
+        "current_repo": None,
+        "total_repos": 0,
+        "completed_repos": 0,
+        "current_progress": 0.0,
+        "repo_details": {}
+    }
 }
 init_lock = threading.Lock()
 
@@ -105,8 +119,25 @@ def configure_logging_from_config(cfg: dict) -> None:
             print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
 
 def background_initialize_rag_client(config_path: Path) -> None:
-    """Background thread to initialize the RAG client."""
+    """Background thread to initialize the RAG client with detailed progress tracking."""
     global rag_client, llm_defaults, modules, initialization_status
+    
+    def update_progress(phase: str, step: int, total: int, description: str):
+        """Update progress information."""
+        with init_lock:
+            initialization_status["current_phase"] = phase
+            initialization_status["progress"]["current_step"] = step
+            initialization_status["progress"]["total_steps"] = total
+            initialization_status["progress"]["step_description"] = description
+            initialization_status["progress"]["percentage"] = (step / total) * 100 if total > 0 else 0
+    
+    def update_repo_progress(repo_name: str, completed: int, total: int, repo_progress: float):
+        """Update repository progress information."""
+        with init_lock:
+            initialization_status["repository_updates"]["current_repo"] = repo_name
+            initialization_status["repository_updates"]["completed_repos"] = completed
+            initialization_status["repository_updates"]["total_repos"] = total
+            initialization_status["repository_updates"]["current_progress"] = repo_progress
     
     with init_lock:
         initialization_status["started"] = True
@@ -115,6 +146,8 @@ def background_initialize_rag_client(config_path: Path) -> None:
         initialization_status["updating"] = True
     
     try:
+        # Phase 1: Loading configuration
+        update_progress("loading_config", 1, 5, "Loading configuration...")
         logger.info(f"Loading configuration from {config_path}")
         raw_config = load_config(config_path)
         
@@ -125,25 +158,56 @@ def background_initialize_rag_client(config_path: Path) -> None:
             with init_lock:
                 initialization_status["completed"] = True
                 initialization_status["updating"] = False
+                update_progress("completed", 5, 5, "RAG disabled")
             return
         
+        # Phase 2: Initializing RAG client
+        update_progress("initializing_client", 2, 5, "Initializing RAG client...")
         logger.info("Initializing RAG client...")
         rag_client = RAGClient(rag_config)
         
-        # Build modules configuration
+        # Phase 3: Building modules
+        update_progress("adding_modules", 3, 5, "Building module configurations...")
         llm_defaults = build_llm_config(raw_config)
         modules = build_modules(raw_config, llm_defaults)
         
-        # Add module configurations to RAG client
-        logger.info(f"Adding {len(modules)} modules to RAG client")
-        for module in modules:
+        # Count RAG-enabled modules for progress tracking
+        rag_modules = [m for m in modules if m.rag and m.rag.enabled]
+        total_repos = sum(len(m.rag.knowledge_sources) for m in rag_modules)
+        
+        with init_lock:
+            initialization_status["repository_updates"]["total_repos"] = total_repos
+        
+        # Phase 4: Adding module configurations
+        update_progress("adding_modules", 4, 5, f"Adding {len(rag_modules)} modules to RAG client...")
+        completed_repos = 0
+        for i, module in enumerate(rag_modules):
             if module.rag and module.rag.enabled:
                 logger.info(f"Adding RAG config for module: {module.name}")
                 rag_client.add_module_config(module.name, module.rag)
+                
+                # Update progress for each knowledge source
+                for source in module.rag.knowledge_sources:
+                    completed_repos += 1
+                    repo_progress = (completed_repos / total_repos) * 100 if total_repos > 0 else 0
+                    update_repo_progress(
+                        f"{module.name}:{source.repo_url.split('/')[-1]}",
+                        completed_repos,
+                        total_repos,
+                        repo_progress
+                    )
         
-        # Update knowledge base - this is the heavy operation
+        # Phase 5: Updating knowledge base
+        update_progress("updating_knowledge", 5, 5, "Updating knowledge base...")
         logger.info("Updating RAG knowledge base...")
+        
+        # Simulate progress during knowledge base update (this is the heavy operation)
+        update_repo_progress("Knowledge base indexing", completed_repos, total_repos + 1, 0.0)
         rag_client.update_knowledge_base()
+        update_repo_progress("Knowledge base indexing", completed_repos, total_repos + 1, 100.0)
+        
+        # Mark as completed
+        update_progress("completed", 5, 5, "RAG service ready")
         logger.info("RAG service initialization completed")
         
         with init_lock:
@@ -156,7 +220,8 @@ def background_initialize_rag_client(config_path: Path) -> None:
         with init_lock:
             initialization_status["error"] = str(exc)
             initialization_status["updating"] = False
-        # Don't set rag_client = None here - we might have a partially initialized client
+            initialization_status["current_phase"] = "error"
+            initialization_status["progress"]["step_description"] = f"Error: {str(exc)}"
 
 def initialize_rag_client(config_path: Path) -> None:
     """Initialize the RAG client from configuration in background thread."""
@@ -193,7 +258,7 @@ async def startup_event():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint - always responds quickly."""
+    """Health check endpoint - always responds quickly with detailed status."""
     with init_lock:
         return {
             "status": "healthy", 
@@ -202,7 +267,10 @@ async def health_check():
                 "started": initialization_status["started"],
                 "completed": initialization_status["completed"],
                 "updating": initialization_status["updating"],
-                "error": initialization_status["error"]
+                "error": initialization_status["error"],
+                "current_phase": initialization_status["current_phase"],
+                "progress": initialization_status["progress"].copy(),
+                "repository_updates": initialization_status["repository_updates"].copy()
             }
         }
 
