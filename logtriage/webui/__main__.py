@@ -14,18 +14,8 @@ if importlib.util.find_spec("uvicorn") is None:
 import uvicorn
 
 from .app import app, settings
-
-
-def configure_webui_logging():
-    """Configure basic logging for the WebUI."""
-    # Basic configuration that can be overridden by config.yaml later
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True
-    )
-    logger = logging.getLogger(__name__)
-    logger.info("WebUI logging configured")
+from ..config import load_config
+from ..cli import configure_logging
 
 
 def main():
@@ -35,9 +25,22 @@ def main():
     from the settings. This provides the dashboard interface for
     viewing findings and managing configuration.
     """
-    # Configure logging before importing app
-    configure_webui_logging()
-    logger = logging.getLogger(__name__)
+    # Load configuration and set up logging
+    config_path = Path(os.environ.get("LOGTRIAGE_CONFIG", "./config.yaml"))
+    try:
+        cfg = load_config(config_path)
+        configure_logging(cfg)
+        logger = logging.getLogger(__name__)
+        logger.info(f"WebUI logging configured from {config_path}")
+    except Exception as e:
+        # Fallback to basic logging if config fails
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+            force=True
+        )
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to load config from {config_path}, using default logging: {e}")
     
     host = settings.host
     port = settings.port
