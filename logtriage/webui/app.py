@@ -82,6 +82,7 @@ from .db import (
     setup_database,
     get_recent_findings_for_module,
     update_finding_llm_data,
+    update_finding_llm_error,
     update_finding_severity,
     store_finding,
 )
@@ -1374,6 +1375,7 @@ async def api_log_lines(
                         "rule_id": getattr(finding, "rule_id", None),
                         "created_at": _format_local_timestamp(getattr(finding, "created_at", None)),
                         "llm_response_content": getattr(finding, "llm_response_content", None),
+                        "llm_error": getattr(finding, "llm_error", None),
                         "llm_provider": getattr(finding, "llm_provider", None),
                         "llm_model": getattr(finding, "llm_model", None),
                     }
@@ -1491,6 +1493,16 @@ async def llm_query_finding(
             )
             # Update the original finding object with the response for the return value
             finding.llm_response = compatible_finding.llm_response
+        else:
+            llm_error = getattr(compatible_finding, "llm_error", None)
+            if llm_error:
+                update_finding_llm_error(
+                    finding.id,
+                    error=str(llm_error),
+                    provider=provider_config.name,
+                    model=provider_config.model,
+                )
+                setattr(finding, "llm_error", str(llm_error))
         
         # Return the LLM response
         if finding.llm_response:
@@ -1505,6 +1517,9 @@ async def llm_query_finding(
                 "citations": finding.llm_response.citations,
             }
             return JSONResponse(response_data)
+        llm_error = getattr(finding, "llm_error", None)
+        if llm_error:
+            return JSONResponse({"error": str(llm_error)}, status_code=502)
         else:
             return JSONResponse({"error": "No LLM response generated"}, status_code=500)
             

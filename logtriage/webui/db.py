@@ -66,6 +66,7 @@ def _ensure_llm_columns(engine):
         ("llm_provider", "VARCHAR(128)"),
         ("llm_model", "VARCHAR(128)"),
         ("llm_response_content", "TEXT"),
+        ("llm_error", "TEXT"),
         ("llm_prompt_tokens", "INTEGER"),
         ("llm_completion_tokens", "INTEGER"),
     ]
@@ -100,6 +101,7 @@ if Base is not None:
         llm_provider = Column(String(128), nullable=True)
         llm_model = Column(String(128), nullable=True)
         llm_response_content = Column(Text, nullable=True)
+        llm_error = Column(Text, nullable=True)
         llm_prompt_tokens = Column(Integer, nullable=True)
         llm_completion_tokens = Column(Integer, nullable=True)
         created_at = Column(
@@ -233,6 +235,42 @@ def get_next_finding_index(module_name: str) -> int:
         sess.close()
 
 
+def update_finding_llm_error(
+    finding_id: int,
+    *,
+    error: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> bool:
+    sess = get_session()
+    if sess is None:
+        return False
+
+    try:
+        updated = (
+            sess.query(FindingRecord)
+            .filter(FindingRecord.id == finding_id)
+            .update(
+                {
+                    "llm_provider": provider,
+                    "llm_model": model,
+                    "llm_response_content": None,
+                    "llm_error": error,
+                    "llm_prompt_tokens": None,
+                    "llm_completion_tokens": None,
+                },
+                synchronize_session=False,
+            )
+        )
+        sess.commit()
+        return bool(updated)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
 def _normalize_created_at(value: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
     if value is None:
         return None
@@ -248,6 +286,7 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         return
 
     llm_response = getattr(finding, "llm_response", None)
+    llm_error = getattr(finding, "llm_error", None)
     created_at = _normalize_created_at(getattr(finding, "created_at", None))
 
     # Check for duplicate finding to prevent re-inserting the same issue
@@ -290,6 +329,7 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         llm_provider=getattr(llm_response, "provider", None),
         llm_model=getattr(llm_response, "model", None),
         llm_response_content=getattr(llm_response, "content", None),
+        llm_error=str(llm_error) if llm_error else None,
         llm_prompt_tokens=getattr(llm_response, "prompt_tokens", None),
         llm_completion_tokens=getattr(llm_response, "completion_tokens", None),
     )
@@ -640,6 +680,7 @@ def update_finding_llm_data(
                     "llm_provider": provider,
                     "llm_model": model,
                     "llm_response_content": content,
+                    "llm_error": None,
                     "llm_prompt_tokens": prompt_tokens,
                     "llm_completion_tokens": completion_tokens,
                 },

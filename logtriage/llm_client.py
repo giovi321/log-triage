@@ -242,6 +242,7 @@ def analyze_findings_with_llm(
         try:
             response_data = _call_chat_completion(provider, chat_payload)
         except Exception as exc:
+            setattr(f, "llm_error", f"{provider.name}: {exc}")
             add_notification(
                 "error",
                 "LLM call failed",

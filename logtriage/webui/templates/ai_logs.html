@@ -259,6 +259,7 @@
                               {% set response_content = response_obj.content if response_obj else line_finding|attr('llm_response_content') %}
                               {% set response_provider = response_obj.provider if response_obj else line_finding|attr('llm_provider') %}
                               {% set response_model = response_obj.model if response_obj else line_finding|attr('llm_model') %}
+                              {% set response_error = line_finding|attr('llm_error') %}
                               {% if response_content %}
                                 <div class="finding-response" style="margin-top:0.5rem;" data-finding-summary="true" data-finding-id="{{ line_finding.id }}">
                                   {% if response_provider or response_model %}
@@ -266,6 +267,11 @@
                                   {% endif %}
                                   <div class="llm-body" style="max-height:120px;">{{ response_content }}</div>
                                   <div class="recorded-summary muted" data-summary-for="{{ line_finding.id }}" style="display:none;"></div>
+                                </div>
+                              {% elif response_error %}
+                                <div class="finding-response" style="margin-top:0.5rem; border-left:3px solid #b94a4a;" data-finding-summary="true" data-finding-id="{{ line_finding.id }}">
+                                  <div class="helper-text" style="margin:0;">AI error</div>
+                                  <div class="llm-body" style="max-height:120px;">{{ response_error }}</div>
                                 </div>
                               {% endif %}
                             </div>
@@ -421,25 +427,31 @@
   <input type="hidden" name="regex_value">
 </form>
 
+<script type="application/json" id="provider-settings-json">{{ provider_settings|tojson }}</script>
+<script type="application/json" id="module-prompt-template-json">{{ module_prompt_template|tojson }}</script>
+<script type="application/json" id="summary-prompt-template-json">{{ summary_prompt_template|tojson }}</script>
+<script type="application/json" id="regex-presets-json">{{ regex_presets|tojson }}</script>
+<script type="application/json" id="pagination-state-json">{{ {
+  'currentModule': (current_module.name if current_module else ''),
+  'sampleSource': sample_source,
+  'currentOffset': (sample_lines|length),
+  'startLine': sample_start_line,
+  'totalLines': total_lines,
+  'hasMore': (true if sample_start_line > 1 else false)
+}|tojson }}</script>
+
 <script>
   /* eslint-disable */
-  const providerSettings = {{ provider_settings|tojson }};
-  const modulePromptTemplate = {{ module_prompt_template|tojson }};
-  const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
-  const regexPresets = {{ regex_presets|tojson }};
-  {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
+  const providerSettings = JSON.parse((document.getElementById('provider-settings-json') || {}).textContent || '{}');
+  const modulePromptTemplate = JSON.parse((document.getElementById('module-prompt-template-json') || {}).textContent || 'null');
+  const summaryPromptTemplate = JSON.parse((document.getElementById('summary-prompt-template-json') || {}).textContent || 'null');
+  const regexPresets = JSON.parse((document.getElementById('regex-presets-json') || {}).textContent || '{}');
+  const SUMMARY_PLACEHOLDER = '{{' + 'AI_OPINION' + '}}';
   const recordedSummaries = {};
 
   // Pagination state
-  const paginationState = {
-    currentModule: {{ (current_module.name if current_module else '')|tojson }},
-    sampleSource: {{ sample_source|tojson }},
-    currentOffset: {{ sample_lines|length }},
-    startLine: {{ sample_start_line }},
-    totalLines: {{ total_lines }},
-    hasMore: {{ 'true' if sample_start_line > 1 else 'false' }},
-    loading: false
-  };
+  const paginationStateInit = JSON.parse((document.getElementById('pagination-state-json') || {}).textContent || '{}');
+  const paginationState = Object.assign({ loading: false }, paginationStateInit || {});
 
   let lastLLMData = null;
   let activeFalsePositiveForm = null;
@@ -634,6 +646,13 @@
           ${finding.llm_provider || finding.llm_model ? `<div class="helper-text" style="margin:0;">AI opinion: ${finding.llm_provider || 'Unknown provider'}${finding.llm_model ? ` · ${finding.llm_model}` : ''}</div>` : ''}
           <div class="llm-body" style="max-height:120px;">${escapeHtml(finding.llm_response_content)}</div>
           <div class="recorded-summary muted" data-summary-for="${finding.id}" style="display:none;"></div>
+        </div>
+      `;
+    } else if (finding.llm_error) {
+      html += `
+        <div class="finding-response" style="margin-top:0.5rem; border-left:3px solid #b94a4a;" data-finding-summary="true" data-finding-id="${finding.id}">
+          <div class="helper-text" style="margin:0;">AI error</div>
+          <div class="llm-body" style="max-height:120px;">${escapeHtml(finding.llm_error)}</div>
         </div>
       `;
     }
@@ -1043,12 +1062,14 @@
 
     try {
       /* eslint-disable */
-      const resp = await fetch('{{ url_for('llm_query_finding') }}', { method: 'POST', body: formData });
+      const resp = await fetch('{{ url_for("llm_query_finding") }}', { method: 'POST', body: formData });
       /* eslint-enable */
       const responseData = await resp.json();
       
       if (!resp.ok) {
-        if (status) status.textContent = `Error: ${responseData.error || 'Unknown error'}`;
+        const errMsg = responseData.error || 'Unknown error';
+        if (status) status.textContent = `Error: ${errMsg}`;
+        if (respBox) respBox.textContent = errMsg;
         return;
       }
 
@@ -1380,7 +1401,7 @@
 
     try {
       /* eslint-disable */
-      const resp = await fetch('{{ url_for('record_finding_opinion') }}', { method: 'POST', body: payload });
+      const resp = await fetch('{{ url_for("record_finding_opinion") }}', { method: 'POST', body: payload });
       /* eslint-enable */
       const dataResp = await resp.json();
       if (!resp.ok) {
