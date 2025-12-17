@@ -131,9 +131,11 @@ def background_initialize_rag_client(config_path: Path) -> None:
             memory_info = process.memory_info()
             memory_gb = memory_info.rss / 1024**3
             
-            # Use configurable memory limits
-            max_memory_gb = rag_config.get('memory', {}).get('max_memory_gb', 3.0)
-            warning_memory_gb = rag_config.get('memory', {}).get('warning_memory_gb', 2.0)
+            # Use configurable memory limits from raw config
+            raw_config = load_config(config_path)
+            memory_config = raw_config.get("rag", {}).get("memory", {})
+            max_memory_gb = memory_config.get("max_memory_gb", 3.0)
+            warning_memory_gb = memory_config.get("warning_memory_gb", 2.0)
             
             # Detailed memory breakdown
             memory_percent = process.memory_percent()
