@@ -185,6 +185,13 @@ class RAGGlobalConfig:
     retrieval_top_k: int
     similarity_threshold: float
     max_chunks: int
+    # Memory management settings
+    max_memory_gb: float = 3.0
+    warning_memory_gb: float = 2.0
+    embedding_max_memory_gb: float = 2.5
+    max_files_per_repo: int = 5
+    max_chunks_per_file: int = 3
+    max_texts_per_batch: int = 10
 
 
 @dataclasses.dataclass

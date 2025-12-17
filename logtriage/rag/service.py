@@ -121,8 +121,8 @@ def configure_logging_from_config(cfg: dict) -> None:
             print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
 
 def background_initialize_rag_client(config_path: Path) -> None:
-    """Background thread to initialize the RAG client with detailed progress tracking."""
-    global rag_client, llm_defaults, modules, initialization_status
+    """Background thread to initialize the RAG client with configurable memory management."""
+    global rag_client, llm_defaults, modules, initialization_status, rag_config
     
     def check_memory_usage():
         """Check memory usage and force cleanup if needed."""
@@ -131,13 +131,17 @@ def background_initialize_rag_client(config_path: Path) -> None:
             memory_info = process.memory_info()
             memory_gb = memory_info.rss / 1024**3
             
+            # Use configurable memory limits
+            max_memory_gb = rag_config.get('memory', {}).get('max_memory_gb', 3.0)
+            warning_memory_gb = rag_config.get('memory', {}).get('warning_memory_gb', 2.0)
+            
             # Detailed memory breakdown
             memory_percent = process.memory_percent()
             
-            logger.info(f"Memory check: {memory_gb:.2f}GB ({memory_percent:.1f}%)")
+            logger.info(f"Memory check: {memory_gb:.2f}GB ({memory_percent:.1f}%) - limits: warning={warning_memory_gb}GB, max={max_memory_gb}GB")
             
-            if memory_gb > 2.0:  # Ultra-aggressive threshold
-                logger.error(f"CRITICAL memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%) - KILLING PROCESS")
+            if memory_gb > max_memory_gb:
+                logger.error(f"CRITICAL memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%) exceeds limit {max_memory_gb}GB - KILLING PROCESS")
                 
                 # Force aggressive cleanup
                 gc.collect()
@@ -158,8 +162,8 @@ def background_initialize_rag_client(config_path: Path) -> None:
                 os.kill(os.getpid(), signal.SIGTERM)
                 return False
             
-            elif memory_gb > 1.5:  # Warning threshold
-                logger.warning(f"High memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%)")
+            elif memory_gb > warning_memory_gb:
+                logger.warning(f"High memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%) exceeds warning threshold {warning_memory_gb}GB")
                 
                 # Force aggressive cleanup
                 gc.collect()
@@ -177,8 +181,8 @@ def background_initialize_rag_client(config_path: Path) -> None:
                 memory_gb_after = process.memory_info().rss / 1024**3
                 logger.warning(f"Memory after cleanup: {memory_gb_after:.2f}GB")
                 
-                if memory_gb_after > 2.0:  # Critical threshold
-                    logger.error(f"CRITICAL memory usage: {memory_gb_after:.2f}GB - KILLING PROCESS")
+                if memory_gb_after > max_memory_gb:
+                    logger.error(f"CRITICAL memory usage: {memory_gb_after:.2f}GB exceeds limit {max_memory_gb}GB - KILLING PROCESS")
                     import os
                     import signal
                     os.kill(os.getpid(), signal.SIGTERM)

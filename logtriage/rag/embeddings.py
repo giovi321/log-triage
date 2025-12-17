@@ -11,19 +11,21 @@ import gc
 logger = logging.getLogger(__name__)
 
 class EmbeddingService:
-    """Provides embedding generation with aggressive memory limits."""
+    """Provides embedding generation with configurable memory limits."""
     
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", 
-                 device: str = "cpu", batch_size: int = 2):  # Ultra-small batch
+                 device: str = "cpu", batch_size: int = 2, memory_config: dict = None):  # Ultra-small batch
         self.model_name = model_name
         self.device = device
         self.batch_size = batch_size
         self.model: Optional = None
         self._model_loaded = False
         
-        # Hard memory limits
-        self.max_memory_gb = 3.0  # Kill process if exceeds this
-        self.warning_memory_gb = 2.0  # Warning at this level
+        # Memory configuration with defaults
+        memory_config = memory_config or {}
+        self.max_memory_gb = memory_config.get('embedding_max_memory_gb', 2.5)
+        self.warning_memory_gb = memory_config.get('warning_memory_gb', 2.0)
+        self.max_texts_per_batch = memory_config.get('max_texts_per_batch', 10)
         
         logger.info(f"EmbeddingService initialized with max memory limit: {self.max_memory_gb}GB")
         
@@ -110,13 +112,13 @@ class EmbeddingService:
             gc.collect()
     
     def embed_texts(self, texts: List[str]) -> np.ndarray:
-        """Generate embeddings with ultra-aggressive memory management."""
+        """Generate embeddings with configurable memory management."""
         if not texts:
             logger.debug("No texts provided for embedding")
             return np.array([])
         
-        # Ultra-aggressive text limit
-        max_texts = 10  # Reduced from 100
+        # Use configurable text limit
+        max_texts = self.max_texts_per_batch
         if len(texts) > max_texts:
             logger.warning(f"Too many texts ({len(texts)}), limiting to {max_texts}")
             texts = texts[:max_texts]

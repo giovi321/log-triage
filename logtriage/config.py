@@ -390,6 +390,8 @@ def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
     if not rag_cfg or not rag_cfg.get("enabled", False):
         return None
     
+    memory_cfg = rag_cfg.get("memory", {})
+    
     return RAGGlobalConfig(
         enabled=True,
         cache_dir=Path(rag_cfg.get("cache_dir", "./rag_cache")),
@@ -401,6 +403,13 @@ def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
         retrieval_top_k=int(rag_cfg.get("retrieval", {}).get("top_k", 5)),
         similarity_threshold=float(rag_cfg.get("retrieval", {}).get("similarity_threshold", 0.7)),
         max_chunks=int(rag_cfg.get("retrieval", {}).get("max_chunks", 10)),
+        # Memory management settings
+        max_memory_gb=float(memory_cfg.get("max_memory_gb", 3.0)),
+        warning_memory_gb=float(memory_cfg.get("warning_memory_gb", 2.0)),
+        embedding_max_memory_gb=float(memory_cfg.get("embedding_max_memory_gb", 2.5)),
+        max_files_per_repo=int(memory_cfg.get("max_files_per_repo", 5)),
+        max_chunks_per_file=int(memory_cfg.get("max_chunks_per_file", 3)),
+        max_texts_per_batch=int(memory_cfg.get("max_texts_per_batch", 10)),
     )
 
 

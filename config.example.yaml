@@ -38,6 +38,17 @@ rag:
     top_k: 5
     similarity_threshold: 0.7
     max_chunks: 10
+  memory:
+    # Memory management settings (in GB)
+    max_memory_gb: 3.0      # Kill process if exceeds this
+    warning_memory_gb: 2.0  # Force cleanup at this level
+    embedding_max_memory_gb: 2.5  # Embedding service specific limit
+    # Processing limits to control memory usage
+    max_files_per_repo: 5   # Maximum files to process per repository
+    max_chunks_per_file: 3  # Maximum chunks per file
+    max_texts_per_batch: 10 # Maximum texts per embedding batch
+    # Batch sizes (smaller = less memory, slower)
+    embedding_batch_size: 2 # Batch size for embedding generation
 
 pipelines:
 - name: rsnapshot
