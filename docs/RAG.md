@@ -16,7 +16,7 @@ The RAG system enhances log-triage by:
 
 ### Global RAG Settings
 
-Add a `rag` section to your `config.yaml`:
+Add a `rag` section to your existing `config.yaml`:
 
 ```yaml
 rag:
@@ -36,7 +36,7 @@ rag:
 
 ### Module-Specific RAG Configuration
 
-Add RAG configuration to individual modules:
+Add RAG configuration to individual modules in your existing `config.yaml`:
 
 ```yaml
 modules:
@@ -54,6 +54,7 @@ modules:
           include_paths:
             - "docs/*.md"
             - "README.md"
+            - "troubleshooting/*.md"
         - repo_url: "https://github.com/myorg/troubleshooting-guide"
           branch: "main"
           include_paths:
@@ -135,43 +136,59 @@ The AI logs explorer has been updated to:
 
 ## Advanced Configuration
 
-### Custom Embedding Models
+### Complete Example
+
+Here's a complete example of RAG configuration in your existing `config.yaml`:
 
 ```yaml
+# Your existing config.yaml with RAG added
+llm:
+  enabled: true
+  default_provider: "openai"
+  providers:
+    openai:
+      name: "openai"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4"
+      temperature: 0.3
+
+# Add RAG configuration
 rag:
+  enabled: true
+  cache_dir: "./rag_cache"
+  vector_store:
+    persist_directory: "./rag_vector_store"
   embedding:
-    model_name: "sentence-transformers/all-mpnet-base-v2"  # Better quality
-    device: "cuda"
-    batch_size: 16  # Smaller for GPU memory
-```
-
-### Fine-tuned Retrieval
-
-```yaml
-rag:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    device: "cpu"
+    batch_size: 32
   retrieval:
-    top_k: 10  # More candidates
-    similarity_threshold: 0.6  # Lower threshold
-    max_chunks: 15  # More context
-```
+    top_k: 5
+    similarity_threshold: 0.7
+    max_chunks: 10
 
-### Multiple Knowledge Sources
+pipelines:
+  web_service:
+    name: "web_service"
+    patterns:
+      - regex: "ERROR.*Exception"
+        severity: "ERROR"
 
-```yaml
 modules:
-  complex_service:
+  web_api:
+    path: "/var/log/web_api"
+    pipeline: "web_service"
+    llm:
+      enabled: true
+      provider_name: "openai"
     rag:
       enabled: true
       knowledge_sources:
-        - repo_url: "https://github.com/myorg/api-docs"
+        - repo_url: "https://github.com/myorg/web-service-docs"
           branch: "main"
-          include_paths: ["api/*.md"]
-        - repo_url: "https://github.com/myorg/user-guide"
-          branch: "main"
-          include_paths: ["user-guide/*.md"]
-        - repo_url: "https://github.com/myorg/internal-docs"
-          branch: "main"
-          include_paths: ["internal/*.md", "troubleshooting/*.md"]
+          include_paths:
+            - "docs/*.md"
+            - "README.md"
 ```
 
 ## API Integration
@@ -263,7 +280,7 @@ logging:
 
 If upgrading from a version without RAG:
 
-1. Add RAG configuration to `config.yaml`
+1. Add RAG configuration to your existing `config.yaml` (see examples above)
 2. Install new dependencies: `pip install -e .`
 3. Restart log-triage
 4. Monitor dashboard for initial indexing

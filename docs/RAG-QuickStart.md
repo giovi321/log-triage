@@ -20,18 +20,23 @@ pip install sentence-transformers chromadb GitPython markdown
 pip install -e .[rag]
 ```
 
-### 2. Basic Configuration
+### 2. Add RAG to Existing config.yaml
 
-Add this minimal RAG configuration to your `config.yaml`:
+Add RAG configuration to your existing `config.yaml`:
 
 ```yaml
+# Add this section to your existing config.yaml
 rag:
   enabled: true
   cache_dir: "./rag_cache"
   embedding:
     model_name: "sentence-transformers/all-MiniLM-L6-v2"
     device: "cpu"
+  retrieval:
+    top_k: 5
+    similarity_threshold: 0.7
 
+# Add rag section to existing modules
 modules:
   my_service:
     path: "/var/log/my_service"
@@ -46,7 +51,7 @@ modules:
           branch: "main"
 ```
 
-### 3. Start log-triage
+### 3. Restart log-triage
 
 ```bash
 python -m logtriage.webui
