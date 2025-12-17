@@ -131,7 +131,6 @@ class GlobalLLMConfig:
     for LLM payload generation across all modules.
     """
     enabled: bool
-    min_severity: Severity
     default_provider: Optional[str]
     providers: Dict[str, LLMProviderConfig]
     context_prefix_lines: int = 0

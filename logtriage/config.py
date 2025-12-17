@@ -152,9 +152,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
     defaults = cfg.get("defaults", {}) or {}
 
     enabled = bool(llm_cfg.get("enabled", defaults.get("llm_enabled", False)))
-    min_severity = Severity.from_string(
-        llm_cfg.get("min_severity", defaults.get("llm_min_severity", "WARNING"))
-    )
     default_provider = llm_cfg.get("default_provider")
 
     base_max_excerpt_lines = int(
@@ -204,7 +201,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
 
     return GlobalLLMConfig(
         enabled=enabled,
-        min_severity=min_severity,
         default_provider=default_provider,
         providers=providers,
         context_prefix_lines=base_context_prefix_lines,

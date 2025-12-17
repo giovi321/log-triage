@@ -1,6 +1,5 @@
 llm:
   enabled: true
-  min_severity: WARNING
   default_provider: local_vllm
   summary_prompt_path: ./prompts/ai_opinion_summary.txt
   providers:
@@ -177,6 +176,7 @@ modules:
   stale_after_minutes: 60
   llm:
     enabled: true
+    min_severity: WARNING
     provider: local_vllm
     prompt_template: ./prompts/homeassistant.txt
     emit_llm_payloads_dir: ./ha_llm_payloads
@@ -257,6 +257,7 @@ modules:
   llm:
     provider: local_vllm
     enabled: true
+    min_severity: WARNING
     prompt_template: ./prompts/apache2.txt
     emit_llm_payloads_dir: ./apache_llm_payloads
     context_prefix_lines: 2

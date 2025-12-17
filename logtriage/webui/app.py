@@ -484,7 +484,6 @@ def _refresh_llm_defaults() -> None:
         add_notification("error", "LLM defaults error", str(exc))
         llm_defaults = GlobalLLMConfig(
             enabled=False,
-            min_severity=Severity.ERROR,
             providers={},
             default_provider=None,
             context_prefix_lines=0,
@@ -1444,6 +1443,8 @@ async def llm_query_finding(
             enabled=True,
             provider_name=provider,
             emit_llm_payloads_dir=None,
+            min_severity=Severity.WARNING,  # Use lowest severity for manual requests
+            max_excerpt_lines=provider_config.max_excerpt_lines,  # Use provider's setting
         )
         
         # Analyze finding with LLM (including RAG context)
