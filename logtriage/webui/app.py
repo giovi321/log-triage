@@ -746,7 +746,13 @@ async def dashboard(request: Request):
         try:
             real_status = rag_client.get_status()
             if real_status:
-                normalized_rag_status.update(real_status)
+                # Ensure vector_store_stats is properly merged
+                if "vector_store_stats" in real_status:
+                    normalized_rag_status["vector_store_stats"] = real_status["vector_store_stats"]
+                # Update other fields
+                for key, value in real_status.items():
+                    if key != "vector_store_stats":
+                        normalized_rag_status[key] = value
         except Exception as e:
             logger.warning(f"Failed to get real RAG status: {e}")
     
