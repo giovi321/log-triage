@@ -164,7 +164,7 @@ class RAGClient:
         return status
     
     def _reindex_repository(self, repo_id: str):
-        """Reindex a repository."""
+        """Reindex a repository with ultra-aggressive memory management."""
         # Find which module(s) this repo belongs to
         modules_for_repo = []
         for module_name, config in self.module_configs.items():
@@ -186,63 +186,79 @@ class RAGClient:
         # Delete old chunks for this repo
         self.vector_store.delete_by_repo(repo_id)
         
-        # Process all relevant sources with memory limits
-        max_total_chunks = 1000  # Global limit to prevent OOM
+        # Ultra-aggressive limits to prevent any memory issues
+        max_total_chunks = 100  # Reduced from 1000
+        max_files_to_process = 20  # Process only 20 files total
         total_chunks_processed = 0
+        total_files_processed = 0
+        
+        logger.info(f"Starting ultra-memory-efficient reindex for {repo_id}")
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
-            # Process files in smaller batches to control memory
-            batch_size = 50  # Process 50 files at a time
-            for i in range(0, len(files), batch_size):
+            # Limit total files processed
+            if total_files_processed >= max_files_to_process:
+                logger.warning(f"Reached file limit ({max_files_to_process}), stopping reindex")
+                break
+            
+            # Process files one by one to minimize memory
+            for file_path in files[:max_files_to_process - total_files_processed]:
                 if total_chunks_processed >= max_total_chunks:
-                    logger.warning(f"Reached maximum chunk limit ({max_total_chunks}), stopping reindex")
+                    logger.warning(f"Reached chunk limit ({max_total_chunks}), stopping reindex")
                     break
                 
-                batch_files = files[i:i+batch_size]
-                batch_chunks = []
-                
-                for file_path in batch_files:
+                try:
+                    # Process single file
                     chunks = self.document_processor.process_file(
                         file_path, repo_id, repo_state.last_commit_hash
                     )
                     
-                    # Limit chunks per file to prevent memory blowup
-                    if len(chunks) > 100:
-                        logger.warning(f"Too many chunks in {file_path} ({len(chunks)}), limiting to 100")
-                        chunks = chunks[:100]
+                    # Aggressive chunk limiting per file
+                    if len(chunks) > 10:  # Max 10 chunks per file
+                        logger.warning(f"Too many chunks in {file_path.name} ({len(chunks)}), limiting to 10")
+                        chunks = chunks[:10]
                     
-                    batch_chunks.extend(chunks)
-                
-                if batch_chunks:
-                    # Check if we would exceed the limit
-                    if total_chunks_processed + len(batch_chunks) > max_total_chunks:
-                        remaining = max_total_chunks - total_chunks_processed
-                        batch_chunks = batch_chunks[:remaining]
-                        logger.warning(f"Truncating batch to stay within memory limits")
-                    
-                    # Generate embeddings for this batch
-                    texts = [chunk.content for chunk in batch_chunks]
-                    embeddings = self.embedding_service.embed_texts(texts)
-                    
-                    if embeddings.size > 0:
-                        # Add to vector store
-                        self.vector_store.add_chunks(batch_chunks, embeddings)
-                        total_chunks_processed += len(batch_chunks)
+                    if chunks:
+                        # Process this file immediately
+                        texts = [chunk.content for chunk in chunks]
+                        embeddings = self.embedding_service.embed_texts(texts)
                         
-                        # Mark as indexed
-                        self.knowledge_manager.mark_indexed(repo_id)
+                        if embeddings.size > 0:
+                            # Add to vector store right away
+                            self.vector_store.add_chunks(chunks, embeddings)
+                            total_chunks_processed += len(chunks)
+                            
+                            # Force cleanup after each file
+                            import gc
+                            gc.collect()
+                            
+                            logger.debug(f"Processed {file_path.name}: {len(chunks)} chunks, total: {total_chunks_processed}")
                     
-                    # Force garbage collection after each batch
-                    import gc
-                    gc.collect()
+                    total_files_processed += 1
                     
-                    logger.debug(f"Processed batch: {len(batch_chunks)} chunks, total: {total_chunks_processed}")
+                    # Check memory after each file
+                    try:
+                        import psutil
+                        memory_gb = psutil.Process().memory_info().rss / 1024**3
+                        if memory_gb > 3:  # Very low threshold
+                            logger.warning(f"Memory threshold reached ({memory_gb:.2f}GB), stopping reindex")
+                            break
+                    except:
+                        pass
+                    
+                except Exception as e:
+                    logger.error(f"Failed to process file {file_path}: {e}")
+                    continue
+        
+        # Mark as indexed even if truncated
+        self.knowledge_manager.mark_indexed(repo_id)
         
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed",
-                f"Repository {repo_id}: {total_chunks_processed} chunks indexed (limited to prevent OOM)"
+                "Repository reindexed (memory-limited)",
+                f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files (ultra memory-efficient mode)"
             )
+        else:
+            logger.warning(f"No chunks processed for repository {repo_id}")

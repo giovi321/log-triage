@@ -128,23 +128,40 @@ def background_initialize_rag_client(config_path: Path) -> None:
         """Check memory usage and force cleanup if needed."""
         try:
             process = psutil.Process()
-            memory_gb = process.memory_info().rss / 1024**3
+            memory_info = process.memory_info()
+            memory_gb = memory_info.rss / 1024**3
             
-            if memory_gb > 8:  # 8GB threshold
-                logger.warning(f"High memory usage detected: {memory_gb:.1f}GB, forcing cleanup")
-                gc.collect()  # Force garbage collection
+            # Detailed memory breakdown
+            memory_percent = process.memory_percent()
+            
+            logger.info(f"Memory check: {memory_gb:.2f}GB ({memory_percent:.1f}%)")
+            
+            if memory_gb > 4:  # Lower threshold for aggressive monitoring
+                logger.warning(f"High memory usage: {memory_gb:.2f}GB ({memory_percent:.1f}%)")
                 
-                # Check again after cleanup
+                # Force aggressive cleanup
+                gc.collect()
+                
+                # Try to clear SentenceTransformer cache if it exists
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logger.info("Cleared CUDA cache")
+                except ImportError:
+                    pass
+                
+                # Check memory after cleanup
                 memory_gb_after = process.memory_info().rss / 1024**3
-                logger.info(f"Memory after cleanup: {memory_gb_after:.1f}GB")
+                logger.warning(f"Memory after cleanup: {memory_gb_after:.2f}GB")
                 
-                if memory_gb_after > 10:  # Critical threshold
-                    logger.error(f"Critical memory usage: {memory_gb_after:.1f}GB, stopping initialization")
+                if memory_gb_after > 6:  # Critical threshold
+                    logger.error(f"CRITICAL memory usage: {memory_gb_after:.2f}GB - stopping")
                     with init_lock:
-                        initialization_status["error"] = f"Memory limit exceeded: {memory_gb_after:.1f}GB"
+                        initialization_status["error"] = f"Memory limit exceeded: {memory_gb_after:.2f}GB"
                         initialization_status["updating"] = False
                         initialization_status["current_phase"] = "error"
-                        initialization_status["progress"]["step_description"] = f"Memory limit exceeded: {memory_gb_after:.1f}GB"
+                        initialization_status["progress"]["step_description"] = f"Memory limit exceeded: {memory_gb_after:.2f}GB"
                     return False
             return True
         except Exception as e:
