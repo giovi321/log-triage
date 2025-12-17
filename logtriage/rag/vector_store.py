@@ -24,13 +24,13 @@ class VectorStore:
         self.faiss_index_path = self.persist_directory / "faiss_index.bin"
         self.metadata_db_path = self.persist_directory / "metadata.db"
         
+        # Memory limits and embedding dimension
+        self.max_chunks_in_memory = 1000  # FAISS can handle more
+        self.embedding_dimension = 384  # Default for MiniLM
+        
         # Initialize FAISS and SQLite
         self._init_faiss()
         self._init_sqlite()
-        
-        # Memory limits
-        self.max_chunks_in_memory = 1000  # FAISS can handle more
-        self.embedding_dimension = 384  # Default for MiniLM
         
         logger.info("FAISS vector store initialized")
     
