@@ -19,12 +19,17 @@ try:
     from fastapi.templating import Jinja2Templates
     from fastapi.staticfiles import StaticFiles
     from fastapi.security import HTTPBasic, HTTPBasicCredentials
-    from fastapi.middleware import SessionMiddleware
+    try:
+        from fastapi.middleware import SessionMiddleware
+    except ImportError:
+        # Fallback for older FastAPI versions
+        from starlette.middleware.sessions import SessionMiddleware
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
     from starlette.responses import PlainTextResponse
-except ImportError:
-    print("FastAPI dependencies are missing. Install with: pip install fastapi uvicorn jinja2 python-multipart", file=sys.stderr)
+except ImportError as e:
+    print(f"FastAPI dependencies are missing. Error: {e}", file=sys.stderr)
+    print("Install with: pip install fastapi uvicorn jinja2 python-multipart", file=sys.stderr)
     sys.exit(1)
 
 # Import LogTriage components
