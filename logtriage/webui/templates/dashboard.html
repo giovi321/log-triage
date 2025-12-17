@@ -90,6 +90,7 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
   {% else %}
   {% if rag_service_available and rag_service_ready %}
   <div style="margin-top: 1rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px; font-size: 0.8rem;">
@@ -103,7 +104,7 @@
 
 <br>
 
-<div class="card" style="margin-top: 2rem;">
+<div class="card">
   <h2>Modules</h2>
   <p class="helper-text">Live view of configured modules with last log updates and their severities.</p>
   {% if modules %}
