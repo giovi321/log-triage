@@ -16,7 +16,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from ..config import load_config, build_rag_config, build_modules
+from ..config import load_config, build_rag_config, build_modules, build_llm_config
 from ..models import GlobalLLMConfig, ModuleConfig
 from ..notifications import add_notification, list_notifications
 from .rag_client import RAGClient
