@@ -7,7 +7,7 @@ from threading import Event
 from typing import Dict, List, Optional
 
 from .models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig
-from .config import build_llm_config, build_modules, build_pipelines, load_config
+from .config import build_llm_config, build_modules, build_pipelines, load_config, build_rag_config
 from .engine import analyze_path
 from .llm_client import analyze_findings_with_llm
 from .llm_payload import write_llm_payloads, should_send_to_llm
@@ -16,6 +16,12 @@ from .stream import stream_file
 from .alerts import send_alerts
 from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
 from .version import __version__
+
+# Import RAG service client (optional import to avoid circular dependencies)
+try:
+    from .rag.service_client import create_rag_client
+except ImportError:
+    create_rag_client = None
 
 
 def configure_logging(cfg: Dict) -> None:
@@ -186,6 +192,21 @@ def run_module_batch(
         List of findings discovered during processing
     """
     pipeline_map: Dict[str, PipelineConfig] = {p.name: p for p in pipelines}
+    
+    # Create RAG client if available
+    rag_client = None
+    if create_rag_client is not None:
+        try:
+            # Load config to get RAG settings
+            cfg = load_config(mod.config_path if hasattr(mod, 'config_path') else Path("./config.yaml"))
+            rag_config = build_rag_config(cfg)
+            if rag_config and rag_config.enabled:
+                rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
+                rag_client = create_rag_client(rag_service_url, fallback=True)
+                logger.info(f"RAG service client configured for module {mod.name}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize RAG service client for {mod.name}: {e}")
+    
     findings = analyze_path(
         mod.path,
         pipelines,
@@ -194,6 +215,8 @@ def run_module_batch(
         context_prefix_lines=mod.llm.context_prefix_lines,
         context_suffix_lines=mod.llm.context_suffix_lines,
         pipeline_override=mod.pipeline_name,
+        rag_client=rag_client,
+        module_name=mod.name,
     )
 
     # Ensure continuous finding_index assignment across the entire module
@@ -208,7 +231,7 @@ def run_module_batch(
     for f in findings:
         f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
 
-    analyze_findings_with_llm(findings, llm_defaults, mod.llm)
+    analyze_findings_with_llm(findings, llm_defaults, mod.llm, rag_client=rag_client, module_name=mod.name)
 
     for f in findings:
         if mod.alert_mqtt or mod.alert_webhook:

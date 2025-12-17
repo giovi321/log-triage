@@ -43,6 +43,11 @@
    logtriage-webui
    ```
    Visit `http://127.0.0.1:8090` to review findings, adjust severity, or mark false positives.
+5. **Start RAG service (optional, for improved performance):**
+   ```bash
+   logtriage-rag --config ./config.yaml
+   ```
+   The RAG service runs on port 8091 and provides documentation retrieval capabilities. When running, WebUI and CLI will automatically use it for better performance.
 
 ## Documentation
 

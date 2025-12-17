@@ -26,8 +26,10 @@ from ..notifications import add_notification, list_notifications, notification_s
 # Import RAG client (optional import to avoid circular dependencies)
 try:
     from ..rag import RAGClient
+    from ..rag.service_client import create_rag_client
 except ImportError:
     RAGClient = None
+    create_rag_client = None
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 
@@ -367,33 +369,76 @@ def _refresh_llm_defaults() -> None:
 def _refresh_rag_client() -> None:
     """Initialize or update the RAG client based on configuration."""
     global rag_client
+    
+    # Try to use RAG service client first
+    if create_rag_client is not None:
+        try:
+            logger.info("Initializing RAG service client...")
+            rag_config = build_rag_config(raw_config)
+            if rag_config and rag_config.enabled:
+                logger.info(f"RAG config found and enabled, using service client")
+                # Get RAG service URL from config or use default
+                rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
+                rag_client = create_rag_client(rag_service_url, fallback=True)
+                
+                if rag_client.is_healthy():
+                    logger.info("RAG service client is healthy")
+                    # Add module configurations to RAG client
+                    modules = _build_modules_from_config()
+                    logger.info(f"Adding {len(modules)} modules to RAG service")
+                    for module in modules:
+                        if module.rag and module.rag.enabled:
+                            logger.info(f"Adding RAG config for module: {module.name}")
+                            rag_client.add_module_config(module.name, module.rag)
+                    # Update knowledge base
+                    logger.info("Updating RAG service knowledge base...")
+                    rag_client.update_knowledge_base()
+                    logger.info("RAG service client initialization completed")
+                else:
+                    logger.warning("RAG service is not healthy, falling back to local client")
+                    rag_client = None
+                    _fallback_to_local_rag()
+            else:
+                logger.info("RAG disabled in configuration")
+                rag_client = None
+        except Exception as exc:
+            logger.error(f"RAG service client initialization failed: {exc}", exc_info=True)
+            add_notification("error", "RAG service client initialization failed", str(exc))
+            rag_client = None
+            _fallback_to_local_rag()
+    else:
+        _fallback_to_local_rag()
+
+def _fallback_to_local_rag() -> None:
+    """Fallback to local RAG client if service client is not available."""
+    global rag_client
     if RAGClient is None:
         logger.info("RAGClient not available (missing dependencies)")
         return
     
     try:
-        logger.info("Initializing RAG client...")
+        logger.info("Falling back to local RAG client...")
         rag_config = build_rag_config(raw_config)
         if rag_config and rag_config.enabled:
             logger.info(f"RAG config found and enabled: {rag_config}")
             rag_client = RAGClient(rag_config)
             # Add module configurations to RAG client
             modules = _build_modules_from_config()
-            logger.info(f"Adding {len(modules)} modules to RAG client")
+            logger.info(f"Adding {len(modules)} modules to local RAG client")
             for module in modules:
                 if module.rag and module.rag.enabled:
                     logger.info(f"Adding RAG config for module: {module.name}")
                     rag_client.add_module_config(module.name, module.rag)
             # Update knowledge base
-            logger.info("Updating RAG knowledge base...")
+            logger.info("Updating local RAG knowledge base...")
             rag_client.update_knowledge_base()
-            logger.info("RAG client initialization completed")
+            logger.info("Local RAG client initialization completed")
         else:
             logger.info("RAG disabled in configuration")
             rag_client = None
     except Exception as exc:
-        logger.error(f"RAG client initialization failed: {exc}", exc_info=True)
-        add_notification("error", "RAG client initialization failed", str(exc))
+        logger.error(f"Local RAG client initialization failed: {exc}", exc_info=True)
+        add_notification("error", "Local RAG client initialization failed", str(exc))
         rag_client = None
 
 

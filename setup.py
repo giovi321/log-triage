@@ -42,6 +42,7 @@ setup(
         "console_scripts": [
             "logtriage=logtriage.cli:main",
             "logtriage-webui=logtriage.webui.__main__:main",
+            "logtriage-rag=logtriage.rag.service:main",
         ],
     },
     package_data={

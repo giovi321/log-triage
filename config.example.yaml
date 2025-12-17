@@ -26,6 +26,7 @@ llm:
 # RAG configuration for enhanced log analysis with documentation context
 rag:
   enabled: true
+  service_url: "http://127.0.0.1:8091"  # URL of the standalone RAG service
   cache_dir: "./rag_cache"
   vector_store:
     persist_directory: "./rag_vector_store"
