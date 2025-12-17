@@ -732,6 +732,24 @@ async def dashboard(request: Request):
                 }
             }
     
+    # Create a normalized rag_status for the template that has the expected fields
+    normalized_rag_status = {
+        "enabled": rag_monitor_data["rag_ready"],  # Only enabled when fully ready
+        "total_repositories": 0,
+        "vector_store_stats": {"total_chunks": 0, "persist_directory": "N/A"},
+        "repositories": [],
+        "detailed_status": rag_monitor_data["detailed_status"]  # Include detailed info for new UI elements
+    }
+    
+    # If RAG is ready, try to get the real status
+    if rag_monitor_data["rag_ready"] and rag_client:
+        try:
+            real_status = rag_client.get_status()
+            if real_status:
+                normalized_rag_status.update(real_status)
+        except Exception as e:
+            logger.warning(f"Failed to get real RAG status: {e}")
+    
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -743,7 +761,7 @@ async def dashboard(request: Request):
             "page_rendered_at": page_rendered_at,
             "ingestion_status": ingestion_status,
             "notif_summary": notif_summary,
-            "rag_status": rag_monitor_data["detailed_status"],
+            "rag_status": normalized_rag_status,
             "rag_service_available": rag_monitor_data["rag_available"],
             "rag_service_ready": rag_monitor_data["rag_ready"],
             "rag_monitor": rag_monitor_data,
