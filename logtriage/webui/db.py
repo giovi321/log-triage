@@ -4,6 +4,7 @@ import datetime
 import importlib.util
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Optional, Dict, List, TYPE_CHECKING
 
 from ..models import Severity, LLMResponse
@@ -148,6 +149,18 @@ if Base is not None:
                 prompt_tokens=self.llm_prompt_tokens,
                 completion_tokens=self.llm_completion_tokens,
             )
+
+        @property
+        def excerpt_as_list(self):
+            """Convert excerpt string to list for compatibility with LLM functions."""
+            if not self.excerpt:
+                return []
+            return self.excerpt.splitlines()
+
+        @property
+        def file_path_obj(self):
+            """Convert file_path string to Path object for compatibility."""
+            return Path(self.file_path)
 
 
 else:  # pragma: no cover - used when sqlalchemy is absent

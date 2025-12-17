@@ -1448,12 +1448,23 @@ async def llm_query_finding(
         )
         
         # Analyze finding with LLM (including RAG context)
-        # Set needs_llm=True since this is a manual LLM query request
-        finding.needs_llm = True
-        # Convert string severity to Severity enum for compatibility
-        finding.severity = finding.severity_enum
+        # Create a compatible Finding object from the FindingRecord
+        from ..models import Finding
+        compatible_finding = Finding(
+            file_path=finding.file_path_obj,
+            pipeline_name=finding.pipeline_name,
+            finding_index=finding.finding_index,
+            severity=finding.severity_enum,
+            message=finding.message,
+            line_start=finding.line_start,
+            line_end=finding.line_end,
+            rule_id=finding.rule_id,
+            excerpt=finding.excerpt_as_list,
+            needs_llm=True,
+        )
+        
         analyze_findings_with_llm(
-            [finding], 
+            [compatible_finding], 
             llm_defaults, 
             temp_module_llm,
             rag_client=rag_client,
@@ -1461,15 +1472,17 @@ async def llm_query_finding(
         )
         
         # Update the database record with the LLM response
-        if finding.llm_response:
+        if compatible_finding.llm_response:
             update_finding_llm_data(
                 finding.id,
-                provider=finding.llm_response.provider,
-                model=finding.llm_response.model,
-                content=finding.llm_response.content,
-                prompt_tokens=finding.llm_response.prompt_tokens,
-                completion_tokens=finding.llm_response.completion_tokens,
+                provider=compatible_finding.llm_response.provider,
+                model=compatible_finding.llm_response.model,
+                content=compatible_finding.llm_response.content,
+                prompt_tokens=compatible_finding.llm_response.prompt_tokens,
+                completion_tokens=compatible_finding.llm_response.completion_tokens,
             )
+            # Update the original finding object with the response for the return value
+            finding.llm_response = compatible_finding.llm_response
         
         # Return the LLM response
         if finding.llm_response:

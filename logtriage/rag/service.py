@@ -407,11 +407,17 @@ async def retrieve_for_finding(module_name: str, finding: FindingRequest):
     
     # Convert finding request to Finding object
     from ..models import Finding, Severity
+    try:
+        severity = Severity[finding.severity.upper()]
+    except (KeyError, AttributeError):
+        # Default to WARNING if severity is invalid
+        severity = Severity.WARNING
+    
     finding_obj = Finding(
         file_path=Path(finding.file_path),
         pipeline_name=finding.pipeline_name,
         finding_index=finding.finding_index,
-        severity=Severity[finding.severity.upper()],
+        severity=severity,
         message=finding.message,
         line_start=finding.line_start,
         line_end=finding.line_end,
