@@ -34,7 +34,7 @@ class RAGClient:
         self.document_processor = DocumentProcessor()
         self.embedding_service = EmbeddingService(
             model_name=global_config.embedding_model,
-            device=global_config.embedding_device,
+            device=global_config.device,
             batch_size=global_config.embedding_batch_size,
             memory_config=memory_config
         )
