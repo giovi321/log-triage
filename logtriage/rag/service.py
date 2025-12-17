@@ -433,12 +433,11 @@ async def retrieve_for_finding(module_name: str, finding: FindingRequest):
     return RetrievalResponse(
         chunks=[{
             "content": chunk.content,
-            "source": chunk.source,
+            "source": chunk.file_path,
             "repo_id": chunk.repo_id,
             "file_path": chunk.file_path,
-            "line_start": chunk.line_start,
-            "line_end": chunk.line_end,
-            "score": chunk.score
+            "chunk_id": chunk.chunk_id,
+            "heading": chunk.heading
         } for chunk in result.chunks],
         context=result.context,
         citations=[{
