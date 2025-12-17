@@ -247,7 +247,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         llm_cfg = item.get("llm", {}) or {}
         llm_enabled = bool(llm_cfg.get("enabled", llm_defaults.enabled))
         llm_min_sev = Severity.from_string(
-            llm_cfg.get("min_severity", llm_defaults.min_severity.name)
+            llm_cfg.get("min_severity", "WARNING")  # Default to WARNING for modules
         )
         provider_name = llm_cfg.get("provider")
         provider = None
