@@ -19,6 +19,7 @@ try:
     from fastapi.templating import Jinja2Templates
     from fastapi.staticfiles import StaticFiles
     from fastapi.security import HTTPBasic, HTTPBasicCredentials
+    from fastapi.middleware import SessionMiddleware
     from starlette.middleware.base import BaseHTTPMiddleware
     from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
     from starlette.responses import PlainTextResponse
