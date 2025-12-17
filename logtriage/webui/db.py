@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, Optional, Dict, List, TYPE_CHECKING
 
+from ..models import Severity
+
 _sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
 if _sqlalchemy_spec is None:
     _sqlalchemy_import_error = ModuleNotFoundError("No module named 'sqlalchemy'")
@@ -125,6 +127,14 @@ if Base is not None:
         def warning_count(self):
             sev = (self.severity or "").upper()
             return 1 if sev == "WARNING" else 0
+
+        @property
+        def severity_enum(self):
+            """Convert string severity back to Severity enum for compatibility."""
+            try:
+                return Severity.from_string(self.severity or "WARNING")
+            except (ValueError, AttributeError):
+                return Severity.WARNING
 
 
 else:  # pragma: no cover - used when sqlalchemy is absent
