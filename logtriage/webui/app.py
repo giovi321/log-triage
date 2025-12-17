@@ -33,7 +33,7 @@ except ImportError as e:
     sys.exit(1)
 
 # Import LogTriage components
-from ..models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig
+from ..models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig, ModuleLLMConfig
 from ..config import build_llm_config, build_modules, build_pipelines, load_config, build_rag_config
 from ..engine import analyze_path
 from ..llm_client import analyze_findings_with_llm
