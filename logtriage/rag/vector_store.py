@@ -41,6 +41,13 @@ class VectorStore:
             logger.error(f"Chunk count ({len(chunks)}) does not match embedding count ({len(embeddings)})")
             return
         
+        # Memory limit: refuse to add too many chunks at once
+        max_chunks = 500  # Limit to prevent OOM
+        if len(chunks) > max_chunks:
+            logger.warning(f"Too many chunks ({len(chunks)}), limiting to {max_chunks}")
+            chunks = chunks[:max_chunks]
+            embeddings = embeddings[:max_chunks]
+        
         try:
             logger.debug(f"Adding {len(chunks)} chunks to vector store")
             
@@ -59,13 +66,24 @@ class VectorStore:
                 }
                 metadatas.append(metadata)
             
-            # Add to collection
-            self.collection.add(
-                ids=ids,
-                documents=documents,
-                embeddings=embeddings.tolist(),
-                metadatas=metadatas
-            )
+            # Add to collection in smaller batches
+            batch_size = 100
+            for i in range(0, len(chunks), batch_size):
+                batch_ids = ids[i:i+batch_size]
+                batch_docs = documents[i:i+batch_size]
+                batch_embeddings = embeddings[i:i+batch_size].tolist()
+                batch_metas = metadatas[i:i+batch_size]
+                
+                self.collection.add(
+                    ids=batch_ids,
+                    documents=batch_docs,
+                    embeddings=batch_embeddings,
+                    metadatas=batch_metas
+                )
+                
+                # Force garbage collection after each batch
+                import gc
+                gc.collect()
             
             logger.debug(f"Successfully added {len(chunks)} chunks to vector store")
             

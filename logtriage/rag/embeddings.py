@@ -29,6 +29,12 @@ class EmbeddingService:
             logger.debug("No texts provided for embedding")
             return np.array([])
         
+        # Memory limit: refuse to process too many texts at once
+        max_texts = 1000  # Limit to prevent OOM
+        if len(texts) > max_texts:
+            logger.warning(f"Too many texts ({len(texts)}), limiting to {max_texts}")
+            texts = texts[:max_texts]
+        
         try:
             logger.debug(f"Generating embeddings for {len(texts)} texts using model {self.model_name}")
             self._load_model()
@@ -47,6 +53,11 @@ class EmbeddingService:
                         show_progress_bar=False
                     )
                     all_embeddings.append(batch_embeddings)
+                    
+                    # Force garbage collection after each batch
+                    import gc
+                    gc.collect()
+                    
                 except Exception as e:
                     logger.error(f"Failed to encode batch {i//self.batch_size + 1}: {e}", exc_info=True)
                     # Return empty array to indicate failure
@@ -55,6 +66,12 @@ class EmbeddingService:
             if all_embeddings:
                 result = np.vstack(all_embeddings)
                 logger.debug(f"Successfully generated embeddings with shape {result.shape}")
+                
+                # Clear intermediate arrays
+                del all_embeddings
+                import gc
+                gc.collect()
+                
                 return result
             else:
                 logger.warning("No embeddings were generated")

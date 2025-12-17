@@ -5,6 +5,8 @@ import os
 import sys
 import threading
 import time
+import psutil
+import gc
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import importlib.util
@@ -122,6 +124,33 @@ def background_initialize_rag_client(config_path: Path) -> None:
     """Background thread to initialize the RAG client with detailed progress tracking."""
     global rag_client, llm_defaults, modules, initialization_status
     
+    def check_memory_usage():
+        """Check memory usage and force cleanup if needed."""
+        try:
+            process = psutil.Process()
+            memory_gb = process.memory_info().rss / 1024**3
+            
+            if memory_gb > 8:  # 8GB threshold
+                logger.warning(f"High memory usage detected: {memory_gb:.1f}GB, forcing cleanup")
+                gc.collect()  # Force garbage collection
+                
+                # Check again after cleanup
+                memory_gb_after = process.memory_info().rss / 1024**3
+                logger.info(f"Memory after cleanup: {memory_gb_after:.1f}GB")
+                
+                if memory_gb_after > 10:  # Critical threshold
+                    logger.error(f"Critical memory usage: {memory_gb_after:.1f}GB, stopping initialization")
+                    with init_lock:
+                        initialization_status["error"] = f"Memory limit exceeded: {memory_gb_after:.1f}GB"
+                        initialization_status["updating"] = False
+                        initialization_status["current_phase"] = "error"
+                        initialization_status["progress"]["step_description"] = f"Memory limit exceeded: {memory_gb_after:.1f}GB"
+                    return False
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to check memory usage: {e}")
+            return True
+    
     def update_progress(phase: str, step: int, total: int, description: str):
         """Update progress information."""
         with init_lock:
@@ -146,6 +175,10 @@ def background_initialize_rag_client(config_path: Path) -> None:
         initialization_status["updating"] = True
     
     try:
+        # Check memory before starting
+        if not check_memory_usage():
+            return
+        
         # Phase 1: Loading configuration
         update_progress("loading_config", 1, 5, "Loading configuration...")
         logger.info(f"Loading configuration from {config_path}")
@@ -165,6 +198,10 @@ def background_initialize_rag_client(config_path: Path) -> None:
         update_progress("initializing_client", 2, 5, "Initializing RAG client...")
         logger.info("Initializing RAG client...")
         rag_client = RAGClient(rag_config)
+        
+        # Check memory after client initialization
+        if not check_memory_usage():
+            return
         
         # Phase 3: Building modules
         update_progress("adding_modules", 3, 5, "Building module configurations...")
@@ -196,6 +233,10 @@ def background_initialize_rag_client(config_path: Path) -> None:
                         total_repos,
                         repo_progress
                     )
+                
+                # Check memory after each module
+                if not check_memory_usage():
+                    return
         
         # Phase 5: Updating knowledge base
         update_progress("updating_knowledge", 5, 5, "Updating knowledge base...")
@@ -205,6 +246,9 @@ def background_initialize_rag_client(config_path: Path) -> None:
         update_repo_progress("Knowledge base indexing", completed_repos, total_repos + 1, 0.0)
         rag_client.update_knowledge_base()
         update_repo_progress("Knowledge base indexing", completed_repos, total_repos + 1, 100.0)
+        
+        # Final memory check
+        check_memory_usage()
         
         # Mark as completed
         update_progress("completed", 5, 5, "RAG service ready")

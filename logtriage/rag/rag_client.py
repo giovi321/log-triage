@@ -186,30 +186,63 @@ class RAGClient:
         # Delete old chunks for this repo
         self.vector_store.delete_by_repo(repo_id)
         
-        # Process all relevant sources
-        all_chunks = []
+        # Process all relevant sources with memory limits
+        max_total_chunks = 1000  # Global limit to prevent OOM
+        total_chunks_processed = 0
+        
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
-            for file_path in files:
-                chunks = self.document_processor.process_file(
-                    file_path, repo_id, repo_state.last_commit_hash
-                )
-                all_chunks.extend(chunks)
+            # Process files in smaller batches to control memory
+            batch_size = 50  # Process 50 files at a time
+            for i in range(0, len(files), batch_size):
+                if total_chunks_processed >= max_total_chunks:
+                    logger.warning(f"Reached maximum chunk limit ({max_total_chunks}), stopping reindex")
+                    break
+                
+                batch_files = files[i:i+batch_size]
+                batch_chunks = []
+                
+                for file_path in batch_files:
+                    chunks = self.document_processor.process_file(
+                        file_path, repo_id, repo_state.last_commit_hash
+                    )
+                    
+                    # Limit chunks per file to prevent memory blowup
+                    if len(chunks) > 100:
+                        logger.warning(f"Too many chunks in {file_path} ({len(chunks)}), limiting to 100")
+                        chunks = chunks[:100]
+                    
+                    batch_chunks.extend(chunks)
+                
+                if batch_chunks:
+                    # Check if we would exceed the limit
+                    if total_chunks_processed + len(batch_chunks) > max_total_chunks:
+                        remaining = max_total_chunks - total_chunks_processed
+                        batch_chunks = batch_chunks[:remaining]
+                        logger.warning(f"Truncating batch to stay within memory limits")
+                    
+                    # Generate embeddings for this batch
+                    texts = [chunk.content for chunk in batch_chunks]
+                    embeddings = self.embedding_service.embed_texts(texts)
+                    
+                    if embeddings.size > 0:
+                        # Add to vector store
+                        self.vector_store.add_chunks(batch_chunks, embeddings)
+                        total_chunks_processed += len(batch_chunks)
+                        
+                        # Mark as indexed
+                        self.knowledge_manager.mark_indexed(repo_id)
+                    
+                    # Force garbage collection after each batch
+                    import gc
+                    gc.collect()
+                    
+                    logger.debug(f"Processed batch: {len(batch_chunks)} chunks, total: {total_chunks_processed}")
         
-        if all_chunks:
-            # Generate embeddings
-            texts = [chunk.content for chunk in all_chunks]
-            embeddings = self.embedding_service.embed_texts(texts)
-            
-            # Add to vector store
-            self.vector_store.add_chunks(all_chunks, embeddings)
-            
-            # Mark as indexed
-            self.knowledge_manager.mark_indexed(repo_id)
-            
+        if total_chunks_processed > 0:
             add_notification(
                 "info",
                 "Repository reindexed",
-                f"Repository {repo_id}: {len(all_chunks)} chunks indexed"
+                f"Repository {repo_id}: {total_chunks_processed} chunks indexed (limited to prevent OOM)"
             )
