@@ -16,11 +16,17 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette import status
 from fastapi.staticfiles import StaticFiles
 
-from ..config import build_llm_config, build_modules, load_config
-from ..models import GlobalLLMConfig, ModuleConfig, Severity, Finding
-from ..llm_client import _call_chat_completion
+from ..config import build_llm_config, build_modules, load_config, build_rag_config
+from ..models import GlobalLLMConfig, ModuleConfig, ModuleLLMConfig, Severity, Finding
+from ..llm_client import _call_chat_completion, analyze_findings_with_llm
 from ..version import __version__
 from ..notifications import add_notification, list_notifications, notification_summary
+
+# Import RAG client (optional import to avoid circular dependencies)
+try:
+    from ..rag import RAGClient
+except ImportError:
+    RAGClient = None
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
 from .db import (
@@ -205,8 +211,12 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
 
 settings, raw_config, CONFIG_PATH = _load_settings_and_config()
 llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
+rag_client: Optional[RAGClient] = None
 context_hints = _load_context_hints()
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
+
+# Initialize RAG client
+_refresh_rag_client()
 
 REGEX_WIZARD_STEPS = [
     ("pick", "Pick sample lines"),
@@ -347,9 +357,35 @@ def _refresh_llm_defaults() -> None:
             enabled=False,
             min_severity=Severity.ERROR,
             providers={},
+            default_provider=None,
             context_prefix_lines=0,
+            context_suffix_lines=0,
             summary_prompt_path=None,
         )
+
+
+def _refresh_rag_client() -> None:
+    """Initialize or update the RAG client based on configuration."""
+    global rag_client
+    if RAGClient is None:
+        return
+    
+    try:
+        rag_config = build_rag_config(raw_config)
+        if rag_config and rag_config.enabled:
+            rag_client = RAGClient(rag_config)
+            # Add module configurations to RAG client
+            modules = _build_modules_from_config()
+            for module in modules:
+                if module.rag and module.rag.enabled:
+                    rag_client.add_module_config(module.name, module.rag)
+            # Update knowledge base
+            rag_client.update_knowledge_base()
+        else:
+            rag_client = None
+    except Exception as exc:
+        add_notification("error", "RAG client initialization failed", str(exc))
+        rag_client = None
 
 
 def _build_modules_from_config() -> List[ModuleConfig]:
@@ -494,6 +530,12 @@ async def dashboard(request: Request):
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
     ingestion_status = _derive_ingestion_status(modules, now=page_rendered_at)
     notif_summary = notification_summary()
+    
+    # Get RAG status
+    rag_status = None
+    if rag_client:
+        rag_status = rag_client.get_status()
+    
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -505,6 +547,7 @@ async def dashboard(request: Request):
             "page_rendered_at": page_rendered_at,
             "ingestion_status": ingestion_status,
             "notif_summary": notif_summary,
+            "rag_status": rag_status,
         },
     )
 
@@ -530,7 +573,7 @@ async def edit_config_post(
     request: Request,
     config_text: str = Form(...),
 ):
-    global settings, raw_config, llm_defaults
+    global settings, raw_config, llm_defaults, rag_client
 
     username = get_current_user(request, settings)
     if not username:
@@ -569,6 +612,7 @@ async def edit_config_post(
         settings = parse_webui_settings(raw_config)
         _init_database(raw_config)
         _refresh_llm_defaults()
+        _refresh_rag_client()
     except Exception as exc:
         add_notification("error", "Configuration reload failed", str(exc))
         return _render_config_editor(
@@ -589,7 +633,7 @@ async def edit_config_post(
 
 @app.post("/config/reload", name="reload_config")
 async def reload_config(request: Request):
-    global settings, raw_config, llm_defaults
+    global settings, raw_config, llm_defaults, rag_client
 
     username = get_current_user(request, settings)
     if not username:
@@ -608,6 +652,7 @@ async def reload_config(request: Request):
         settings = parse_webui_settings(new_raw)
         _init_database(new_raw)
         _refresh_llm_defaults()
+        _refresh_rag_client()
     except Exception as e:
         add_notification("error", "Config reload failed", str(e))
         return _render_config_editor(
@@ -1046,6 +1091,72 @@ def _finding_excerpt_preview(finding, max_lines: int) -> str:
     if max_lines > 0:
         excerpt_lines = excerpt_lines[:max_lines]
     return "\n".join(excerpt_lines)
+
+
+@app.post("/llm/query_finding", name="llm_query_finding")
+async def llm_query_finding(
+    request: Request,
+    finding_id: str = Form(...),
+    provider: str = Form(...),
+):
+    """Query LLM for a specific finding with RAG context."""
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse(
+            {"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    try:
+        # Get the finding from database
+        finding = get_finding_by_id(finding_id)
+        if not finding:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        
+        # Get module name from finding
+        module_name = getattr(finding, "module_name", None)
+        if not module_name:
+            return JSONResponse({"error": "Module name not found for finding"}, status_code=400)
+        
+        # Get provider configuration
+        provider_config = llm_defaults.providers.get(provider)
+        if not provider_config:
+            return JSONResponse({"error": f"Provider '{provider}' not found"}, status_code=400)
+        
+        # Create a temporary module config for LLM analysis
+        temp_module_llm = ModuleLLMConfig(
+            enabled=True,
+            provider_name=provider,
+            emit_llm_payloads_dir=None,
+        )
+        
+        # Analyze finding with LLM (including RAG context)
+        analyze_findings_with_llm(
+            [finding], 
+            llm_defaults, 
+            temp_module_llm,
+            rag_client=rag_client,
+            module_name=module_name
+        )
+        
+        # Return the LLM response
+        if finding.llm_response:
+            response_data = {
+                "provider": finding.llm_response.provider,
+                "model": finding.llm_response.model,
+                "content": finding.llm_response.content,
+                "usage": {
+                    "prompt_tokens": finding.llm_response.prompt_tokens,
+                    "completion_tokens": finding.llm_response.completion_tokens,
+                },
+                "citations": finding.llm_response.citations,
+            }
+            return JSONResponse(response_data)
+        else:
+            return JSONResponse({"error": "No LLM response generated"}, status_code=500)
+            
+    except Exception as e:
+        add_notification("error", "LLM query failed", str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/llm/query", name="llm_query")
@@ -1749,7 +1860,7 @@ async def change_password(
     new_password: str = Form(...),
     confirm_password: str = Form(...),
 ):
-    global settings, raw_config, llm_defaults
+    global settings, raw_config, llm_defaults, rag_client
 
     username = get_current_user(request, settings)
     if not username:
@@ -1853,6 +1964,7 @@ async def change_password(
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
     _refresh_llm_defaults()
+    _refresh_rag_client()
 
     return templates.TemplateResponse(
         "account.html",

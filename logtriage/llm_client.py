@@ -2,6 +2,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import List, Optional
 
 from .llm_payload import render_llm_payload
@@ -13,6 +14,12 @@ from .models import (
     LLMResponse,
     ModuleLLMConfig,
 )
+
+# Import RAG client (optional import to avoid circular dependencies)
+try:
+    from .rag import RAGClient
+except ImportError:
+    RAGClient = None
 
 
 def resolve_provider(llm_defaults: GlobalLLMConfig, module_llm: ModuleLLMConfig) -> Optional[LLMProviderConfig]:
@@ -84,7 +91,11 @@ def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
 
 
 def analyze_findings_with_llm(
-    findings: List[Finding], llm_defaults: GlobalLLMConfig, module_llm: ModuleLLMConfig
+    findings: List[Finding], 
+    llm_defaults: GlobalLLMConfig, 
+    module_llm: ModuleLLMConfig,
+    rag_client: Optional["RAGClient"] = None,
+    module_name: str = None
 ) -> None:
     provider = resolve_provider(llm_defaults, module_llm)
     if provider is None:
@@ -94,22 +105,42 @@ def analyze_findings_with_llm(
         if not f.needs_llm:
             continue
 
-        payload_text = render_llm_payload(f, module_llm)
+        # Retrieve RAG context if available
+        rag_context = ""
+        citations = []
+        
+        if rag_client and module_name and RAGClient:
+            retrieval_result = rag_client.retrieve_for_finding(f, module_name)
+            if retrieval_result and retrieval_result.chunks:
+                rag_context = "\n\n--- Relevant Documentation ---\n"
+                for i, chunk in enumerate(retrieval_result.chunks, 1):
+                    rag_context += f"\n{i}. {chunk.heading}\n{chunk.content}\n"
+                    citations.append(f"[{i}] {chunk.heading} ({Path(chunk.file_path).name})")
+        
+        payload_text = render_llm_payload(f, module_llm, rag_context=rag_context)
         if not payload_text:
             continue
 
         max_tokens = _select_max_tokens(module_llm, provider, llm_defaults)
 
+        # Add citation instruction to prompt
+        system_message = (
+            "You are a log triage assistant that summarizes log snippets succinctly "
+            "and suggests follow-up actions when appropriate. Use the provided documentation "
+            "to ground your analysis. Cite relevant documentation using the reference numbers "
+            f"in brackets.{' Include citations in your response.' if citations else ''}"
+        )
+
         chat_payload = {
             "model": provider.model,
             "messages": [
                 {
-                    "role": "user",
-                    "content": (
-                        "You are a log triage assistant that summarizes log snippets succinctly "
-                        "and suggests follow-up actions when appropriate. Respond to the "
-                        f"following prompt:\n\n{payload_text}"
-                    ),
+                    "role": "system",
+                    "content": system_message,
+                },
+                {
+                    "role": "user", 
+                    "content": payload_text,
                 }
             ],
             "temperature": provider.temperature,
@@ -136,6 +167,7 @@ def analyze_findings_with_llm(
             content=content,
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
+            citations=citations if citations else None,
         )
 
         if module_llm.emit_llm_payloads_dir:

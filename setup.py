@@ -20,6 +20,10 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "pyyaml>=6.0",
+        "sentence-transformers>=2.2.0",
+        "chromadb>=0.4.0",
+        "GitPython>=3.1.0",
+        "markdown>=3.4.0",
     ],
     extras_require={
         "webui": [

@@ -18,6 +18,9 @@ from .models import (
     ModuleLLMConfig,
     PipelineConfig,
     Severity,
+    RAGGlobalConfig,
+    RAGModuleConfig,
+    KnowledgeSourceConfig,
 )
 
 
@@ -356,6 +359,9 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
 
         enabled = bool(item.get("enabled", True))
 
+        # Build RAG configuration
+        module_rag_cfg = build_module_rag_config(item)
+
         modules.append(
             ModuleConfig(
                 name=name,
@@ -371,7 +377,48 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
                 alert_mqtt=alert_mqtt_cfg,
                 alert_webhook=alert_webhook_cfg,
                 enabled=enabled,
+                rag=module_rag_cfg,
             )
         )
 
     return modules
+
+
+def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
+    """Build global RAG configuration."""
+    rag_cfg = cfg.get("rag", {})
+    if not rag_cfg or not rag_cfg.get("enabled", False):
+        return None
+    
+    return RAGGlobalConfig(
+        enabled=True,
+        cache_dir=Path(rag_cfg.get("cache_dir", "./rag_cache")),
+        embedding_model=rag_cfg.get("embedding", {}).get("model", "sentence-transformers/all-MiniLM-L6-v2"),
+        embedding_device=rag_cfg.get("embedding", {}).get("device", "cpu"),
+        embedding_batch_size=int(rag_cfg.get("embedding", {}).get("batch_size", 32)),
+        vector_store_type=rag_cfg.get("vector_store", {}).get("type", "chroma"),
+        vector_store_dir=Path(rag_cfg.get("vector_store", {}).get("persist_directory", "./rag_db")),
+        retrieval_top_k=int(rag_cfg.get("retrieval", {}).get("top_k", 5)),
+        similarity_threshold=float(rag_cfg.get("retrieval", {}).get("similarity_threshold", 0.7)),
+        max_chunks=int(rag_cfg.get("retrieval", {}).get("max_chunks", 10)),
+    )
+
+
+def build_module_rag_config(module_cfg: Dict[str, Any]) -> Optional[RAGModuleConfig]:
+    """Build module-specific RAG configuration."""
+    rag_cfg = module_cfg.get("rag", {})
+    if not rag_cfg or not rag_cfg.get("enabled", False):
+        return None
+    
+    knowledge_sources = []
+    for source_cfg in rag_cfg.get("knowledge_sources", []):
+        knowledge_sources.append(KnowledgeSourceConfig(
+            repo_url=source_cfg["repo_url"],
+            branch=source_cfg.get("branch", "main"),
+            include_paths=source_cfg.get("include_paths", [])
+        ))
+    
+    return RAGModuleConfig(
+        enabled=True,
+        knowledge_sources=knowledge_sources
+    )

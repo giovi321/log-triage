@@ -105,6 +105,7 @@ class ModuleConfig:
     alert_mqtt: Optional[AlertMQTTConfig] = None
     alert_webhook: Optional[AlertWebhookConfig] = None
     enabled: bool = True
+    rag: Optional["RAGModuleConfig"] = None
 
 
 @dataclasses.dataclass
@@ -168,3 +169,58 @@ class LLMResponse:
     content: str
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
+    citations: Optional[List[str]] = None
+
+
+@dataclasses.dataclass
+class RAGGlobalConfig:
+    """Global RAG configuration."""
+    enabled: bool
+    cache_dir: Path
+    embedding_model: str
+    embedding_device: str
+    embedding_batch_size: int
+    vector_store_type: str
+    vector_store_dir: Path
+    retrieval_top_k: int
+    similarity_threshold: float
+    max_chunks: int
+
+
+@dataclasses.dataclass
+class KnowledgeSourceConfig:
+    """Configuration for a single knowledge source (git repository)."""
+    repo_url: str
+    branch: str = "main"
+    include_paths: List[str] = None
+    
+    def __post_init__(self):
+        if self.include_paths is None:
+            self.include_paths = []
+
+
+@dataclasses.dataclass
+class RAGModuleConfig:
+    """Module-specific RAG configuration."""
+    enabled: bool
+    knowledge_sources: List[KnowledgeSourceConfig]
+
+
+@dataclasses.dataclass
+class DocumentChunk:
+    """A chunk of indexed documentation."""
+    chunk_id: str
+    repo_id: str
+    file_path: str
+    heading: str
+    content: str
+    commit_hash: str
+    metadata: Dict[str, Any]
+
+
+@dataclasses.dataclass
+class RetrievalResult:
+    """Result from RAG retrieval."""
+    chunks: List[DocumentChunk]
+    query: str
+    total_retrieved: int

@@ -139,7 +139,6 @@
           <span class="muted">Selected:</span>
           <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
           <button type="button" class="secondary" onclick="copySelectedLines()">Copy</button>
-          <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
           <div class="action-menu" id="mark-finding-menu">
             <button type="button" class="secondary menu-trigger" id="mark-finding-trigger" aria-haspopup="true" aria-expanded="false" onclick="toggleSeverityMenu()" {% if not current_module or not db_status.connected %}disabled{% endif %}>
               <span id="mark-finding-label">Mark as finding</span>
@@ -223,6 +222,9 @@
                                 </div>
                                 <div class="finding-controls" style="margin:0; flex-shrink:0;">
                                 {% set finding_example = (finding_examples.get(line_finding.id) if finding_examples else None) %}
+                                {% if providers %}
+                                <button type="button" class="secondary" onclick="queryLLMForFinding('{{ line_finding.id }}')">Query LLM</button>
+                                {% endif %}
                                 <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
                                   <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
                                   <input type="hidden" name="module" value="{{ current_module.name }}">
@@ -336,36 +338,31 @@
 
     {% if providers %}
     <div class="llm-workbench">
-      <div class="grid prompt-grid">
-        <div class="prompt-panel">
-          <div class="prompt-shell">
-            <div class="prompt-title">
-              <span>Prompt builder</span>
-              <span id="llm-status" class="muted"></span>
-            </div>
-            <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}"></textarea>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
-              <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
-              <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
-            </div>
-            <label style="margin-top:0.35rem;">Provider
-              <select id="llm-provider">
-                {% for p in providers %}
-                  <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
-                {% endfor %}
-              </select>
-            </label>
-            <div id="provider-hints" class="helper-text"></div>
-          </div>
+      <div class="prompt-panel">
+        <div class="prompt-title">
+          <span>LLM Analysis</span>
+          <span id="llm-status" class="muted"></span>
         </div>
-        <div class="prompt-panel">
-          <div class="prompt-title" style="margin-bottom:0.3rem;">AI opinion</div>
-          <div id="llm-response" class="llm-fixed-response muted">No AI opinion yet.</div>
-          <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
-          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
-            <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
-            <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
-          </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
+          <label style="display:flex; align-items:center; gap:0.5rem;">
+            Provider:
+            <select id="llm-provider">
+              {% for p in providers %}
+                <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div id="provider-hints" class="helper-text"></div>
+      </div>
+      <div class="prompt-panel">
+        <div class="prompt-title" style="margin-bottom:0.3rem;">AI Response</div>
+        <div id="llm-response" class="llm-fixed-response muted">Select a finding and click "Query LLM" to get AI analysis.</div>
+        <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
+        <div id="llm-citations" class="helper-text" style="margin-top:0.25rem;"></div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
+          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
+          <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
         </div>
       </div>
     </div>
@@ -425,6 +422,7 @@
 </form>
 
 <script>
+  /* eslint-disable */
   const providerSettings = {{ provider_settings|tojson }};
   const modulePromptTemplate = {{ module_prompt_template|tojson }};
   const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
@@ -475,7 +473,9 @@
         sample_source: paginationState.sampleSource
       });
       
+      /* eslint-disable */
       const resp = await fetch(`{{ url_for('api_log_lines') }}?${params}`);
+      /* eslint-enable */
       const data = await resp.json();
       
       if (!resp.ok) {
@@ -1026,17 +1026,47 @@
     copyText(selected.join('\n'));
   }
 
-  function appendSelectedToPrompt() {
-    const selected = collectSelectedLines();
-    if (!selected.length) return;
-    appendToPrompt(selected.join('\n'));
-  }
+  async function queryLLMForFinding(findingId) {
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const usage = document.getElementById('llm-usage');
+    const citations = document.getElementById('llm-citations');
+    
+    if (status) status.textContent = 'Querying LLM for finding...';
+    respBox.textContent = '';
+    if (usage) usage.textContent = '';
+    if (citations) citations.textContent = '';
 
-  function appendToPrompt(text) {
-    const prompt = document.getElementById('llm-prompt');
-    if (!prompt || !text) return;
-    prompt.value = prompt.value ? `${prompt.value}\n${text}` : text;
-    prompt.focus();
+    const formData = new FormData();
+    formData.append('finding_id', findingId);
+    formData.append('provider', document.getElementById('llm-provider').value);
+
+    try {
+      /* eslint-disable */
+      const resp = await fetch('{{ url_for('llm_query_finding') }}', { method: 'POST', body: formData });
+      /* eslint-enable */
+      const responseData = await resp.json();
+      
+      if (!resp.ok) {
+        if (status) status.textContent = `Error: ${responseData.error || 'Unknown error'}`;
+        return;
+      }
+
+      if (status) status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
+      respBox.textContent = responseData.content || '(empty response)';
+      
+      if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
+        if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
+      }
+      
+      if (responseData.citations && responseData.citations.length > 0) {
+        if (citations) citations.textContent = `Citations: ${responseData.citations.join(', ')}`;
+      }
+      
+      lastLLMData = responseData;
+    } catch (error) {
+      if (status) status.textContent = `Network error: ${error.message}`;
+    }
   }
 
   function refreshSelectedHighlights() {
@@ -1226,72 +1256,18 @@
     }
   }
 
-  function loadPredefinedPrompt() {
-    if (!modulePromptTemplate) return;
-    const prompt = document.getElementById('llm-prompt');
-    if (!prompt) return;
-    prompt.value = modulePromptTemplate;
-    prompt.focus();
-  }
-
   function updateProviderHints() {
     const select = document.getElementById('llm-provider');
     const hints = document.getElementById('provider-hints');
-    if (!select || !hints) return;
+    if (!select || !hints) {
+      return;
+    }
     const cfg = providerSettings[select.value];
     if (!cfg) {
       hints.textContent = '';
       return;
     }
     hints.textContent = `max_excerpt_lines ${cfg.max_excerpt_lines}, max_tokens ${cfg.max_output_tokens}, temp ${cfg.temperature}, top_p ${cfg.top_p}`;
-  }
-
-  async function callLLM(promptText) {
-    const provider = document.getElementById('llm-provider');
-    const status = document.getElementById('llm-status');
-    const respBox = document.getElementById('llm-response');
-    const usage = document.getElementById('llm-usage');
-    if (!provider || !respBox) return null;
-
-    if (!promptText) {
-      if (status) status.textContent = 'Enter a prompt to query the LLM.';
-      return null;
-    }
-
-    if (status) status.textContent = 'Sending...';
-    respBox.textContent = '';
-    if (usage) usage.textContent = '';
-
-    const formData = new FormData();
-    formData.append('provider', provider.value);
-    formData.append('prompt', promptText);
-
-    let responseData;
-    try {
-      const resp = await fetch('{{ url_for('llm_query') }}', { method: 'POST', body: formData });
-      responseData = await resp.json();
-      if (!resp.ok) {
-        throw new Error(responseData.error || 'Request failed');
-      }
-    } catch (err) {
-      if (status) status.textContent = err.message || 'Failed to reach LLM provider';
-      respBox.textContent = '';
-      return null;
-    }
-
-    if (status) status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
-    respBox.textContent = responseData.content || '(empty response)';
-    if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
-      if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
-    }
-    lastLLMData = responseData;
-    return responseData;
-  }
-
-  async function sendLLMPrompt() {
-    const prompt = document.getElementById('llm-prompt');
-    if (!prompt) return;
-    await callLLM(prompt.value.trim());
   }
 
   async function summarizeAndRecord() {
@@ -1403,7 +1379,9 @@
     }
 
     try {
+      /* eslint-disable */
       const resp = await fetch('{{ url_for('record_finding_opinion') }}', { method: 'POST', body: payload });
+      /* eslint-enable */
       const dataResp = await resp.json();
       if (!resp.ok) {
         throw new Error(dataResp.error || 'Failed to store AI opinion.');

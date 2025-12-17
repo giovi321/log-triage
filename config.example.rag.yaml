@@ -1,0 +1,180 @@
+# Example configuration for log-triage with RAG functionality
+# This file demonstrates how to set up RAG for enhanced log analysis
+
+# Global LLM configuration
+llm:
+  enabled: true
+  min_severity: "WARNING"
+  default_provider: "openai"
+  context_prefix_lines: 3
+  context_suffix_lines: 3
+  providers:
+    openai:
+      name: "openai"
+      api_key: "${OPENAI_API_KEY}"
+      model: "gpt-4"
+      temperature: 0.3
+      top_p: 0.9
+      max_output_tokens: 1000
+      max_excerpt_lines: 50
+    local:
+      name: "local"
+      api_url: "http://localhost:8000/v1"
+      api_key: "local-key"
+      model: "llama2-7b"
+      temperature: 0.2
+      top_p: 0.8
+      max_output_tokens: 800
+      max_excerpt_lines: 30
+
+# Global RAG configuration
+rag:
+  enabled: true
+  cache_dir: "./rag_cache"
+  vector_store:
+    persist_directory: "./rag_vector_store"
+  embedding:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    device: "cpu"  # Use "cuda" for GPU acceleration
+    batch_size: 32
+  retrieval:
+    top_k: 5
+    similarity_threshold: 0.7
+    max_chunks: 10
+
+# Pipeline configuration
+pipelines:
+  web_service:
+    name: "web_service"
+    patterns:
+      - regex: "ERROR.*Exception"
+        severity: "ERROR"
+      - regex: "WARN.*deprecated"
+        severity: "WARNING"
+      - regex: "FATAL.*crashed"
+        severity: "CRITICAL"
+  
+  database:
+    name: "database"
+    patterns:
+      - regex: "connection.*failed"
+        severity: "ERROR"
+      - regex: "timeout.*database"
+        severity: "WARNING"
+      - regex: "deadlock"
+        severity: "CRITICAL"
+
+# Module configuration with RAG
+modules:
+  web_api:
+    path: "/var/log/web_api"
+    pipeline: "web_service"
+    mode: "tail"
+    enabled: true
+    llm:
+      enabled: true
+      provider_name: "openai"
+    rag:
+      enabled: true
+      knowledge_sources:
+        - repo_url: "https://github.com/myorg/web-service-docs"
+          branch: "main"
+          include_paths:
+            - "docs/*.md"
+            - "README.md"
+            - "troubleshooting/*.md"
+        - repo_url: "https://github.com/myorg/api-specification"
+          branch: "main"
+          include_paths:
+            - "api/*.md"
+            - "examples/*.md"
+
+  database_service:
+    path: "/var/log/database"
+    pipeline: "database"
+    mode: "tail"
+    enabled: true
+    llm:
+      enabled: true
+      provider_name: "local"
+    rag:
+      enabled: true
+      knowledge_sources:
+        - repo_url: "https://github.com/myorg/database-guide"
+          branch: "main"
+          include_paths:
+            - "database/*.md"
+            - "performance/*.md"
+            - "backup-recovery/*.md"
+
+  background_worker:
+    path: "/var/log/worker"
+    pipeline: "web_service"
+    mode: "tail"
+    enabled: true
+    llm:
+      enabled: true
+      provider_name: "openai"
+    rag:
+      enabled: false  # RAG disabled for this module
+
+  monitoring_service:
+    path: "/var/log/monitoring"
+    pipeline: "web_service"
+    mode: "tail"
+    enabled: true
+    llm:
+      enabled: false  # LLM disabled for this module
+    rag:
+      enabled: false
+
+# Database configuration
+database:
+  url: "sqlite:///./logtriage.db"
+
+# Web UI configuration
+webui:
+  secret_key: "your-secret-key-here"
+  session_cookie_name: "logtriage_session"
+  admin_users:
+    - "admin"
+    - "analyst"
+
+# Notification settings
+notifications:
+  enabled: true
+  channels:
+    email:
+      enabled: false
+      smtp_server: "smtp.example.com"
+      smtp_port: 587
+      username: "notifications@example.com"
+      password: "${SMTP_PASSWORD}"
+      from_address: "logtriage@example.com"
+      to_addresses:
+        - "ops@example.com"
+
+# Alert configuration
+alerts:
+  enabled: true
+  rules:
+    - name: "High Error Rate"
+      condition: "errors_24h > 100"
+      severity: "CRITICAL"
+      message: "High error rate detected in the last 24 hours"
+    - name: "Critical Errors"
+      condition: "critical_errors_1h > 5"
+      severity: "CRITICAL"
+      message: "Multiple critical errors in the last hour"
+    - name: "Database Issues"
+      condition: "database_errors_1h > 10"
+      severity: "WARNING"
+      message: "Database error rate is elevated"
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logtriage.log"
+  loggers:
+    logtriage.rag: "INFO"  # Set to DEBUG for detailed RAG logging
