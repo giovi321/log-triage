@@ -41,6 +41,7 @@ rag_monitor_status = {
 def rag_monitor_worker(config_path: Path):
     """Background worker that periodically checks RAG service status for CLI."""
     global rag_client, rag_monitor_status
+    logger = logging.getLogger(__name__)
     
     while not rag_monitor_stop_event.wait(rag_monitor_status["check_interval"]):
         try:
@@ -103,6 +104,7 @@ def rag_monitor_worker(config_path: Path):
 def start_rag_monitor(config_path: Path):
     """Start the RAG monitoring background thread for CLI."""
     global rag_monitor_thread
+    logger = logging.getLogger(__name__)
     
     with rag_monitor_lock:
         if rag_monitor_thread is None or not rag_monitor_thread.is_alive():
@@ -114,6 +116,7 @@ def start_rag_monitor(config_path: Path):
 def stop_rag_monitor():
     """Stop the RAG monitoring background thread for CLI."""
     global rag_monitor_thread
+    logger = logging.getLogger(__name__)
     
     rag_monitor_stop_event.set()
     if rag_monitor_thread and rag_monitor_thread.is_alive():
