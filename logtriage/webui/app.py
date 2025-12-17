@@ -1448,6 +1448,8 @@ async def llm_query_finding(
         )
         
         # Analyze finding with LLM (including RAG context)
+        # Set needs_llm=True since this is a manual LLM query request
+        finding.needs_llm = True
         analyze_findings_with_llm(
             [finding], 
             llm_defaults, 

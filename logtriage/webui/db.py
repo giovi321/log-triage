@@ -56,6 +56,7 @@ def _ensure_llm_columns(engine):
         return
 
     ddl_statements = [
+        ("needs_llm", "BOOLEAN"),
         ("llm_provider", "VARCHAR(128)"),
         ("llm_model", "VARCHAR(128)"),
         ("llm_response_content", "TEXT"),
@@ -89,6 +90,7 @@ if Base is not None:
         rule_id = Column(String(256), nullable=True)
         excerpt = Column(Text, nullable=True)
         anomaly_flag = Column(Boolean, nullable=False, default=False)
+        needs_llm = Column(Boolean, nullable=False, default=False)
         llm_provider = Column(String(128), nullable=True)
         llm_model = Column(String(128), nullable=True)
         llm_response_content = Column(Text, nullable=True)
@@ -240,6 +242,7 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         rule_id=getattr(finding, "rule_id", None),
         excerpt="\n".join(getattr(finding, "excerpt", []) or []),
         anomaly_flag=bool(anomaly_flag),
+        needs_llm=bool(getattr(finding, "needs_llm", False)),
         llm_provider=getattr(llm_response, "provider", None),
         llm_model=getattr(llm_response, "model", None),
         llm_response_content=getattr(llm_response, "content", None),
