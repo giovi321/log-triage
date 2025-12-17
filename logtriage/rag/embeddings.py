@@ -369,14 +369,171 @@ class GPUEmbeddingService:
             logger.error(f"Failed to generate embedding for single text: {e}")
             return np.array([])
 
+class HybridEmbeddingService:
+    """Hybrid embedding service balancing memory and performance (4-8GB usage)."""
+    
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", 
+                 device: str = "cpu", batch_size: int = 8, memory_limit_gb: float = 6.0):
+        self.model_name = model_name
+        self.device = device
+        self.batch_size = batch_size
+        self.memory_limit_gb = memory_limit_gb
+        self.model: Optional = None
+        self._model_loaded = False
+        self.chunks_since_reload = 0
+        self.reload_threshold = 50  # Reload model every 50 chunks
+        
+        logger.info(f"HybridEmbeddingService initialized: model={model_name}, batch_size={batch_size}, memory_limit={memory_limit_gb}GB")
+        
+    def _load_model(self):
+        """Load the embedding model on demand."""
+        if not self._model_loaded:
+            memory_before = get_memory_usage()
+            logger.info(f"Loading hybrid embedding model (memory: {memory_before:.2f}GB)")
+            
+            try:
+                from sentence_transformers import SentenceTransformer
+                self.model = SentenceTransformer(self.model_name, device=self.device)
+                self._model_loaded = True
+                
+                memory_after = get_memory_usage()
+                logger.info(f"Hybrid model loaded (memory: {memory_after:.2f}GB, delta: {memory_after - memory_before:.2f}GB)")
+                
+            except Exception as e:
+                logger.error(f"Failed to load embedding model: {e}")
+                self._unload_model()
+                raise
+    
+    def _unload_model(self):
+        """Unload model to free memory."""
+        if self.model is not None:
+            logger.info("Unloading hybrid embedding model")
+            del self.model
+            self.model = None
+            self._model_loaded = False
+            self.chunks_since_reload = 0
+            force_cleanup()
+    
+    def _should_reload_model(self):
+        """Check if model should be reloaded based on memory usage or chunk count."""
+        current_memory = get_memory_usage()
+        
+        # Reload if memory exceeds limit
+        if current_memory > self.memory_limit_gb:
+            logger.warning(f"Memory {current_memory:.2f}GB exceeds limit {self.memory_limit_gb}GB, reloading model")
+            return True
+        
+        # Reload after threshold chunks
+        if self.chunks_since_reload >= self.reload_threshold:
+            logger.info(f"Reloading model after {self.chunks_since_reload} chunks")
+            return True
+        
+        return False
+    
+    def embed_texts_balanced(self, texts: List[str]) -> np.ndarray:
+        """Generate embeddings with balanced memory management."""
+        if not texts:
+            logger.debug("No texts provided for embedding")
+            return np.array([])
+        
+        try:
+            memory_before = get_memory_usage()
+            logger.debug(f"Generating embeddings for {len(texts)} texts (hybrid, memory: {memory_before:.2f}GB)")
+            
+            # Process in small batches with periodic model reloading
+            all_embeddings = []
+            
+            for i in range(0, len(texts), self.batch_size):
+                batch_texts = texts[i:i + self.batch_size]
+                
+                # Check if we need to reload model
+                if self._should_reload_model():
+                    self._unload_model()
+                    force_cleanup()
+                
+                # Load model if needed
+                if not self._model_loaded:
+                    memory_before = get_memory_usage()
+                    logger.info(f"Loading hybrid embedding model (memory: {memory_before:.2f}GB)")
+                    
+                    try:
+                        from sentence_transformers import SentenceTransformer
+                        self.model = SentenceTransformer(self.model_name, device=self.device)
+                        self._model_loaded = True
+                        
+                        memory_after = get_memory_usage()
+                        logger.info(f"Hybrid model loaded (memory: {memory_after:.2f}GB, delta: {memory_after - memory_before:.2f}GB)")
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to load embedding model: {e}")
+                        self._unload_model()
+                        raise
+                
+                try:
+                    # Process batch
+                    batch_embeddings = self.model.encode(
+                        batch_texts,
+                        convert_to_numpy=True,
+                        show_progress_bar=False,
+                        normalize_embeddings=True
+                    )
+                    
+                    if batch_embeddings.size > 0:
+                        all_embeddings.append(batch_embeddings)
+                        self.chunks_since_reload += len(batch_texts)
+                    
+                    # Moderate cleanup after each batch
+                    del batch_embeddings
+                    gc.collect()
+                    
+                    # Monitor memory
+                    if i % (self.batch_size * 5) == 0:  # Every 5 batches
+                        current_memory = get_memory_usage()
+                        logger.debug(f"Processed {i+len(batch_texts)}/{len(texts)} texts (memory: {current_memory:.2f}GB)")
+                
+                except Exception as e:
+                    logger.error(f"Failed to encode batch {i//self.batch_size}: {e}")
+                    continue
+            
+            if all_embeddings:
+                result = np.vstack(all_embeddings)
+                logger.debug(f"Generated embeddings for {len(result)} texts")
+                
+                # Final cleanup
+                del all_embeddings
+                force_cleanup()
+                
+                memory_after = get_memory_usage()
+                logger.debug(f"Completed hybrid embedding (memory: {memory_after:.2f}GB)")
+                
+                return result
+            else:
+                logger.warning("No embeddings were generated")
+                return np.array([])
+                
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {e}")
+            return np.array([])
+    
+    def embed_single(self, text: str) -> np.ndarray:
+        """Generate embedding for a single text."""
+        try:
+            result = self.embed_texts_balanced([text])
+            return result[0] if result.size > 0 else np.array([])
+        except Exception as e:
+            logger.error(f"Failed to generate embedding for single text: {e}")
+            return np.array([])
+
 class EmbeddingService:
     """Factory class that creates appropriate embedding service based on device."""
     
     def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", 
-                 device: str = "cpu", batch_size: int = 16, use_subprocess: bool = True):  # Default to subprocess for memory safety
+                 device: str = "cpu", batch_size: int = 16, use_subprocess: bool = False, 
+                 memory_limit_gb: float = 6.0):  # Default to balanced approach
         self.device = device.lower()
         self.model_name = model_name
         self.use_subprocess = use_subprocess
+        self.memory_limit_gb = memory_limit_gb
         
         if self.device == "cuda":
             # Check if CUDA is actually available
@@ -393,17 +550,30 @@ class EmbeddingService:
         if self.use_subprocess:
             self.service = SubprocessEmbeddingService(model_name, self.device)
             logger.info("Created subprocess-based embedding service for maximum memory safety")
-        elif self.device == "cuda":
-            self.service = GPUEmbeddingService(model_name, batch_size)
+        elif memory_limit_gb < 3.0:
+            # Low memory limit - use subprocess
+            self.service = SubprocessEmbeddingService(model_name, self.device)
+            logger.info("Created subprocess service for low memory configuration")
+        elif memory_limit_gb > 10.0:
+            # High memory limit - use standard GPU/CPU service
+            if self.device == "cuda":
+                self.service = GPUEmbeddingService(model_name, batch_size)
+            else:
+                self.service = CPUEmbeddingService(model_name)
+            logger.info("Created standard embedding service for high memory configuration")
         else:
-            self.service = CPUEmbeddingService(model_name)
+            # Balanced approach
+            self.service = HybridEmbeddingService(model_name, self.device, batch_size, memory_limit_gb)
+            logger.info(f"Created hybrid embedding service (memory_limit: {memory_limit_gb}GB)")
         
-        logger.info(f"Created {self.device}-optimized embedding service (subprocess={self.use_subprocess})")
+        logger.info(f"Created {self.device}-optimized embedding service (subprocess={self.use_subprocess}, memory_limit={memory_limit_gb}GB)")
     
     def embed_texts(self, texts: List[str]) -> np.ndarray:
         """Generate embeddings using the appropriate strategy."""
         if isinstance(self.service, SubprocessEmbeddingService):
             return self.service.embed_texts_streaming(texts)
+        elif isinstance(self.service, HybridEmbeddingService):
+            return self.service.embed_texts_balanced(texts)
         elif isinstance(self.service, CPUEmbeddingService):
             return self.service.embed_texts_streaming(texts)
         else:

@@ -217,12 +217,12 @@ class RAGClient:
         total_files_processed = 0
         
         memory_start = get_memory_usage()
-        logger.info(f"Starting ultra-aggressive reindex for {repo_id} (memory: {memory_start:.2f}GB)")
+        logger.info(f"Starting balanced reindex for {repo_id} (memory: {memory_start:.2f}GB)")
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
-            # Process files one by one with immediate storage
+            # Process files one by one with balanced memory management
             for file_idx, file_path in enumerate(files):
                 try:
                     # Monitor memory before each file
@@ -231,15 +231,11 @@ class RAGClient:
                         logger.info(f"Processing file {file_idx+1}/{len(files)}: {file_path.name} (memory: {current_memory:.2f}GB)")
                         
                         # Force cleanup if memory is growing too much
-                        if current_memory > memory_start + 2.0:  # 2GB increase threshold
-                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing aggressive cleanup")
+                        if current_memory > memory_start + 4.0:  # 4GB increase threshold for balanced approach
+                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing cleanup")
                             force_cleanup()
                     
                     logger.debug(f"Processing file: {file_path.name}")
-                    
-                    # UNLOAD MODEL to free memory before document processing
-                    self.embedding_service._unload_model()
-                    force_cleanup()
                     
                     # Process single file
                     chunks = self.document_processor.process_file(
@@ -250,38 +246,27 @@ class RAGClient:
                     force_cleanup()
                     
                     if chunks:
-                        # Process this file incrementally - one chunk at a time
-                        for chunk_idx, chunk in enumerate(chunks):
-                            try:
-                                # Monitor memory before each chunk
-                                if chunk_idx % 10 == 0:
-                                    chunk_memory = get_memory_usage()
-                                    logger.debug(f"Processing chunk {chunk_idx+1}/{len(chunks)} from {file_path.name} (memory: {chunk_memory:.2f}GB)")
-                                
-                                # LOAD MODEL for single chunk processing
-                                self.embedding_service._load_model()
-                                
-                                # Generate embedding for single chunk
-                                embedding = self.embedding_service.embed_texts([chunk.content])
-                                
-                                if embedding.size > 0:
-                                    # Store immediately in vector store
-                                    self.vector_store.add_chunks([chunk], embedding)
-                                    total_chunks_processed += 1
-                                    
-                                    # Ultra-aggressive cleanup after each chunk
-                                    del embedding
-                                    self.embedding_service._unload_model()
-                                    force_cleanup()
-                                    
-                            except Exception as e:
-                                logger.error(f"Failed to process chunk {chunk_idx} from {file_path.name}: {e}")
-                                continue
+                        # Process this file in balanced batches
+                        chunk_texts = [chunk.content for chunk in chunks]
+                        
+                        # Generate embeddings in balanced batches
+                        embeddings = self.embedding_service.embed_texts(chunk_texts)
+                        
+                        if embeddings.size > 0 and len(embeddings) == len(chunks):
+                            # Store embeddings immediately
+                            self.vector_store.add_chunks(chunks, embeddings)
+                            total_chunks_processed += len(chunks)
+                            
+                            logger.debug(f"Processed {file_path.name}: {len(chunks)} chunks, total: {total_chunks_processed}")
+                        
+                        # Cleanup after processing file
+                        del embeddings
+                        del chunk_texts
+                        force_cleanup()
                     
                     total_files_processed += 1
                     
-                    # Ultra-aggressive cleanup after each file
-                    self.embedding_service._unload_model()
+                    # Balanced cleanup after each file
                     force_cleanup()
                     
                     if total_files_processed % 10 == 0:
@@ -289,14 +274,13 @@ class RAGClient:
                         logger.info(f"Progress: {total_files_processed} files, {total_chunks_processed} chunks (memory: {current_memory:.2f}GB)")
                         
                         # Force cleanup if memory is growing too much
-                        if current_memory > memory_start + 2.0:
-                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing aggressive cleanup")
+                        if current_memory > memory_start + 4.0:
+                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing cleanup")
                             force_cleanup()
                     
                 except Exception as e:
                     logger.error(f"Failed to process file {file_path}: {e}")
                     # Force cleanup after error
-                    self.embedding_service._unload_model()
                     force_cleanup()
                     continue
         
@@ -310,7 +294,7 @@ class RAGClient:
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed (ultra-aggressive)",
+                "Repository reindexed (balanced)",
                 f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files"
             )
         else:
