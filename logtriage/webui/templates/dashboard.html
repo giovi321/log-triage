@@ -41,7 +41,6 @@
       <span class="status-chip">Storage: {{ rag_status.vector_store_stats.persist_directory }}</span>
     {% elif rag_service_available and not rag_service_ready %}
       <span class="status-chip warn">RAG Initializing</span>
-      <span class="status-chip">Please wait and refresh the page to see the real status</span>
     {% else %}
       <span class="status-chip warn">RAG Disabled</span>
       <span class="status-chip">Service unavailable</span>
@@ -50,7 +49,7 @@
 
   <div class="status-strip" style="margin-top: 0.75rem;">
     <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
-    <span class="status-chip" id="rag-live-rss">RAG RSS: n/a</span>
+    <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
     <span class="status-chip" id="rag-live-init">Init: n/a</span>
   </div>
   
@@ -142,26 +141,30 @@
         const init = progress.initialization || {};
         const initProgress = (init.progress || {});
         const initText = initProgress.step_description || init.current_phase || 'n/a';
-        const initPct = (typeof initProgress.percentage === 'number') ? initProgress.percentage.toFixed(0) : null;
+        const idx = progress.indexing_progress || {};
+        const idxMeta = idx.indexing || {};
+        const updating = !!idxMeta.updating;
+        const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
+        const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
+
+        let initPct = (typeof initProgress.percentage === 'number') ? initProgress.percentage : null;
+        if (init && init.updating && updating && total > 0) {
+          initPct = (done / total) * 100;
+        }
+        const initPctText = (typeof initPct === 'number') ? initPct.toFixed(0) : null;
         if (initEl) {
-          initEl.textContent = initPct !== null ? `Init: ${initText} (${initPct}%)` : `Init: ${initText}`;
+          initEl.textContent = initPctText !== null ? `Init: ${initText} (${initPctText}%)` : `Init: ${initText}`;
           initEl.className = 'status-chip' + (init.updating ? ' warn' : '');
         }
 
         const proc = progress.process || {};
         if (rssEl) {
           if (typeof proc.rss_gb === 'number') {
-            rssEl.textContent = `RAG RSS: ${proc.rss_gb.toFixed(2)}GB`;
+            rssEl.textContent = `RAG memory: ${proc.rss_gb.toFixed(2)}GB`;
           } else {
-            rssEl.textContent = 'RAG RSS: n/a';
+            rssEl.textContent = 'RAG memory: n/a';
           }
         }
-
-        const idx = progress.indexing_progress || {};
-        const idxMeta = idx.indexing || {};
-        const updating = !!idxMeta.updating;
-        const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
-        const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
 
         if (updatingEl) {
           updatingEl.textContent = updating ? `Live indexing: running (${done}/${total})` : 'Live indexing: idle';
