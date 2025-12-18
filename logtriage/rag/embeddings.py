@@ -56,7 +56,7 @@ class SubprocessEmbeddingService:
             logger.debug(f"Generating embeddings for {len(texts)} texts (subprocess batched, memory: {memory_before:.2f}GB)")
             
             # Process in batches using subprocesses
-            all_embeddings = []
+            all_embeddings: List[np.ndarray] = []
             
             for i in range(0, len(texts), self.batch_size):
                 batch_texts = texts[i:i + self.batch_size]
@@ -77,8 +77,9 @@ class SubprocessEmbeddingService:
                         try:
                             response = json.loads(result.stdout)
                             if response.get("success") and "embeddings" in response:
-                                batch_embeddings = [np.array(emb) for emb in response["embeddings"]]
-                                all_embeddings.extend(batch_embeddings)
+                                batch = np.asarray(response["embeddings"], dtype=np.float32)
+                                if batch.ndim == 2 and batch.shape[0] == len(batch_texts):
+                                    all_embeddings.append(batch)
                             else:
                                 logger.error(f"Subprocess embedding failed: {response.get('error', 'Unknown error')}")
                         except json.JSONDecodeError as e:
@@ -100,7 +101,7 @@ class SubprocessEmbeddingService:
                     continue
             
             if all_embeddings:
-                result = np.array(all_embeddings)
+                result = np.vstack(all_embeddings)
                 logger.debug(f"Generated embeddings for {len(result)} texts")
                 
                 # Final cleanup

@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 import gc
+import psutil
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import importlib.util
@@ -52,6 +53,31 @@ initialization_status = {
     }
 }
 init_lock = threading.Lock()
+
+def _start_memory_monitor() -> None:
+    def _run() -> None:
+        process = psutil.Process(os.getpid())
+        while True:
+            time.sleep(60)
+            try:
+                rss_gb = process.memory_info().rss / 1024**3
+                stats: Dict[str, Any] = {}
+                if rag_client is not None:
+                    try:
+                        stats = rag_client.vector_store.get_stats()
+                    except Exception:
+                        stats = {}
+                logger.info(
+                    "RAG memory monitor: rss_gb=%.2f faiss_vectors=%s estimated_faiss_gb=%s",
+                    rss_gb,
+                    stats.get("faiss_vectors"),
+                    f"{stats.get('estimated_faiss_gb'):.2f}" if isinstance(stats.get("estimated_faiss_gb"), (int, float)) else stats.get("estimated_faiss_gb"),
+                )
+            except Exception:
+                continue
+
+    t = threading.Thread(target=_run, daemon=True, name="rag-memory-monitor")
+    t.start()
 
 # Pydantic models for API
 class FindingRequest(BaseModel):
@@ -166,6 +192,7 @@ def background_initialize_rag_client(config_path: Path) -> None:
         update_progress("initializing_client", 2, 5, "Initializing RAG client...")
         logger.info("Initializing RAG client...")
         rag_client = RAGClient(rag_config)
+        _start_memory_monitor()
         
         # Phase 3: Building modules
         update_progress("adding_modules", 3, 5, "Building module configurations...")

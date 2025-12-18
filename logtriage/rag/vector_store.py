@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import gc
+import threading
 
 from ..models import DocumentChunk
 
@@ -28,6 +29,9 @@ class VectorStore:
         self.max_chunks_in_memory = 1000  # FAISS can handle more
         self.embedding_dimension = 384  # Default for MiniLM
         
+        self._lock = threading.RLock()
+        self._index = None
+        
         # Initialize FAISS and SQLite
         self._init_faiss()
         self._init_sqlite()
@@ -35,10 +39,19 @@ class VectorStore:
         logger.info("FAISS vector store initialized")
     
     def _init_faiss(self):
-        """Initialize FAISS index path (don't load into memory)."""
+        """Initialize FAISS index."""
         try:
-            # Just ensure the directory exists, don't load the index
-            logger.info("FAISS vector store initialized (streaming mode)")
+            import faiss
+            
+            with self._lock:
+                if self.faiss_index_path.exists():
+                    self._index = faiss.read_index(str(self.faiss_index_path))
+                    self.embedding_dimension = int(self._index.d)
+                else:
+                    self._index = faiss.IndexFlatIP(self.embedding_dimension)
+                    faiss.write_index(self._index, str(self.faiss_index_path))
+            
+            logger.info("FAISS vector store initialized")
             
         except Exception as e:
             logger.error(f"Failed to initialize FAISS: {e}")
@@ -88,48 +101,44 @@ class VectorStore:
         try:
             logger.debug(f"Adding {len(chunks)} chunks to FAISS vector store (streaming)")
             
-            # Load existing index from disk (don't keep in memory)
             import faiss
-            if self.faiss_index_path.exists():
-                index = faiss.read_index(str(self.faiss_index_path))
-            else:
-                index = faiss.IndexFlatIP(self.embedding_dimension)
             
-            # Normalize embeddings for Inner Product similarity
-            normalized_embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
-            
-            # Add to FAISS index
-            start_idx = index.ntotal
-            index.add(normalized_embeddings)
-            
-            # Store metadata in SQLite
-            for i, chunk in enumerate(chunks):
-                faiss_idx = start_idx + i
-                metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
+            with self._lock:
+                if self._index is None:
+                    self._init_faiss()
                 
-                self.conn.execute("""
+                emb = np.asarray(embeddings, dtype=np.float32)
+                faiss.normalize_L2(emb)
+                
+                start_idx = int(self._index.ntotal)
+                self._index.add(emb)
+                
+                rows = []
+                for i, chunk in enumerate(chunks):
+                    faiss_idx = start_idx + i
+                    metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
+                    rows.append((
+                        chunk.chunk_id,
+                        chunk.repo_id,
+                        chunk.file_path,
+                        chunk.heading,
+                        chunk.content,
+                        chunk.commit_hash,
+                        metadata_json,
+                        faiss_idx
+                    ))
+                
+                self.conn.executemany("""
                     INSERT OR REPLACE INTO chunks 
                     (chunk_id, repo_id, file_path, heading, content, commit_hash, metadata, faiss_index)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    chunk.chunk_id,
-                    chunk.repo_id,
-                    chunk.file_path,
-                    chunk.heading,
-                    chunk.content,
-                    chunk.commit_hash,
-                    metadata_json,
-                    faiss_idx
-                ))
-            
-            self.conn.commit()
-            
-            # Save FAISS index to disk immediately
-            faiss.write_index(index, str(self.faiss_index_path))
-            
-            # CRITICAL: Unload index from memory
-            del index
-            del normalized_embeddings
+                """, rows)
+                self.conn.commit()
+                
+                faiss.write_index(self._index, str(self.faiss_index_path))
+                
+                del emb
+                del rows
             
             # Aggressive cleanup
             for _ in range(3):
@@ -145,20 +154,23 @@ class VectorStore:
               n_results: int = 5) -> Tuple[List[DocumentChunk], List[float]]:
         """Query for similar documents using FAISS with streaming approach."""
         try:
-            # Load index from disk (don't keep in memory)
             import faiss
-            if not self.faiss_index_path.exists():
-                logger.warning("FAISS index file not found")
-                return [], []
             
-            index = faiss.read_index(str(self.faiss_index_path))
-            
-            # Normalize query embedding
-            normalized_query = query_embedding / np.linalg.norm(query_embedding)
-            
-            # Search FAISS index
-            search_k = min(n_results * 2, index.ntotal)  # Get more to filter by repo
-            scores, indices = index.search(normalized_query.reshape(1, -1), search_k)
+            with self._lock:
+                if self._index is None:
+                    if not self.faiss_index_path.exists():
+                        logger.warning("FAISS index file not found")
+                        return [], []
+                    self._init_faiss()
+                
+                q = np.asarray(query_embedding, dtype=np.float32).reshape(1, -1)
+                faiss.normalize_L2(q)
+                
+                search_k = min(n_results * 2, int(self._index.ntotal))  # Get more to filter by repo
+                if search_k <= 0:
+                    return [], []
+                
+                scores, indices = self._index.search(q, search_k)
             
             chunks = []
             distances = []
@@ -199,9 +211,6 @@ class VectorStore:
                     # Limit results
                     if len(chunks) >= n_results:
                         break
-            
-            # CRITICAL: Unload index from memory
-            del index
             
             # Aggressive cleanup
             for _ in range(3):
@@ -255,14 +264,16 @@ class VectorStore:
                 # Note: We'd need to re-embed content here, but for now just create empty index
                 # In practice, we'd store embeddings or re-generate them
                 
-                self.index = new_index
-                faiss.write_index(self.index, str(self.faiss_index_path))
+                with self._lock:
+                    self._index = new_index
+                    faiss.write_index(self._index, str(self.faiss_index_path))
                 
                 logger.info("FAISS index rebuilt")
             else:
                 # Create empty index
-                self.index = faiss.IndexFlatIP(self.embedding_dimension)
-                faiss.write_index(self.index, str(self.faiss_index_path))
+                with self._lock:
+                    self._index = faiss.IndexFlatIP(self.embedding_dimension)
+                    faiss.write_index(self._index, str(self.faiss_index_path))
                 
         except Exception as e:
             logger.error(f"Failed to rebuild FAISS index: {e}")
@@ -305,12 +316,18 @@ class VectorStore:
             total_chunks = cursor.fetchone()['count']
             
             # Get FAISS index stats
-            faiss_count = self.index.ntotal
+            with self._lock:
+                faiss_count = int(self._index.ntotal) if self._index is not None else 0
+                faiss_dim = int(self._index.d) if self._index is not None else int(self.embedding_dimension)
+ 
+            estimated_faiss_bytes = faiss_count * faiss_dim * 4
+            estimated_faiss_gb = estimated_faiss_bytes / 1024**3
             
             return {
                 "total_chunks": total_chunks,
                 "faiss_vectors": faiss_count,
                 "embedding_dimension": self.embedding_dimension,
+                "estimated_faiss_gb": estimated_faiss_gb,
                 "persist_directory": str(self.persist_directory),
                 "index_type": "FAISS IndexFlatIP"
             }
