@@ -13,10 +13,7 @@ This guide helps you get started with RAG (Retrieval-Augmented Generation) in lo
 ### 1. Install Dependencies
 
 ```bash
-# Install RAG dependencies
-pip install sentence-transformers chromadb GitPython markdown
-
-# Or install everything with RAG extras
+# Install RAG
 pip install -e .[rag]
 ```
 
@@ -32,7 +29,7 @@ rag:
   vector_store_dir: "./rag_vector_store"
   embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
   device: "cpu"
-  batch_size: 32
+  batch_size: 3
   top_k: 5
   similarity_threshold: 0.7
   max_chunks: 10
