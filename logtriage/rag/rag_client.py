@@ -3,7 +3,10 @@
 import gc
 import logging
 import os
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 import threading
 import time
 from pathlib import Path
@@ -237,6 +240,8 @@ class RAGClient:
         def get_memory_usage():
             """Get current memory usage in GB."""
             try:
+                if psutil is None:
+                    return 0.0
                 process = psutil.Process(os.getpid())
                 return process.memory_info().rss / 1024**3
             except:

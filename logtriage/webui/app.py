@@ -5,12 +5,10 @@ import json
 import logging
 import os
 import sys
-import threading
 import time
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from collections import defaultdict
 
 # Import FastAPI and related dependencies
 try:
@@ -18,15 +16,11 @@ try:
     from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
     from fastapi.templating import Jinja2Templates
     from fastapi.staticfiles import StaticFiles
-    from fastapi.security import HTTPBasic, HTTPBasicCredentials
     try:
         from fastapi.middleware import SessionMiddleware
     except ImportError:
         # Fallback for older FastAPI versions
         from starlette.middleware.sessions import SessionMiddleware
-    from starlette.middleware.base import BaseHTTPMiddleware
-    from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
-    from starlette.responses import PlainTextResponse
 except ImportError as e:
     print(f"FastAPI dependencies are missing. Error: {e}", file=sys.stderr)
     print("Install with: pip install fastapi uvicorn jinja2 python-multipart", file=sys.stderr)
@@ -41,10 +35,10 @@ from ..llm_payload import write_llm_payloads, should_send_to_llm
 from ..utils import select_pipeline
 from ..stream import stream_file
 from ..alerts import send_alerts
-from ..webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index, update_finding_llm_data
 from ..version import __version__
 from ..notifications import add_notification, list_notifications, notification_summary
 from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
+from ..rag.monitor import RAGServiceMonitor
 
 # Import RAG client (optional import to avoid circular dependencies)
 try:
@@ -59,9 +53,6 @@ from .auth import authenticate_user, create_session_token, get_current_user, pwd
 logger = logging.getLogger(__name__)
 
 # Global RAG monitoring state
-rag_monitor_thread: Optional[threading.Thread] = None
-rag_monitor_stop_event = threading.Event()
-rag_monitor_lock = threading.Lock()
 rag_monitor_status = {
     "last_check": None,
     "rag_available": False,
@@ -69,6 +60,30 @@ rag_monitor_status = {
     "detailed_status": None,
     "check_interval": 10  # seconds
 }
+
+_rag_monitor: Optional[RAGServiceMonitor] = None
+
+
+def _get_webui_rag_service_url() -> Optional[str]:
+    try:
+        rag_config = build_rag_config(raw_config)
+    except Exception:
+        return None
+    if not rag_config or not getattr(rag_config, "enabled", False):
+        return None
+    return getattr(rag_config, "service_url", None) or "http://127.0.0.1:8091"
+
+
+def _webui_create_rag_client(service_url: str):
+    if create_rag_client is None:
+        raise RuntimeError("RAG client factory not available")
+    return create_rag_client(service_url, fallback=False)
+
+
+def _set_webui_rag_client(client) -> None:
+    global rag_client
+    rag_client = client
+
 from .db import (
     delete_all_findings,
     delete_findings_for_module,
@@ -79,6 +94,7 @@ from .db import (
     get_module_stats,
     count_open_findings_for_module,
     get_next_finding_index,
+    cleanup_old_findings,
     setup_database,
     get_recent_findings_for_module,
     update_finding_llm_data,
@@ -381,97 +397,41 @@ def _evaluate_regex_against_lines(
     return matches, error_msg
 
 
-def rag_monitor_worker():
-    """Background worker that periodically checks RAG service status."""
-    global rag_client, rag_monitor_status
-    
-    while not rag_monitor_stop_event.wait(rag_monitor_status["check_interval"]):
-        try:
-            # Check if we should try to initialize/reconnect to RAG service
-            if rag_client is None or not hasattr(rag_client, 'is_ready'):
-                # Try to create a new RAG client
-                if create_rag_client is not None:
-                    try:
-                        rag_config = build_rag_config(raw_config)
-                        if rag_config and rag_config.enabled:
-                            rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
-                            new_client = create_rag_client(rag_service_url, fallback=False)  # Don't fallback, we want to know actual status
-                            
-                            if new_client and hasattr(new_client, 'is_ready') and new_client.is_ready():
-                                with rag_monitor_lock:
-                                    rag_client = new_client
-                                    rag_monitor_status["rag_available"] = True
-                                    rag_monitor_status["rag_ready"] = True
-                                    logger.info("RAG service became available and ready")
-                            elif new_client and hasattr(new_client, 'is_healthy') and new_client.is_healthy():
-                                # Service is up but not ready yet
-                                with rag_monitor_lock:
-                                    rag_client = new_client
-                                    rag_monitor_status["rag_available"] = True
-                                    rag_monitor_status["rag_ready"] = False
-                                    logger.info("RAG service is available but still initializing")
-                    except Exception as e:
-                        logger.debug(f"RAG service not yet available: {e}")
-                        with rag_monitor_lock:
-                            rag_monitor_status["rag_available"] = False
-                            rag_monitor_status["rag_ready"] = False
-            else:
-                # Check existing client status
-                try:
-                    if rag_client and hasattr(rag_client, 'is_ready'):
-                        is_ready = rag_client.is_ready()
-                        is_healthy = rag_client.is_healthy() if hasattr(rag_client, 'is_healthy') else is_ready
-                        
-                        with rag_monitor_lock:
-                            rag_monitor_status["rag_available"] = is_healthy
-                            rag_monitor_status["rag_ready"] = is_ready
-                            
-                            # Get detailed status if available
-                            if hasattr(rag_client, '_make_request'):
-                                detailed_status = rag_client._make_request("GET", "/health")
-                                if detailed_status:
-                                    rag_monitor_status["detailed_status"] = detailed_status
-                                    
-                except Exception as e:
-                    logger.debug(f"RAG service check failed: {e}")
-                    with rag_monitor_lock:
-                        rag_monitor_status["rag_available"] = False
-                        rag_monitor_status["rag_ready"] = False
-                        rag_client = None  # Reset client
-            
-            with rag_monitor_lock:
-                rag_monitor_status["last_check"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                
-        except Exception as e:
-            logger.error(f"RAG monitor worker error: {e}")
-            with rag_monitor_lock:
-                rag_monitor_status["rag_available"] = False
-                rag_monitor_status["rag_ready"] = False
-
 def start_rag_monitor():
     """Start the RAG monitoring background thread."""
-    global rag_monitor_thread
-    
-    with rag_monitor_lock:
-        if rag_monitor_thread is None or not rag_monitor_thread.is_alive():
-            rag_monitor_stop_event.clear()
-            rag_monitor_thread = threading.Thread(target=rag_monitor_worker, daemon=True)
-            rag_monitor_thread.start()
-            logger.info("RAG monitoring thread started")
+    global _rag_monitor
+
+    if _rag_monitor is None:
+        _rag_monitor = RAGServiceMonitor(
+            status=rag_monitor_status,
+            get_service_url=_get_webui_rag_service_url,
+            create_client=_webui_create_rag_client,
+            get_client=lambda: rag_client,
+            set_client=_set_webui_rag_client,
+            timestamp_mode="iso",
+            include_detailed_status=True,
+            logger=logger,
+        )
+
+    _rag_monitor.start()
+    logger.info("RAG monitoring thread started")
+
 
 def stop_rag_monitor():
     """Stop the RAG monitoring background thread."""
-    global rag_monitor_thread
-    
-    rag_monitor_stop_event.set()
-    if rag_monitor_thread and rag_monitor_thread.is_alive():
-        rag_monitor_thread.join(timeout=5)
+    global _rag_monitor
+
+    if _rag_monitor is not None:
+        _rag_monitor.stop()
     logger.info("RAG monitoring thread stopped")
+
 
 def get_rag_monitor_status() -> Dict[str, Any]:
     """Get current RAG monitor status."""
-    with rag_monitor_lock:
+    if _rag_monitor is None:
         return rag_monitor_status.copy()
+    return _rag_monitor.get_status()
+
 
 def get_settings() -> WebUISettings:
     return settings
@@ -545,9 +505,6 @@ def _build_modules_from_config() -> List[ModuleConfig]:
 
 # Initialize RAG client after function definition
 _refresh_rag_client()
-
-
-from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
 
 
 def _render_config_editor(

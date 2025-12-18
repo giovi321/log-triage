@@ -20,10 +20,6 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "pyyaml>=6.0",
-        "sentence-transformers>=2.2.0",
-        "faiss-cpu>=1.7.0",
-        "GitPython>=3.1.0",
-        "markdown>=3.4.0",
     ],
     extras_require={
         "webui": [
@@ -37,6 +33,17 @@ setup(
             "itsdangerous>=2.1",
         ],
         "alerts": ["paho-mqtt>=1.6"],
+        "rag": [
+            "sentence-transformers>=2.2.0",
+            "faiss-cpu>=1.7.0",
+            "GitPython>=3.1.0",
+            "markdown>=3.4.0",
+            "numpy>=1.23.0",
+            "requests>=2.31.0",
+            "psutil>=5.9.0",
+            "fastapi>=0.109",
+            "uvicorn>=0.23",
+        ],
     },
     entry_points={
         "console_scripts": [

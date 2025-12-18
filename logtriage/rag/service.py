@@ -2,11 +2,13 @@
 
 import logging
 import os
-import sys
 import threading
 import time
 import gc
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import importlib.util
@@ -22,6 +24,7 @@ from pydantic import BaseModel
 
 from ..config import load_config, build_rag_config, build_modules, build_llm_config
 from ..models import GlobalLLMConfig, ModuleConfig
+from ..logging_setup import configure_logging_from_dict
 from ..notifications import add_notification, list_notifications
 from .rag_client import RAGClient
 
@@ -55,6 +58,10 @@ initialization_status = {
 init_lock = threading.Lock()
 
 def _start_memory_monitor() -> None:
+    if psutil is None:
+        logger.warning("psutil is not installed; RAG memory monitor disabled")
+        return
+
     def _run() -> None:
         process = psutil.Process(os.getpid())
         while True:
@@ -108,42 +115,7 @@ class ModuleConfigRequest(BaseModel):
 
 def configure_logging_from_config(cfg: dict) -> None:
     """Configure logging based on configuration dictionary."""
-    logging_config = cfg.get("logging", {})
-    
-    level = logging_config.get("level", "INFO")
-    format_str = logging_config.get("format", "%(asctime)s %(levelname)s %(name)s: %(message)s")
-    log_file = logging_config.get("file")
-    logger_levels = logging_config.get("loggers", {})
-    
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-    
-    handlers = []
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter(format_str))
-    handlers.append(console_handler)
-    
-    if log_file:
-        try:
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(logging.Formatter(format_str))
-            handlers.append(file_handler)
-        except Exception as e:
-            print(f"Warning: Could not create log file handler: {e}", file=sys.stderr)
-    
-    logging.basicConfig(
-        level=numeric_level,
-        handlers=handlers,
-        format=format_str,
-        force=True
-    )
-    
-    for logger_name, logger_level in logger_levels.items():
-        try:
-            logger = logging.getLogger(logger_name)
-            logger_numeric_level = getattr(logging, logger_level.upper(), logging.INFO)
-            logger.setLevel(logger_numeric_level)
-        except Exception as e:
-            print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
+    configure_logging_from_dict(cfg)
 
 def background_initialize_rag_client(config_path: Path) -> None:
     """Background thread to initialize the RAG client with configurable memory management."""

@@ -1,7 +1,10 @@
 """Client wrapper for communicating with the standalone RAG service."""
 
 import logging
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None
 import time
 from typing import List, Optional, Dict, Any
 from pathlib import Path
@@ -15,6 +18,10 @@ class RAGServiceClient:
     """Client for communicating with the standalone RAG service."""
     
     def __init__(self, service_url: str = "http://127.0.0.1:8091", timeout: int = 10):
+        if requests is None:
+            raise RuntimeError(
+                "requests is required for the RAG service client. Install with: pip install 'logtriage[rag]'"
+            )
         self.service_url = service_url.rstrip('/')
         self.timeout = timeout  # Shorter timeout for better responsiveness
         self.session = requests.Session()
@@ -190,8 +197,14 @@ class NoOpRAGClient:
 
 def create_rag_client(service_url: str = "http://127.0.0.1:8091", timeout: int = 10, fallback: bool = True):
     """Create a RAG client, optionally with fallback to NoOp client."""
-    client = RAGServiceClient(service_url, timeout)
-    
+    try:
+        client = RAGServiceClient(service_url, timeout)
+    except Exception as exc:
+        if fallback:
+            logger.warning(f"RAG service client unavailable ({exc}); using NoOp client")
+            return NoOpRAGClient()
+        raise
+     
     if fallback:
         # Test if service is ready, otherwise return NoOp client
         if not client.is_ready():

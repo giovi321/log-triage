@@ -388,6 +388,7 @@ def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
     
     return RAGGlobalConfig(
         enabled=True,
+        service_url=rag_cfg.get("service_url"),
         cache_dir=Path(rag_cfg.get("cache_dir", "./rag_cache")),
         vector_store_dir=Path(rag_cfg.get("vector_store_dir", "./rag_vector_store")),
         embedding_model=rag_cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2"),

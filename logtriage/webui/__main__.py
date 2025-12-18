@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
 import importlib.util
 
@@ -16,6 +15,7 @@ import uvicorn
 
 from .app import app, settings
 from ..config import load_config
+from ..logging_setup import configure_logging_from_dict
 
 
 def configure_logging_from_config(cfg: dict) -> None:
@@ -24,50 +24,7 @@ def configure_logging_from_config(cfg: dict) -> None:
     Args:
         cfg: Configuration dictionary containing logging settings
     """
-    logging_config = cfg.get("logging", {})
-    
-    # Default logging settings
-    level = logging_config.get("level", "INFO")
-    format_str = logging_config.get("format", "%(asctime)s %(levelname)s %(name)s: %(message)s")
-    log_file = logging_config.get("file")
-    logger_levels = logging_config.get("loggers", {})
-    
-    # Convert string level to logging constant
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-    
-    # Configure handlers
-    handlers = []
-    
-    # Console handler (always included)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter(format_str))
-    handlers.append(console_handler)
-    
-    # File handler (optional)
-    if log_file:
-        try:
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(logging.Formatter(format_str))
-            handlers.append(file_handler)
-        except Exception as e:
-            print(f"Warning: Could not create log file handler: {e}", file=sys.stderr)
-    
-    # Configure root logger
-    logging.basicConfig(
-        level=numeric_level,
-        handlers=handlers,
-        format=format_str,
-        force=True  # Override any existing configuration
-    )
-    
-    # Configure specific loggers
-    for logger_name, logger_level in logger_levels.items():
-        try:
-            logger = logging.getLogger(logger_name)
-            logger_numeric_level = getattr(logging, logger_level.upper(), logging.INFO)
-            logger.setLevel(logger_numeric_level)
-        except Exception as e:
-            print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
+    configure_logging_from_dict(cfg)
 
 
 def main():

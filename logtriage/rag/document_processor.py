@@ -4,7 +4,10 @@ import logging
 import re
 import gc
 import os
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Iterator
 import markdown
@@ -17,6 +20,8 @@ logger = logging.getLogger(__name__)
 def get_memory_usage():
     """Get current memory usage in GB."""
     try:
+        if psutil is None:
+            return 0.0
         process = psutil.Process(os.getpid())
         return process.memory_info().rss / 1024**3
     except:

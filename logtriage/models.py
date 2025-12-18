@@ -183,6 +183,7 @@ class RAGGlobalConfig:
     top_k: int
     similarity_threshold: float
     max_chunks: int
+    service_url: Optional[str] = None
     # Hidden advanced settings with sensible defaults
     embedding_batch_size: int = 32  # Keep for backward compatibility
     vector_store_type: str = "chroma"

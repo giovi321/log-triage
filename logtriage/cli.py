@@ -1,9 +1,7 @@
 import argparse
 import json
 import logging
-import os
 import sys
-import threading
 from threading import Event
 import time
 from pathlib import Path
@@ -11,6 +9,7 @@ from typing import Dict, List, Optional
 
 from .config import load_config, build_pipelines, build_rag_config, build_llm_config, build_modules
 from .models import GlobalLLMConfig, ModuleConfig, Severity, Finding, PipelineConfig
+from .logging_setup import configure_logging_from_dict
 from .engine import analyze_path
 from .llm_client import analyze_findings_with_llm
 from .llm_payload import write_llm_payloads, should_send_to_llm
@@ -19,6 +18,7 @@ from .stream import stream_file
 from .alerts import send_alerts
 from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
 from .version import __version__
+from .rag.monitor import RAGServiceMonitor
 
 # Import RAG client (optional import to avoid circular dependencies)
 try:
@@ -27,159 +27,86 @@ except ImportError:
     create_rag_client = None
 
 # Global RAG monitoring state for CLI
-rag_monitor_thread: Optional[threading.Thread] = None
-rag_monitor_stop_event = threading.Event()
-rag_monitor_lock = threading.Lock()
 rag_client = None
 rag_monitor_status = {
     "last_check": None,
     "rag_available": False,
     "rag_ready": False,
-    "check_interval": 15  # seconds
+    "check_interval": 15,
 }
 
 
-def rag_monitor_worker(config_path: Path):
-    """Background worker that periodically checks RAG service status for CLI."""
-    global rag_client, rag_monitor_status
-    logger = logging.getLogger(__name__)
-    
-    while not rag_monitor_stop_event.wait(rag_monitor_status["check_interval"]):
-        try:
-            # Check if we should try to initialize/reconnect to RAG service
-            if rag_client is None or not hasattr(rag_client, 'is_ready'):
-                # Try to create a new RAG client
-                if create_rag_client is not None:
-                    try:
-                        cfg = load_config(config_path)
-                        rag_config = build_rag_config(cfg)
-                        if rag_config and rag_config.enabled:
-                            rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
-                            new_client = create_rag_client(rag_service_url, fallback=False)  # Don't fallback, we want to know actual status
-                            
-                            if new_client and hasattr(new_client, 'is_ready') and new_client.is_ready():
-                                with rag_monitor_lock:
-                                    rag_client = new_client
-                                    rag_monitor_status["rag_available"] = True
-                                    rag_monitor_status["rag_ready"] = True
-                                    logger.info("RAG service became available and ready")
-                            elif new_client and hasattr(new_client, 'is_healthy') and new_client.is_healthy():
-                                # Service is up but not ready yet
-                                with rag_monitor_lock:
-                                    rag_client = new_client
-                                    rag_monitor_status["rag_available"] = True
-                                    rag_monitor_status["rag_ready"] = False
-                                    logger.info("RAG service is available but still initializing")
-                    except Exception as e:
-                        logger.debug(f"RAG service not yet available: {e}")
-                        with rag_monitor_lock:
-                            rag_monitor_status["rag_available"] = False
-                            rag_monitor_status["rag_ready"] = False
-            else:
-                # Check existing client status
-                try:
-                    if rag_client and hasattr(rag_client, 'is_ready'):
-                        is_ready = rag_client.is_ready()
-                        is_healthy = rag_client.is_healthy() if hasattr(rag_client, 'is_healthy') else is_ready
-                        
-                        with rag_monitor_lock:
-                            rag_monitor_status["rag_available"] = is_healthy
-                            rag_monitor_status["rag_ready"] = is_ready
-                                    
-                except Exception as e:
-                    logger.debug(f"RAG service check failed: {e}")
-                    with rag_monitor_lock:
-                        rag_monitor_status["rag_available"] = False
-                        rag_monitor_status["rag_ready"] = False
-                        rag_client = None  # Reset client
-            
-            with rag_monitor_lock:
-                rag_monitor_status["last_check"] = time.time()
-                
-        except Exception as e:
-            logger.error(f"RAG monitor worker error: {e}")
-            with rag_monitor_lock:
-                rag_monitor_status["rag_available"] = False
-                rag_monitor_status["rag_ready"] = False
+def _cli_get_rag_service_url(cfg_path: Path) -> Optional[str]:
+    try:
+        cfg = load_config(cfg_path)
+        rag_cfg = build_rag_config(cfg)
+    except Exception:
+        return None
+    if not rag_cfg or not getattr(rag_cfg, "enabled", False):
+        return None
+    return getattr(rag_cfg, "service_url", None) or "http://127.0.0.1:8091"
+
+
+def _cli_create_rag_client(service_url: str):
+    if create_rag_client is None:
+        raise RuntimeError("RAG client factory not available")
+    return create_rag_client(service_url, fallback=False)
+
+
+_rag_monitor: Optional[RAGServiceMonitor] = None
+
 
 def start_rag_monitor(config_path: Path):
     """Start the RAG monitoring background thread for CLI."""
-    global rag_monitor_thread
+    global _rag_monitor
     logger = logging.getLogger(__name__)
-    
-    with rag_monitor_lock:
-        if rag_monitor_thread is None or not rag_monitor_thread.is_alive():
-            rag_monitor_stop_event.clear()
-            rag_monitor_thread = threading.Thread(target=rag_monitor_worker, args=(config_path,), daemon=True)
-            rag_monitor_thread.start()
-            logger.info("RAG monitoring thread started")
+
+    if _rag_monitor is None:
+        _rag_monitor = RAGServiceMonitor(
+            status=rag_monitor_status,
+            get_service_url=lambda: _cli_get_rag_service_url(config_path),
+            create_client=_cli_create_rag_client,
+            get_client=lambda: rag_client,
+            set_client=lambda c: _set_cli_rag_client(c),
+            timestamp_mode="unix",
+            include_detailed_status=False,
+            logger=logger,
+        )
+
+    _rag_monitor.start()
+    logger.info("RAG monitoring thread started")
+
+
+def _set_cli_rag_client(client) -> None:
+    global rag_client
+    rag_client = client
+
 
 def stop_rag_monitor():
     """Stop the RAG monitoring background thread for CLI."""
-    global rag_monitor_thread
+    global _rag_monitor
     logger = logging.getLogger(__name__)
-    
-    rag_monitor_stop_event.set()
-    if rag_monitor_thread and rag_monitor_thread.is_alive():
-        rag_monitor_thread.join(timeout=5)
+
+    if _rag_monitor is not None:
+        _rag_monitor.stop()
     logger.info("RAG monitoring thread stopped")
+
 
 def get_rag_client() -> Optional:
     """Get current RAG client status for CLI."""
-    with rag_monitor_lock:
-        return rag_client if rag_monitor_status["rag_ready"] else None
+    if _rag_monitor is None:
+        return None
+    return _rag_monitor.get_ready_client()
+
 
 def configure_logging(cfg: Dict) -> None:
     """Configure logging based on configuration.
-    
+
     Args:
         cfg: Configuration dictionary containing logging settings
     """
-    logging_config = cfg.get("logging", {})
-    
-    # Default logging settings
-    level = logging_config.get("level", "INFO")
-    format_str = logging_config.get("format", "%(asctime)s %(levelname)s %(name)s: %(message)s")
-    log_file = logging_config.get("file")
-    logger_levels = logging_config.get("loggers", {})
-    
-    # Convert string level to logging constant
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-    
-    # Configure handlers
-    handlers = []
-    
-    # Console handler (always included)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter(format_str))
-    handlers.append(console_handler)
-    
-    # File handler (optional)
-    if log_file:
-        try:
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(logging.Formatter(format_str))
-            handlers.append(file_handler)
-        except Exception as e:
-            print(f"Warning: Could not create log file handler: {e}", file=sys.stderr)
-    
-    # Configure root logger
-    logging.basicConfig(
-        level=numeric_level,
-        handlers=handlers,
-        format=format_str,
-        force=True  # Override any existing configuration
-    )
-    
-    # Configure specific loggers
-    for logger_name, logger_level in logger_levels.items():
-        try:
-            logger = logging.getLogger(logger_name)
-            logger_numeric_level = getattr(logging, logger_level.upper(), logging.INFO)
-            logger.setLevel(logger_numeric_level)
-        except Exception as e:
-            print(f"Warning: Could not configure logger {logger_name}: {e}", file=sys.stderr)
-    
+    level, log_file = configure_logging_from_dict(cfg)
+ 
     # Log that configuration is complete
     logger = logging.getLogger(__name__)
     logger.info(f"Logging configured at level {level}")
