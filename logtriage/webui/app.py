@@ -875,7 +875,7 @@ async def get_rag_status():
         }
 
 
-@app.get("/api/rag/progress")
+@app.get("/api/rag/progress", name="rag_progress")
 async def get_rag_progress():
     monitor_data = get_rag_monitor_status()
 
