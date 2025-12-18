@@ -56,7 +56,7 @@ def subprocess_embed_texts(texts: List[str], model_name: str = "sentence-transfo
 
 def main():
     """Main function for subprocess execution."""
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 5:
         print(json.dumps({"error": "Usage: subprocess_embeddings.py <texts_json> <model_name> <device> <batch_size>"}))
         sys.exit(1)
     

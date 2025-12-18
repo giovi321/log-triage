@@ -84,7 +84,10 @@ class SubprocessEmbeddingService:
                         except json.JSONDecodeError as e:
                             logger.error(f"Failed to parse subprocess response: {e}")
                     else:
-                        logger.error(f"Subprocess failed with return code {result.returncode}: {result.stderr}")
+                        logger.error(f"Subprocess failed with return code {result.returncode}")
+                        logger.error(f"Subprocess stderr: {result.stderr}")
+                        logger.error(f"Subprocess stdout: {result.stdout}")
+                        logger.error(f"Command: {sys.executable} {self.subprocess_script} {json.dumps(batch_texts)[:100]}... {self.model_name} {self.device} {str(self.batch_size)}")
                     
                     # Force cleanup after each subprocess
                     force_cleanup()
