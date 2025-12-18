@@ -1,12 +1,15 @@
 import argparse
 import json
+import logging
 import sys
-from pathlib import Path
 from threading import Event
+import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
-from .models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig
-from .config import build_llm_config, build_modules, build_pipelines, load_config
+from .config import load_config, build_pipelines, build_rag_config, build_llm_config, build_modules
+from .models import GlobalLLMConfig, ModuleConfig, Severity, Finding, PipelineConfig
+from .logging_setup import configure_logging_from_dict
 from .engine import analyze_path
 from .llm_client import analyze_findings_with_llm
 from .llm_payload import write_llm_payloads, should_send_to_llm
@@ -15,6 +18,100 @@ from .stream import stream_file
 from .alerts import send_alerts
 from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
 from .version import __version__
+from .rag.monitor import RAGServiceMonitor
+
+# Import RAG client (optional import to avoid circular dependencies)
+try:
+    from .rag.service_client import create_rag_client
+except ImportError:
+    create_rag_client = None
+
+# Global RAG monitoring state for CLI
+rag_client = None
+rag_monitor_status = {
+    "last_check": None,
+    "rag_available": False,
+    "rag_ready": False,
+    "check_interval": 15,
+}
+
+
+def _cli_get_rag_service_url(cfg_path: Path) -> Optional[str]:
+    try:
+        cfg = load_config(cfg_path)
+        rag_cfg = build_rag_config(cfg)
+    except Exception:
+        return None
+    if not rag_cfg or not getattr(rag_cfg, "enabled", False):
+        return None
+    return getattr(rag_cfg, "service_url", None) or "http://127.0.0.1:8091"
+
+
+def _cli_create_rag_client(service_url: str):
+    if create_rag_client is None:
+        raise RuntimeError("RAG client factory not available")
+    return create_rag_client(service_url, fallback=False)
+
+
+_rag_monitor: Optional[RAGServiceMonitor] = None
+
+
+def start_rag_monitor(config_path: Path):
+    """Start the RAG monitoring background thread for CLI."""
+    global _rag_monitor
+    logger = logging.getLogger(__name__)
+
+    if _rag_monitor is None:
+        _rag_monitor = RAGServiceMonitor(
+            status=rag_monitor_status,
+            get_service_url=lambda: _cli_get_rag_service_url(config_path),
+            create_client=_cli_create_rag_client,
+            get_client=lambda: rag_client,
+            set_client=lambda c: _set_cli_rag_client(c),
+            timestamp_mode="unix",
+            include_detailed_status=False,
+            logger=logger,
+        )
+
+    _rag_monitor.start()
+    logger.info("RAG monitoring thread started")
+
+
+def _set_cli_rag_client(client) -> None:
+    global rag_client
+    rag_client = client
+
+
+def stop_rag_monitor():
+    """Stop the RAG monitoring background thread for CLI."""
+    global _rag_monitor
+    logger = logging.getLogger(__name__)
+
+    if _rag_monitor is not None:
+        _rag_monitor.stop()
+    logger.info("RAG monitoring thread stopped")
+
+
+def get_rag_client() -> Optional:
+    """Get current RAG client status for CLI."""
+    if _rag_monitor is None:
+        return None
+    return _rag_monitor.get_ready_client()
+
+
+def configure_logging(cfg: Dict) -> None:
+    """Configure logging based on configuration.
+
+    Args:
+        cfg: Configuration dictionary containing logging settings
+    """
+    level, log_file = configure_logging_from_dict(cfg)
+ 
+    # Log that configuration is complete
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging configured at level {level}")
+    if log_file:
+        logger.info(f"Also logging to file: {log_file}")
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -127,6 +224,14 @@ def run_module_batch(
         List of findings discovered during processing
     """
     pipeline_map: Dict[str, PipelineConfig] = {p.name: p for p in pipelines}
+    
+    # Get RAG client from monitor (will be None if not ready)
+    rag_client = get_rag_client()
+    if rag_client:
+        logger.info(f"Using RAG service client for module {mod.name}")
+    else:
+        logger.info(f"RAG service not ready for module {mod.name}, proceeding without RAG")
+    
     findings = analyze_path(
         mod.path,
         pipelines,
@@ -135,21 +240,28 @@ def run_module_batch(
         context_prefix_lines=mod.llm.context_prefix_lines,
         context_suffix_lines=mod.llm.context_suffix_lines,
         pipeline_override=mod.pipeline_name,
+        rag_client=rag_client,
     )
-
-    # Ensure continuous finding_index assignment across the entire module
-    try:
-        next_index = get_next_finding_index(mod.name)
-        for i, f in enumerate(findings):
-            f.finding_index = next_index + i
-    except Exception:
-        # Fallback to existing indices if database is not available
-        pass
-
+    
+    # Filter findings based on module configuration
+    findings = [
+        f
+        for f in findings
+        if f.severity in mod.severities and (not f.ignored or mod.include_ignored)
+    ]
+    
+    # Analyze findings with LLM if needed
+    if mod.llm.enabled and findings:
+        logger.info(f"Analyzing {len(findings)} findings with LLM for module {mod.name}")
+        findings = analyze_findings_with_llm(
+            findings,
+            mod.llm,
+            llm_defaults,
+            rag_client=rag_client,
+        )
+    
     for f in findings:
         f.needs_llm = should_send_to_llm(mod.llm, f.severity, f.excerpt)
-
-    analyze_findings_with_llm(findings, llm_defaults, mod.llm)
 
     for f in findings:
         if mod.alert_mqtt or mod.alert_webhook:
@@ -216,83 +328,111 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parse_args(argv)
 
     cfg_path = Path(args.config)
-    reload_event = Event()
-    last_cfg_mtime_ns: Optional[int] = None
+    
+    # Initial configuration load
+    cfg = load_config(cfg_path)
+    
+    # Configure logging based on config
+    configure_logging(cfg)
+    logger = logging.getLogger(__name__)
+    logger.info(f"logtriage starting with config: {cfg_path}")
+    
+    # Start RAG monitoring
+    start_rag_monitor(cfg_path)
+    
+    try:
+        reload_event = Event()
+        last_cfg_mtime_ns: Optional[int] = None
 
-    def _config_changed() -> bool:
-        nonlocal last_cfg_mtime_ns
-        if not args.reload_on_change:
+        def _config_changed() -> bool:
+            nonlocal last_cfg_mtime_ns
+            if not args.reload_on_change:
+                return False
+            try:
+                current = cfg_path.stat().st_mtime_ns
+            except FileNotFoundError:
+                return False
+            if last_cfg_mtime_ns is None:
+                return False
+            if current != last_cfg_mtime_ns:
+                reload_event.set()
+                return True
             return False
-        try:
-            current = cfg_path.stat().st_mtime_ns
-        except FileNotFoundError:
-            return False
-        if last_cfg_mtime_ns is None:
-            return False
-        if current != last_cfg_mtime_ns:
-            reload_event.set()
-            return True
-        return False
 
-    def _should_reload() -> bool:
-        return reload_event.is_set() or _config_changed()
+        def _should_reload() -> bool:
+            return reload_event.is_set() or _config_changed()
 
-    while True:
-        cfg = load_config(cfg_path)
-        pipelines = build_pipelines(cfg)
-        llm_defaults = build_llm_config(cfg)
-        modules = build_modules(cfg, llm_defaults)
+        while True:
+            cfg = load_config(cfg_path)
+            
+            # Reconfigure logging when config is reloaded
+            configure_logging(cfg)
+            logger = logging.getLogger(__name__)
+            logger.info("Configuration reloaded")
+            
+            pipelines = build_pipelines(cfg)
+            llm_defaults = build_llm_config(cfg)
+            modules = build_modules(cfg, llm_defaults)
 
-        try:
-            last_cfg_mtime_ns = cfg_path.stat().st_mtime_ns
-        except FileNotFoundError:
-            last_cfg_mtime_ns = None
+            try:
+                last_cfg_mtime_ns = cfg_path.stat().st_mtime_ns
+            except FileNotFoundError:
+                last_cfg_mtime_ns = None
 
-        # Optional database initialisation
-        db_cfg = {}
-        if isinstance(cfg, dict):
-            db_cfg = cfg.get("database") or {}
-        db_url = db_cfg.get("url")
-        retention_days = int(db_cfg.get("retention_days", 0) or 0)
-        if db_url:
-            setup_database(db_url)
-            if retention_days > 0:
-                try:
-                    cleanup_old_findings(retention_days)
-                except Exception:
-                    # do not abort if cleanup fails
-                    pass
+            # Optional database initialisation
+            db_cfg = {}
+            if isinstance(cfg, dict):
+                db_cfg = cfg.get("database") or {}
+            db_url = db_cfg.get("url")
+            retention_days = int(db_cfg.get("retention_days", 0) or 0)
+            if db_url:
+                setup_database(db_url)
+                if retention_days > 0:
+                    try:
+                        cleanup_old_findings(retention_days)
+                    except Exception:
+                        # do not abort if cleanup fails
+                        pass
 
-        modules_to_run = _modules_to_run(modules, args.module)
+            modules_to_run = _modules_to_run(modules, args.module)
 
-        if args.module and not modules_to_run:
-            print(f"No module named {args.module} found in config.", file=sys.stderr)
-            sys.exit(1)
+            logger.info(f"Found {len(modules)} total modules, {len(modules_to_run)} to run")
+            for mod in modules_to_run:
+                logger.info(f"Module: {mod.name} (mode: {mod.mode}, enabled: {mod.enabled})")
 
-        if not args.module and not modules_to_run:
-            print("No enabled modules found in config.", file=sys.stderr)
-            sys.exit(1)
+            if args.module and not modules_to_run:
+                logger.error(f"No module named {args.module} found in config")
+                print(f"No module named {args.module} found in config.", file=sys.stderr)
+                sys.exit(1)
 
+            if not args.module and not modules_to_run:
+                logger.error("No enabled modules found in config")
+                print("No enabled modules found in config.", file=sys.stderr)
+                sys.exit(1)
 
-        has_follow_module = any(mod.mode == "follow" for mod in modules_to_run)
+            has_follow_module = any(mod.mode == "follow" for mod in modules_to_run)
 
-        for mod in modules_to_run:
-            if mod.mode == "follow":
-                run_module_follow(
-                    mod,
-                    pipelines,
-                    llm_defaults,
-                    should_reload=_should_reload if args.reload_on_change else None,
-                )
-            else:
-                run_module_batch(mod, pipelines, llm_defaults)
+            for mod in modules_to_run:
+                if mod.mode == "follow":
+                    logger.info(f"Starting follow mode for module: {mod.name}")
+                    run_module_follow(
+                        mod,
+                        pipelines,
+                        llm_defaults,
+                        should_reload=_should_reload if args.reload_on_change else None,
+                    )
+                else:
+                    logger.info(f"Running batch mode for module: {mod.name}")
+                    run_module_batch(mod, pipelines, llm_defaults)
 
-            if args.reload_on_change and reload_event.is_set():
-                print("Reload requested; reloading configuration...", file=sys.stderr)
+                if args.reload_on_change and reload_event.is_set():
+                    logger.info("Reload requested; reloading configuration...")
+                    print("Reload requested; reloading configuration...", file=sys.stderr)
+                    break
+
+            if not (args.reload_on_change and reload_event.is_set() and has_follow_module):
                 break
 
-        if not (args.reload_on_change and reload_event.is_set() and has_follow_module):
-            break
-
-        reload_event.clear()
-
+    finally:
+        # Stop RAG monitoring on exit
+        stop_rag_monitor()

@@ -30,7 +30,7 @@
   .synced-pane { border-radius:0; background:transparent; padding:0; }
   .match-highlight { background:#3d2a0a; color:#f5c842; padding:0 0.1rem; border-radius:0.15rem; }
   .sort-toggle { margin-left:auto; display:flex; align-items:center; gap:0.35rem; }
-  .sort-toggle button { padding:0.25rem 0.6rem; font-size:0.85rem; }
+  .sort-toggle button { padding:0.5rem 0.7rem; font-size:0.95rem; }
   .sort-toggle button.active { background:#2e4472; border-color:#3c5c98; }
   .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
   .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
@@ -53,7 +53,11 @@
   .action-menu .menu-panel button:hover { background:#1b2234; }
   .action-menu .menu-panel button:focus { outline:none; box-shadow:0 0 0 1px #2f3b53; }
   button.danger { background:#7d3434; border:1px solid #a35f5f; color:#f8eaea; box-shadow:none; }
-  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
+  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:row; gap:0.75rem; align-items:stretch; }
+  .llm-workbench .prompt-panel { min-width:0; }
+  .llm-workbench .prompt-panel.llm-analysis-panel { flex:1 1 0; }
+  .llm-workbench .prompt-panel.llm-response-panel { flex:3 1 0; }
+  @media (max-width: 980px) { .llm-workbench { flex-direction:column; } }
   .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
   .prompt-grid textarea { height:240px; }
   .prompt-panel { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; display:flex; flex-direction:column; gap:0.4rem; height:100%; }
@@ -139,7 +143,6 @@
           <span class="muted">Selected:</span>
           <button type="button" class="secondary" id="select-all-lines" onclick="toggleSelectAllLines()">Select all</button>
           <button type="button" class="secondary" onclick="copySelectedLines()">Copy</button>
-          <button type="button" class="secondary" onclick="appendSelectedToPrompt()">Add to prompt</button>
           <div class="action-menu" id="mark-finding-menu">
             <button type="button" class="secondary menu-trigger" id="mark-finding-trigger" aria-haspopup="true" aria-expanded="false" onclick="toggleSeverityMenu()" {% if not current_module or not db_status.connected %}disabled{% endif %}>
               <span id="mark-finding-label">Mark as finding</span>
@@ -168,6 +171,7 @@
           <button type="button" class="secondary" id="load-more-btn" onclick="loadMoreLines()" style="padding:0.35rem 0.75rem;">Load older lines</button>
         {% endif %}
       <form id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}" style="display:none;">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
         <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
           <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
           <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -184,6 +188,7 @@
       {% endif %}
     </div>
     <form id="delete-selected-findings-form" method="post" action="{{ url_for('delete_selected_findings') }}" style="display:none;">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
       <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
       <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
@@ -223,7 +228,11 @@
                                 </div>
                                 <div class="finding-controls" style="margin:0; flex-shrink:0;">
                                 {% set finding_example = (finding_examples.get(line_finding.id) if finding_examples else None) %}
+                                {% if providers %}
+                                <button type="button" class="secondary" onclick="queryLLMForFinding('{{ line_finding.id }}')">Query LLM</button>
+                                {% endif %}
                                 <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
+                                  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
                                   <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
                                   <input type="hidden" name="module" value="{{ current_module.name }}">
                                   <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -233,6 +242,7 @@
                                   <button type="button" class="secondary" onclick="launchFalsePositiveFlow(this.form)">False positive</button>
                                 </form>
                                 <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ line_finding.id }}">
+                                  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
                                   <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
                                   <input type="hidden" name="module" value="{{ current_module.name }}">
                                   <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -257,6 +267,7 @@
                               {% set response_content = response_obj.content if response_obj else line_finding|attr('llm_response_content') %}
                               {% set response_provider = response_obj.provider if response_obj else line_finding|attr('llm_provider') %}
                               {% set response_model = response_obj.model if response_obj else line_finding|attr('llm_model') %}
+                              {% set response_error = line_finding|attr('llm_error') %}
                               {% if response_content %}
                                 <div class="finding-response" style="margin-top:0.5rem;" data-finding-summary="true" data-finding-id="{{ line_finding.id }}">
                                   {% if response_provider or response_model %}
@@ -264,6 +275,11 @@
                                   {% endif %}
                                   <div class="llm-body" style="max-height:120px;">{{ response_content }}</div>
                                   <div class="recorded-summary muted" data-summary-for="{{ line_finding.id }}" style="display:none;"></div>
+                                </div>
+                              {% elif response_error %}
+                                <div class="finding-response" style="margin-top:0.5rem; border-left:3px solid #b94a4a;" data-finding-summary="true" data-finding-id="{{ line_finding.id }}">
+                                  <div class="helper-text" style="margin:0;">AI error</div>
+                                  <div class="llm-body" style="max-height:120px;">{{ response_error }}</div>
                                 </div>
                               {% endif %}
                             </div>
@@ -336,37 +352,31 @@
 
     {% if providers %}
     <div class="llm-workbench">
-      <div class="grid prompt-grid">
-        <div class="prompt-panel">
-          <div class="prompt-shell">
-            <div class="prompt-title">
-              <span>Prompt builder</span>
-              <span id="llm-status" class="muted"></span>
-            </div>
-            <textarea id="llm-prompt" placeholder="{{ 'Paste lines or append from the log tail' }}"></textarea>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
-              <button type="button" onclick="sendLLMPrompt()">Send to LLM</button>
-              <button type="button" class="secondary" onclick="loadPredefinedPrompt()" {% if not module_prompt_template %}disabled{% endif %}>Load predefined prompt</button>
-            </div>
-            <label style="margin-top:0.35rem;">Provider
-              <select id="llm-provider">
-                {% for p in providers %}
-                  <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
-                {% endfor %}
-              </select>
-            </label>
-            <div id="provider-hints" class="helper-text"></div>
-          </div>
+      <div class="prompt-panel llm-analysis-panel">
+        <div class="prompt-title">
+          <span>LLM Analysis</span>
+          <span id="llm-status" class="muted"></span>
         </div>
-        <div class="prompt-panel">
-          <div class="prompt-title" style="margin-bottom:0.3rem;">AI opinion</div>
-          <div id="llm-response" class="llm-fixed-response muted">No AI opinion yet.</div>
-          <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
-          <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
-            <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
-            <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
-          </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.15rem;">
+          <label style="display:flex; align-items:center; gap:0.5rem;">
+            Provider:
+            <select id="llm-provider">
+              {% for p in providers %}
+                <option value="{{ p.name }}" {% if selected_provider and p.name == selected_provider %}selected{% endif %}>{{ p.name }} ({{ p.model }})</option>
+              {% endfor %}
+            </select>
+          </label>
         </div>
+        <div id="provider-hints" class="helper-text"></div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
+          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
+        </div>
+      </div>
+      <div class="prompt-panel llm-response-panel" style="flex:3; padding-left:0.5rem;">
+        <div class="prompt-title" style="margin-bottom:0.3rem;">AI Response</div>
+        <div id="llm-response" class="llm-fixed-response muted">Select a finding and click "Query LLM" to get AI analysis.</div>
+        <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
+        <div id="llm-citations" class="helper-text" style="margin-top:0.25rem;"></div>
       </div>
     </div>
   {% else %}
@@ -415,6 +425,7 @@
 </div>
 
 <form id="false-positive-hidden-form" method="post" action="{{ url_for('mark_false_positive') }}" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
   <input type="hidden" name="finding_id">
   <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
   <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -424,24 +435,29 @@
   <input type="hidden" name="regex_value">
 </form>
 
+<script type="application/json" id="csrf-token-json">{{ request.session.get('csrf_token', '')|tojson }}</script>
+<script type="application/json" id="provider-settings-json">{{ provider_settings|tojson }}</script>
+<script type="application/json" id="module-prompt-template-json">{{ module_prompt_template|tojson }}</script>
+<script type="application/json" id="regex-presets-json">{{ regex_presets|tojson }}</script>
+<script type="application/json" id="pagination-state-json">{{ {
+  'currentModule': (current_module.name if current_module else ''),
+  'sampleSource': sample_source,
+  'currentOffset': (sample_lines|length),
+  'startLine': sample_start_line,
+  'totalLines': total_lines,
+  'hasMore': (true if sample_start_line > 1 else false)
+}|tojson }}</script>
+
 <script>
-  const providerSettings = {{ provider_settings|tojson }};
-  const modulePromptTemplate = {{ module_prompt_template|tojson }};
-  const summaryPromptTemplate = {{ summary_prompt_template|tojson }};
-  const regexPresets = {{ regex_presets|tojson }};
-  {% raw %}const SUMMARY_PLACEHOLDER = '{{AI_OPINION}}';{% endraw %}
-  const recordedSummaries = {};
+  /* eslint-disable */
+  const csrfToken = JSON.parse((document.getElementById('csrf-token-json') || {}).textContent || '""');
+  const providerSettings = JSON.parse((document.getElementById('provider-settings-json') || {}).textContent || '{}');
+  const modulePromptTemplate = JSON.parse((document.getElementById('module-prompt-template-json') || {}).textContent || 'null');
+  const regexPresets = JSON.parse((document.getElementById('regex-presets-json') || {}).textContent || '{}');
 
   // Pagination state
-  const paginationState = {
-    currentModule: {{ (current_module.name if current_module else '')|tojson }},
-    sampleSource: {{ sample_source|tojson }},
-    currentOffset: {{ sample_lines|length }},
-    startLine: {{ sample_start_line }},
-    totalLines: {{ total_lines }},
-    hasMore: {{ 'true' if sample_start_line > 1 else 'false' }},
-    loading: false
-  };
+  const paginationStateInit = JSON.parse((document.getElementById('pagination-state-json') || {}).textContent || '{}');
+  const paginationState = Object.assign({ loading: false }, paginationStateInit || {});
 
   let lastLLMData = null;
   let activeFalsePositiveForm = null;
@@ -475,7 +491,9 @@
         sample_source: paginationState.sampleSource
       });
       
+      /* eslint-disable */
       const resp = await fetch(`{{ url_for('api_log_lines') }}?${params}`);
+      /* eslint-enable */
       const data = await resp.json();
       
       if (!resp.ok) {
@@ -634,6 +652,13 @@
           ${finding.llm_provider || finding.llm_model ? `<div class="helper-text" style="margin:0;">AI opinion: ${finding.llm_provider || 'Unknown provider'}${finding.llm_model ? ` · ${finding.llm_model}` : ''}</div>` : ''}
           <div class="llm-body" style="max-height:120px;">${escapeHtml(finding.llm_response_content)}</div>
           <div class="recorded-summary muted" data-summary-for="${finding.id}" style="display:none;"></div>
+        </div>
+      `;
+    } else if (finding.llm_error) {
+      html += `
+        <div class="finding-response" style="margin-top:0.5rem; border-left:3px solid #b94a4a;" data-finding-summary="true" data-finding-id="${finding.id}">
+          <div class="helper-text" style="margin:0;">AI error</div>
+          <div class="llm-body" style="max-height:120px;">${escapeHtml(finding.llm_error)}</div>
         </div>
       `;
     }
@@ -1026,17 +1051,50 @@
     copyText(selected.join('\n'));
   }
 
-  function appendSelectedToPrompt() {
-    const selected = collectSelectedLines();
-    if (!selected.length) return;
-    appendToPrompt(selected.join('\n'));
-  }
+  async function queryLLMForFinding(findingId) {
+    const status = document.getElementById('llm-status');
+    const respBox = document.getElementById('llm-response');
+    const usage = document.getElementById('llm-usage');
+    const citations = document.getElementById('llm-citations');
+    
+    if (status) status.textContent = 'Querying LLM for finding...';
+    respBox.textContent = '';
+    if (usage) usage.textContent = '';
+    if (citations) citations.textContent = '';
 
-  function appendToPrompt(text) {
-    const prompt = document.getElementById('llm-prompt');
-    if (!prompt || !text) return;
-    prompt.value = prompt.value ? `${prompt.value}\n${text}` : text;
-    prompt.focus();
+    const formData = new FormData();
+    formData.append('csrf_token', csrfToken);
+    formData.append('finding_id', findingId);
+    formData.append('provider', document.getElementById('llm-provider').value);
+
+    try {
+      /* eslint-disable */
+      const resp = await fetch('{{ url_for("llm_query_finding") }}', { method: 'POST', body: formData });
+      /* eslint-enable */
+      const responseData = await resp.json();
+      
+      if (!resp.ok) {
+        const errMsg = responseData.error || 'Unknown error';
+        if (status) status.textContent = `Error: ${errMsg}`;
+        if (respBox) respBox.textContent = errMsg;
+        return;
+      }
+
+      if (status) status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
+      respBox.textContent = responseData.content || '(empty response)';
+      
+      if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
+        if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
+      }
+      
+      if (responseData.citations && responseData.citations.length > 0) {
+        if (citations) citations.textContent = `Citations: ${responseData.citations.join(', ')}`;
+      }
+      
+      lastLLMData = responseData;
+    } catch (error) {
+      if (status) status.textContent = `Network error: ${error.message}`;
+    }
   }
 
   function refreshSelectedHighlights() {
@@ -1226,103 +1284,18 @@
     }
   }
 
-  function loadPredefinedPrompt() {
-    if (!modulePromptTemplate) return;
-    const prompt = document.getElementById('llm-prompt');
-    if (!prompt) return;
-    prompt.value = modulePromptTemplate;
-    prompt.focus();
-  }
-
   function updateProviderHints() {
     const select = document.getElementById('llm-provider');
     const hints = document.getElementById('provider-hints');
-    if (!select || !hints) return;
+    if (!select || !hints) {
+      return;
+    }
     const cfg = providerSettings[select.value];
     if (!cfg) {
       hints.textContent = '';
       return;
     }
     hints.textContent = `max_excerpt_lines ${cfg.max_excerpt_lines}, max_tokens ${cfg.max_output_tokens}, temp ${cfg.temperature}, top_p ${cfg.top_p}`;
-  }
-
-  async function callLLM(promptText) {
-    const provider = document.getElementById('llm-provider');
-    const status = document.getElementById('llm-status');
-    const respBox = document.getElementById('llm-response');
-    const usage = document.getElementById('llm-usage');
-    if (!provider || !respBox) return null;
-
-    if (!promptText) {
-      if (status) status.textContent = 'Enter a prompt to query the LLM.';
-      return null;
-    }
-
-    if (status) status.textContent = 'Sending...';
-    respBox.textContent = '';
-    if (usage) usage.textContent = '';
-
-    const formData = new FormData();
-    formData.append('provider', provider.value);
-    formData.append('prompt', promptText);
-
-    let responseData;
-    try {
-      const resp = await fetch('{{ url_for('llm_query') }}', { method: 'POST', body: formData });
-      responseData = await resp.json();
-      if (!resp.ok) {
-        throw new Error(responseData.error || 'Request failed');
-      }
-    } catch (err) {
-      if (status) status.textContent = err.message || 'Failed to reach LLM provider';
-      respBox.textContent = '';
-      return null;
-    }
-
-    if (status) status.textContent = `Response from ${responseData.provider} (${responseData.model})`;
-    respBox.textContent = responseData.content || '(empty response)';
-    if (responseData.usage && (responseData.usage.prompt_tokens || responseData.usage.completion_tokens)) {
-      if (usage) usage.textContent = `prompt_tokens: ${responseData.usage.prompt_tokens || 'n/a'}, completion_tokens: ${responseData.usage.completion_tokens || 'n/a'}`;
-    }
-    lastLLMData = responseData;
-    return responseData;
-  }
-
-  async function sendLLMPrompt() {
-    const prompt = document.getElementById('llm-prompt');
-    if (!prompt) return;
-    await callLLM(prompt.value.trim());
-  }
-
-  async function summarizeAndRecord() {
-    const respBox = document.getElementById('llm-response');
-    const status = document.getElementById('llm-status');
-    const targetFinding = getSelectedFindingId();
-    const responseText = respBox ? respBox.textContent.trim() : '';
-    if (!responseText) {
-      if (status) status.textContent = 'No AI opinion to summarize yet.';
-      return;
-    }
-    const template = typeof summaryPromptTemplate === 'string' && summaryPromptTemplate.trim()
-      ? summaryPromptTemplate
-      : `Write a short, concise summary that explains the error described in the following AI opinion and how to address it.\n\n${SUMMARY_PLACEHOLDER}`;
-    const summaryPrompt = template.includes(SUMMARY_PLACEHOLDER)
-      ? template.replace(SUMMARY_PLACEHOLDER, responseText)
-      : `${template.trim()}\n\n${responseText}`;
-    const data = await callLLM(summaryPrompt);
-    if (!data) return;
-    if (!targetFinding) {
-      if (status) status.textContent = 'Summary created. Select a finding line to record it.';
-      return;
-    }
-    recordedSummaries[targetFinding] = data.content || '';
-    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
-    if (summaryEl) {
-      summaryEl.textContent = `Recorded summary: ${recordedSummaries[targetFinding]}`;
-      summaryEl.style.display = 'block';
-    }
-    await persistOpinionToFinding(targetFinding, data);
-    if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
   }
 
   function getSelectedFindingIds() {
@@ -1376,7 +1349,6 @@
       if (status) status.textContent = 'Run an AI query before attaching.';
       return;
     }
-    recordedSummaries[targetFinding] = responseText;
     const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
     if (summaryEl) {
       summaryEl.textContent = `Recorded AI opinion: ${responseText}`;
@@ -1389,6 +1361,7 @@
   async function persistOpinionToFinding(findingId, data = {}) {
     const status = document.getElementById('llm-status');
     const payload = new FormData();
+    payload.append('csrf_token', csrfToken);
     payload.append('finding_id', findingId);
     payload.append('provider', data.provider || '');
     payload.append('model', data.model || '');
@@ -1403,7 +1376,9 @@
     }
 
     try {
-      const resp = await fetch('{{ url_for('record_finding_opinion') }}', { method: 'POST', body: payload });
+      /* eslint-disable */
+      const resp = await fetch('{{ url_for("record_finding_opinion") }}', { method: 'POST', body: payload });
+      /* eslint-enable */
       const dataResp = await resp.json();
       if (!resp.ok) {
         throw new Error(dataResp.error || 'Failed to store AI opinion.');

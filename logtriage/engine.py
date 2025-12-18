@@ -9,6 +9,12 @@ from .llm_payload import should_send_to_llm
 from .notifications import add_notification
 from .utils import iter_log_files, select_pipeline
 
+# Import RAG client (optional import to avoid circular dependencies)
+try:
+    from .rag import RAGClient
+except ImportError:
+    RAGClient = None
+
 
 def analyze_file(
     file_path: Path,
@@ -17,6 +23,8 @@ def analyze_file(
     excerpt_limit: int,
     context_prefix_lines: int,
     context_suffix_lines: int = 0,
+    rag_client: Optional["RAGClient"] = None,
+    module_name: str = None,
 ) -> List[Finding]:
     """Analyze a single log file using the specified pipeline.
     
@@ -110,6 +118,8 @@ def analyze_path(
     context_prefix_lines: int = 0,
     context_suffix_lines: int = 0,
     pipeline_override: Optional[str] = None,
+    rag_client: Optional["RAGClient"] = None,
+    module_name: str = None,
 ) -> List[Finding]:
     """Analyze a path (file or directory) for log findings.
     
@@ -148,6 +158,8 @@ def analyze_path(
             excerpt_limit,
             context_prefix_lines,
             context_suffix_lines,
+            rag_client,
+            module_name,
         )
 
     files = iter_log_files(root)
@@ -168,7 +180,7 @@ def analyze_path(
         else:
             pcfg = select_pipeline(pipelines, f)
         findings = analyze_file(
-            f, pcfg, llm_cfg, excerpt_limit, context_prefix_lines, context_suffix_lines
+            f, pcfg, llm_cfg, excerpt_limit, context_prefix_lines, context_suffix_lines, rag_client, module_name
         )
         all_findings.extend(findings)
     return all_findings

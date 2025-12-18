@@ -129,6 +129,7 @@
     Changes are validated as YAML and saved atomically. A <code>.bak</code> backup is written before replacing the file.
   </p>
   <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
     <div class="config-editor-grid">
       <div class="editor-pane">
         <div class="editor-surface">
@@ -164,7 +165,7 @@
                   aria-label="Reload configuration from disk">
             Reload from disk
           </button>
-          <button type="button" class="secondary" onclick="window.location.href='{{ url_for('dashboard') }}'">Cancel</button>
+          <button type="button" class="secondary" id="cancel-button" data-cancel-url="{{ url_for('dashboard') }}">Cancel</button>
           <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
         </div>
       </div>
@@ -176,7 +177,9 @@
       </div>
     </div>
   </form>
-  <form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true"></form>
+  <form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+  </form>
 </div>
 
 {# Local assets: put the files into logtriage/webui/assets #}
@@ -185,6 +188,8 @@
 <script src="{{ url_for('assets', path='codemirror.min.js') }}"></script>
 <script src="{{ url_for('assets', path='mode-yaml.min.js') }}"></script>
 <script src="{{ url_for('assets', path='js-yaml.min.js') }}"></script>
+
+<script type="application/json" id="context-hints-json">{{ context_hints | tojson }}</script>
 
 <script>
   const textarea = document.getElementById('config-text');
@@ -212,9 +217,17 @@
   const findNextButton = document.getElementById('find-next');
   const replaceOneButton = document.getElementById('replace-one');
   const replaceAllButton = document.getElementById('replace-all');
+  const cancelButton = document.getElementById('cancel-button');
+
+  if (cancelButton) {
+    cancelButton.addEventListener('click', () => {
+      const url = cancelButton.getAttribute('data-cancel-url') || '';
+      if (url) window.location.href = url;
+    });
+  }
 
   // Context hints from server
-  const hintTexts = {{ context_hints | tojson | safe }};
+  const hintTexts = JSON.parse((document.getElementById('context-hints-json') || {}).textContent || '{}');
   // Ensure we have a valid object
   const safeHints = hintTexts && typeof hintTexts === 'object' ? hintTexts : {};
   const hintsLoaded = Object.keys(safeHints).length > 0;

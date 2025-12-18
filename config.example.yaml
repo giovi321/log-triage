@@ -1,266 +1,628 @@
+# =============================================================================
+# Log Triage Configuration Example
+# =============================================================================
+# This file contains all available configuration options with detailed comments.
+# Copy this file to config.yaml and adjust the values for your environment.
+
+# =============================================================================
+# DEFAULTS (BACKWARD COMPATIBILITY)
+# =============================================================================
+# Optional fallback settings used for backward compatibility.
+# Prefer configuring the primary sections (llm/rag/etc.) directly.
+defaults:
+  # Backward-compatible alias for llm.enabled
+  llm_enabled: true
+  
+  # Backward-compatible global default for LLM excerpt size.
+  # Prefer llm.max_excerpt_lines.
+  max_excerpt_lines: 20
+
+# =============================================================================
+# GLOBAL LLM CONFIGURATION
+# =============================================================================
+# Configure LLM providers and global settings for AI-powered log analysis.
+# Each module can override these settings individually.
 llm:
+  # Enable/disable LLM functionality globally
   enabled: true
-  min_severity: WARNING
+  
+  # Default provider to use when modules don't specify one
+  # Must match one of the provider names defined below
   default_provider: local_vllm
-  summary_prompt_path: ./prompts/ai_opinion_summary.txt
+  
+  # Global context settings (can be overridden per module)
+  # Number of lines to include before and after a finding when sending to LLM
+  context_prefix_lines: 0    # Lines before the matching line
+  context_suffix_lines: 0    # Lines after the matching line
+
+  # Global LLM request defaults (providers inherit these unless overridden)
+  # Maximum number of log lines to send to the LLM per finding
+  max_excerpt_lines: 200
+  
+  # Backward-compatible alias for max_excerpt_lines
+  # max_chunk_lines: 200
+  
+  # Maximum number of tokens in the LLM response
+  max_output_tokens: 512
+  
+  # Backward-compatible alias for max_output_tokens
+  # max_tokens: 512
+  
+  # Request timeout in seconds
+  request_timeout: 30
+  
+  # Sampling parameters (0.0 = deterministic, 1.0 = very creative)
+  temperature: 0.0
+  top_p: 1.0
+  
+  # Define available LLM providers
   providers:
+    # OpenAI-compatible API provider
     openai:
+      # Base URL for the API (OpenAI or compatible services)
       api_base: https://api.openai.com/v1
+      # Backward-compatible alias for api_base
+      # base_url: https://api.openai.com/v1
+      
+      # Environment variable containing the API key
+      # Set this in your environment: export OPENAI_API_KEY=your_key
       api_key_env: OPENAI_API_KEY
+      
+      # Model to use for analysis
       model: gpt-5-mini
+      
+      # Maximum number of log lines to send to the LLM per finding
+      # Larger values provide more context but cost more tokens
       max_excerpt_lines: 500
+      
+      # Maximum number of tokens in the LLM response
       max_output_tokens: 512
+      
+      # Request timeout in seconds
       request_timeout: 45
+      
+      # Sampling parameters (0.0 = deterministic, 1.0 = very creative)
       temperature: 0.2
       top_p: 1.0
+      
+      # Optional: OpenAI organization ID
+      # organization: org-your-org-id
+      
+      # Optional: API version for Azure OpenAI
+      # api_version: 2023-12-01-preview
+    
+    # Local vLLM provider (for running models locally)
     local_vllm:
       api_base: http://127.0.0.1:8000/v1
-      api_key_env: null
+      api_key_env: null  # No API key needed for local models
       model: TheBloke/Mistral-7B-Instruct-v0.1-GPTQ
       max_excerpt_lines: 400
       max_output_tokens: 2048
       request_timeout: 60
       temperature: 0.1
       top_p: 1.0
-pipelines:
-- name: rsnapshot
-  match:
-    filename_regex: rsnapshot.*\.log
-  classifier:
-    type: rsnapshot_basic
-    error_regexes:
-    - 'ERROR:'
-    - rsync error
-    warning_regexes:
-    - WARNING
-    ignore_regexes:
-    - 'Could not write lockfile /var/run/rsnapshot\.pid: File exists'
-  grouping:
-    type: separator
-    separator_regex: '^rsnapshot '
-    only_last: true
-- name: homeassistant
-  match:
-    filename_regex: homeassistant.*\.log
-  classifier:
-    type: regex_counter
-    error_regexes:
-    - \berror\b
-    - Traceback
-    warning_regexes:
-    - \bwarning\b
-    - \bfailed to\b
-    ignore_regexes:
-    - Some noisy integration .* does not support.*
-- name: nextcloud
-  match:
-    filename_regex: nextcloud.*\.log
-  classifier:
-    type: regex_counter
-    error_regexes:
-    - '"level"\\s*:\\s*(3|4)'
-    - PHP (Fatal error|Parse error)
-    warning_regexes:
-    - '"level"\\s*:\\s*2'
-    - 'Login failed:'
-    ignore_regexes:
-    - .*Trusted domain error.*
-- name: authentik
-  match:
-    filename_regex: authentik.*\\.log
-  classifier:
-    type: regex_counter
-    error_regexes:
-    - '"level"\\s*:\\s*"(error|fatal|panic)"'
-    - '"status"\\s*:\\s*5\\d{2}'
-    warning_regexes:
-    - '"level"\\s*:\\s*"warning"'
-    - '"status"\\s*:\\s*4\\d{2}'
-    - No providers assigned to this outpost
-    ignore_regexes: []
-- name: apache2_access
-  match:
-    filename_regex: .*access\\.log
-  classifier:
-    type: regex_counter
-    error_regexes:
-    - '"\\s5\\d{2}\\s'
-    - upstream .* (error|timeout)
-    warning_regexes:
-    - '"\\s4\\d{2}\\s'
-    - connection (timed out|reset by peer)
-    ignore_regexes:
-    - '"\\s404\\s'
-    - (healthcheck|health-check|status|metrics)
-- name: apache2_error
-  match:
-    filename_regex: .*error\\.log
-  classifier:
-    type: regex_counter
-    error_regexes:
-    - \\[error\\]
-    - \\[(crit|alert|emerg)\\]
-    - client denied by server configuration
-    - Failed to (start|open|bind|connect|initialize)
-    warning_regexes:
-    - \\[warn\\]
-    - mod_(security|evasive)
-    ignore_regexes:
-    - 'AH00163: Apache/.* configured'
-modules:
-- name: rsnapshot
-  enabled: true
-  path: /var/log/rsnapshot.log
-  mode: batch
-  pipeline: rsnapshot
-  output_format: json
-  min_print_severity: WARNING
-  stale_after_minutes: 120
-  llm:
-    enabled: false
-    provider: local_vllm
-    prompt_template: ./prompts/rsnapshot.txt
-    emit_llm_payloads_dir: ./rsnapshot_payloads
-    context_prefix_lines: 2
-    context_suffix_lines: 2
-  alerts:
-    webhook:
-      enabled: false
-      url: https://example/rsnapshot-hook
-      method: POST
-      min_severity: ERROR
-      headers:
-        X-Source: logtriage
-    mqtt:
-      enabled: false
-      host: localhost
-      port: 1883
-      topic: logtriage/rsnapshot
-      username: ''
-      password: ''
-      min_severity: WARNING
-  - name: homeassistant
-  enabled: true
-  path: /var/log/fluent-bit/homeassistant.log
-  mode: follow
-  pipeline: homeassistant
-  output_format: text
-  min_print_severity: WARNING
-  stale_after_minutes: 60
-  llm:
-    enabled: false
-    provider: local_vllm
-    prompt_template: ./prompts/homeassistant.txt
-    emit_llm_payloads_dir: ./ha_llm_payloads
-    context_prefix_lines: 2
-    context_suffix_lines: 2
-  alerts:
-    mqtt:
-      enabled: false
-      host: localhost
-      port: 1883
-      topic: logtriage/homeassistant
-      min_severity: ERROR
-  stream:
-    from_beginning: false
-    interval: 1.0
-- name: nextcloud
-  enabled: true
-  path: /var/log/fluent-bit/nextcloud.log
-  mode: follow
-  pipeline: nextcloud
-  output_format: text
-  min_print_severity: WARNING
-  stale_after_minutes: 60
-  llm:
-    enabled: false
-    provider: local_vllm
-    prompt_template: ./prompts/nextcloud.txt
-    emit_llm_payloads_dir: ./nextcloud_llm_payloads
-    context_prefix_lines: 2
-  alerts:
-    webhook:
-      enabled: false
-      url: ''
-      method: POST
-      min_severity: ERROR
-      headers: {}
-  stream:
-    from_beginning: false
-    interval: 1.0
-- name: apache2_access
-  enabled: false
-  path: /var/log/apache2/vhosts
-  mode: follow
-  pipeline: apache2_access
-  output_format: text
-  min_print_severity: WARNING
-  stale_after_minutes: 60
-  llm:
-    provider: local_vllm
-    enabled: false
-    prompt_template: ./prompts/apache2.txt
-    emit_llm_payloads_dir: ./apache_llm_payloads
-    context_prefix_lines: 2
-  stream:
-    from_beginning: false
-    interval: 1.0
-- name: apache2_error
-  enabled: false
-  path: /var/log/apache2/vhosts
-  mode: follow
-  pipeline: apache2_error
-  output_format: text
-  min_print_severity: WARNING
-  stale_after_minutes: 60
-  llm:
-    provider: local_vllm
-    enabled: true
-    prompt_template: ./prompts/apache2.txt
-    emit_llm_payloads_dir: ./apache_llm_payloads
-    context_prefix_lines: 2
-  stream:
-    from_beginning: false
-    interval: 1.0
-- name: authentik
-  enabled: true
-  path: /var/log/fluent-bit/authentik.log
-  mode: follow
-  pipeline: authentik
-  output_format: text
-  min_print_severity: WARNING
-  stale_after_minutes: 60
-  llm:
-    provider: local_vllm
-    enabled: false
-    prompt_template: ./prompts/authentik.txt
-    emit_llm_payloads_dir: ./authentik_llm_payloads
-    context_prefix_lines: 2
-  alerts:
-    webhook:
-      enabled: false
-      url: ''
-      method: POST
-      min_severity: ERROR
-      headers: {}
-  stream:
-    from_beginning: false
-    interval: 1.0
 
-database:
-  url: sqlite:///./logtriage.db
-  retention_days: 30
-webui:
+# =============================================================================
+# RAG (Retrieval-Augmented Generation) CONFIGURATION
+# =============================================================================
+# Enhanced log analysis using documentation context from git repositories.
+# Requires the RAG service to be running separately.
+rag:
+  # Enable/disable RAG functionality
   enabled: true
-  host: 192.168.1.10
-  port: 8090
-  base_path: /
-  secret_key: CHANGE_THIS_TO_A_LONG_RANDOM_STRING
+
+  # Optional: URL of a standalone RAG service (if you run it separately)
+  # service_url: "http://127.0.0.1:8091"
+  
+  # Directory for caching downloaded repositories and processed data
+  cache_dir: "./rag_cache"
+  
+  # Directory where the vector database stores embeddings and metadata
+  vector_store_dir: "./rag_vector_store"
+  
+  # Model to use for creating text embeddings
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  
+  # Device to run embeddings on: "cpu" or "cuda"
+  device: "cpu"
+  
+  # Batch size for processing multiple texts at once
+  # Larger batches are faster but use more memory
+  batch_size: 32
+  
+  # Maximum number of document chunks to retrieve for each query
+  top_k: 5
+  
+  # Minimum similarity score (0.0-1.0) for retrieved documents
+  # Higher values = more relevant but fewer results
+  similarity_threshold: 0.7
+  
+  # Maximum number of chunks to include in the final context
+  max_chunks: 10
+
+  # Advanced settings
+  embedding:
+    # Batch size for embedding generation (advanced)
+    batch_size: 32
+  vector_store:
+    # Vector store implementation type (advanced)
+    type: chroma
+
+# =============================================================================
+# PIPELINE CONFIGURATION
+# =============================================================================
+# Define how logs are classified and grouped. Each pipeline contains:
+# - File matching rules
+# - Classification patterns (error/warning/ignore)
+# - Grouping strategy
+pipelines:
+  # Example pipeline for rsnapshot backup logs
+  - name: rsnapshot
+    # Match files based on filename pattern
+    match:
+      filename_regex: rsnapshot.*\.log
+    
+    # Classification rules
+    classifier:
+      type: rsnapshot_basic  # Special classifier for rsnapshot logs
+      
+      # Patterns that identify ERROR severity issues
+      error_regexes:
+        - 'ERROR:'
+        - rsync error
+      
+      # Patterns that identify WARNING severity issues
+      warning_regexes:
+        - WARNING
+      
+      # Patterns to ignore (won't create findings)
+      ignore_regexes:
+        - 'Could not write lockfile /var/run/rsnapshot\.pid: File exists'
+    
+    # How to group related log entries
+    grouping:
+      type: separator  # Group by separator pattern
+      # start_regex/end_regex are accepted too; they are used as additional markers
+      # by some classifiers (e.g. rsnapshot_basic).
+      # start_regex: '^rsnapshot '
+      # end_regex: '^rsnapshot '
+      separator_regex: '^rsnapshot '  # Start each group at this pattern
+      only_last: true  # Only keep the last entry in each group
+
+  # Example pipeline for Home Assistant logs
+  - name: homeassistant
+    match:
+      filename_regex: homeassistant.*\.log
+    classifier:
+      type: regex_counter  # Standard regex-based classifier
+      
+      error_regexes:
+        - \berror\b      # Whole word "error"
+        - Traceback       # Python stack traces
+      
+      warning_regexes:
+        - \bwarning\b
+        - \bfailed to\b
+      
+      ignore_regexes:
+        - Some noisy integration .* does not support.*
+    
+    grouping:
+      type: whole_file  # Treat entire file as one group
+
+  # Example pipeline for Nextcloud logs
+  - name: nextcloud
+    match:
+      filename_regex: nextcloud.*\.log
+    classifier:
+      type: regex_counter
+      
+      error_regexes:
+        - '"level"\\s*:\\s*(3|4)'  # Nextcloud error levels
+        - PHP (Fatal error|Parse error)
+      
+      warning_regexes:
+        - '"level"\\s*:\\s*2'
+        - 'Login failed:'
+      
+      ignore_regexes:
+        - .*Trusted domain error.*
+    
+    grouping:
+      type: whole_file
+
+  # Example pipeline for Authentik logs
+  - name: authentik
+    match:
+      filename_regex: authentik.*\.log
+    classifier:
+      type: regex_counter
+      
+      error_regexes:
+        - '"level"\\s*:\\s*"(error|fatal|panic)"'
+        - '"status"\\s*:\\s*5\d{2}'  # HTTP 5xx errors
+      
+      warning_regexes:
+        - '"level"\\s*:\\s*"warning"'
+        - '"status"\\s*:\\s*4\d{2}'  # HTTP 4xx errors
+        - No providers assigned to this outpost
+      
+      ignore_regexes: []  # Empty list means no ignore patterns
+    
+    grouping:
+      type: whole_file
+
+  # Example pipeline for Apache access logs
+  - name: apache2_access
+    match:
+      filename_regex: .*access\.log
+    classifier:
+      type: regex_counter
+      
+      error_regexes:
+        - '"\\s5\d{2}\\s'  # HTTP 5xx responses
+        - upstream .* (error|timeout)
+      
+      warning_regexes:
+        - '"\\s4\d{2}\\s'  # HTTP 4xx responses
+        - connection (timed out|reset by peer)
+      
+      ignore_regexes:
+        - '"\\s404\\s'  # Ignore 404s (often noise)
+        - (healthcheck|health-check|status|metrics)  # Ignore monitoring requests
+    
+    grouping:
+      type: whole_file
+
+  # Example pipeline for Apache error logs
+  - name: apache2_error
+    match:
+      filename_regex: .*error\.log
+    classifier:
+      type: regex_counter
+      
+      error_regexes:
+        - \\[error\\]
+        - \\[ (crit|alert|emerg)\\]
+        - client denied by server configuration
+        - Failed to (start|open|bind|connect|initialize)
+      
+      warning_regexes:
+        - \\[warn\\]
+        - mod_(security|evasive)
+      
+      ignore_regexes:
+        - 'AH00163: Apache/.* configured'
+    
+    grouping:
+      type: whole_file
+# =============================================================================
+# MODULE CONFIGURATION
+# =============================================================================
+# Define which log files to monitor and which pipeline to use for each.
+# Each module represents a log source with its own settings.
+modules:
+  # Example: rsnapshot backup monitoring
+  - name: rsnapshot
+    enabled: true  # Enable/disable this module
+    
+    # Path to the log file or directory
+    path: /var/log/rsnapshot.log
+    
+    # Processing mode: "batch" (run once) or "follow" (continuous monitoring)
+    mode: batch
+    
+    # Which pipeline to use for classification
+    pipeline: rsnapshot
+    
+    # Output format: "text" (console) or "json" (structured)
+    output_format: json
+    
+    # Minimum severity to print to console/output
+    # Options: WARNING, ERROR, CRITICAL
+    min_print_severity: WARNING
+    
+    # Mark findings as "stale" after this many minutes
+    # Used for tracking old issues that haven't been resolved
+    stale_after_minutes: 120
+    
+    # LLM configuration for this module
+    llm:
+      enabled: false  # Enable/disable LLM for this module
+      
+      # Minimum severity to automatically send to LLM
+      # Only used for automatic processing, not manual web UI requests
+      min_severity: WARNING
+      
+      # Which provider to use (overrides global default)
+      provider: local_vllm
+      
+      # Custom prompt template for this module
+      prompt_template: ./prompts/rsnapshot.txt
+      
+      # Directory to save LLM payloads for debugging
+      emit_llm_payloads_dir: ./rsnapshot_payloads
+
+      # Alternative location for emit_llm_payloads_dir:
+      # you can also set it at the module level as emit_llm_payloads_dir.
+      
+      # Context lines around findings (overrides global settings)
+      context_prefix_lines: 2
+      context_suffix_lines: 2
+
+      # Maximum number of log lines to send to the LLM per finding for this module
+      # (overrides provider/global defaults)
+      # max_excerpt_lines: 200
+      
+      # Backward-compatible alias for max_excerpt_lines
+      # max_chunk_lines: 200
+      
+      # Maximum output tokens for this module
+      # max_output_tokens: 512
+      
+      # Backward-compatible alias for max_output_tokens
+      # max_tokens: 512
+
+    # Optional: set emit_llm_payloads_dir at the module level
+    # (used when modules.llm.emit_llm_payloads_dir is not set)
+    # emit_llm_payloads_dir: ./rsnapshot_payloads
+    
+    # Alert configuration for this module
+    alerts:
+      # Webhook alerts (HTTP POST notifications)
+      webhook:
+        enabled: false
+        url: https://example/rsnapshot-hook
+        method: POST  # GET, POST, PUT, DELETE
+        min_severity: ERROR  # Minimum severity to trigger webhook
+        headers:
+          X-Source: logtriage
+          Authorization: Bearer your-token
+      
+      # MQTT alerts (publish to MQTT broker)
+      mqtt:
+        enabled: false
+        host: localhost
+        port: 1883
+        topic: logtriage/rsnapshot
+        username: ''
+        password: ''
+        min_severity: WARNING
+    
+    # RAG configuration for this module
+    rag:
+      enabled: false  # Enable RAG for this module
+      knowledge_sources:
+        - repo_url: "https://github.com/example/documentation"
+          branch: "main"
+          include_paths:
+            - "docs/**/*.md"
+            - "docs/**/*.rst"
+            - "README.md"
+
+  # Example: Home Assistant monitoring with LLM and RAG enabled
+  - name: homeassistant
+    enabled: true
+    path: /var/log/fluent-bit/homeassistant.log
+    mode: follow  # Continuous monitoring
+    pipeline: homeassistant
+    output_format: text
+    min_print_severity: WARNING
+    stale_after_minutes: 60
+    
+    llm:
+      enabled: true
+      min_severity: WARNING
+      provider: local_vllm
+      prompt_template: ./prompts/homeassistant.txt
+      emit_llm_payloads_dir: ./ha_llm_payloads
+      context_prefix_lines: 2
+      context_suffix_lines: 2
+    
+    # RAG configuration with multiple knowledge sources
+    rag:
+      enabled: true
+      knowledge_sources:
+        - repo_url: "https://github.com/home-assistant/developers.home-assistant"
+          branch: "master"
+          include_paths:
+            - "docs/**/*.md"
+            - "docs/**/*.rst"
+        - repo_url: "https://github.com/home-assistant/home-assistant.io"
+          branch: "current"
+          include_paths:
+            - "source/**/*.md"
+            - "source/**/*.markdown"
+    
+    alerts:
+      mqtt:
+        enabled: false
+        host: localhost
+        port: 1883
+        topic: logtriage/homeassistant
+        min_severity: ERROR
+    
+    # Stream configuration (for follow mode)
+    stream:
+      from_beginning: false  # Start from end of file or read entire file
+      interval: 1.0          # Check interval in seconds
+
+  # Example: Nextcloud monitoring
+  - name: nextcloud
+    enabled: true
+    path: /var/log/fluent-bit/nextcloud.log
+    mode: follow
+    pipeline: nextcloud
+    output_format: text
+    min_print_severity: WARNING
+    stale_after_minutes: 60
+    
+    llm:
+      enabled: false
+      provider: local_vllm
+      prompt_template: ./prompts/nextcloud.txt
+      emit_llm_payloads_dir: ./nextcloud_llm_payloads
+      context_prefix_lines: 2
+    
+    alerts:
+      webhook:
+        enabled: false
+        url: ''
+        method: POST
+        min_severity: ERROR
+        headers: {}
+    
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  # Example: Apache access logs (disabled by default)
+  - name: apache2_access
+    enabled: false
+    path: /var/log/apache2/vhosts
+    mode: follow
+    pipeline: apache2_access
+    output_format: text
+    min_print_severity: WARNING
+    stale_after_minutes: 60
+    
+    llm:
+      enabled: false
+      provider: local_vllm
+      prompt_template: ./prompts/apache2.txt
+      emit_llm_payloads_dir: ./apache_llm_payloads
+      context_prefix_lines: 2
+    
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  # Example: Apache error logs
+  - name: apache2_error
+    enabled: false
+    path: /var/log/apache2/vhosts
+    mode: follow
+    pipeline: apache2_error
+    output_format: text
+    min_print_severity: WARNING
+    stale_after_minutes: 60
+    
+    llm:
+      enabled: true
+      min_severity: WARNING
+      provider: local_vllm
+      prompt_template: ./prompts/apache2.txt
+      emit_llm_payloads_dir: ./apache_llm_payloads
+      context_prefix_lines: 2
+    
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+  # Example: Authentik authentication logs
+  - name: authentik
+    enabled: true
+    path: /var/log/fluent-bit/authentik.log
+    mode: follow
+    pipeline: authentik
+    output_format: text
+    min_print_severity: WARNING
+    stale_after_minutes: 60
+    
+    llm:
+      enabled: false
+      provider: local_vllm
+      prompt_template: ./prompts/authentik.txt
+      emit_llm_payloads_dir: ./authentik_llm_payloads
+      context_prefix_lines: 2
+    
+    alerts:
+      webhook:
+        enabled: false
+        url: ''
+        method: POST
+        min_severity: ERROR
+        headers: {}
+    
+    stream:
+      from_beginning: false
+      interval: 1.0
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+# Configure the database for storing findings and metadata.
+database:
+  # Database URL (SQLite, PostgreSQL, MySQL supported)
+  # SQLite: sqlite:///./logtriage.db
+  # PostgreSQL: postgresql://user:password@host:port/database
+  # MySQL: mysql://user:password@host:port/database
+  url: sqlite:///./logtriage.db
+  
+  # How many days to keep findings in the database
+  # Findings older than this will be automatically cleaned up
+  retention_days: 30
+
+# =============================================================================
+# WEB UI CONFIGURATION
+# =============================================================================
+# Configure the web interface for viewing and managing findings.
+webui:
+  # Enable/disable the web UI
+  enabled: true
+  
+  # Network configuration
+  host: 192.168.1.10  # IP address to bind to (0.0.0.0 for all interfaces)
+  port: 8090          # Port to listen on
+  base_path: /        # URL base path (useful for reverse proxies)
+  
+  # Security configuration
+  secret_key: CHANGE_THIS_TO_A_LONG_RANDOM_STRING  # Used for session encryption
   session_cookie_name: logtriage_session
-  dark_mode_default: true
-  allowed_ips:
-  - 192.168.1.1
-  - 127.0.0.1
+  
+  # UI preferences
+  dark_mode_default: true  # Default to dark theme
+
+  # CSRF protection for form posts
+  csrf_enabled: true
+  
+  # Access control
+  allowed_ips:  # Restrict access to specific IP addresses (empty = allow all)
+    - 192.168.1.1
+    - 127.0.0.1
+  
+  # Admin users for authentication
+  # Password hash can be generated with: python -c "import bcrypt; print(bcrypt.hashpw('password'.encode(), bcrypt.gensalt()).decode())"
   admin_users:
-  - username: admin
-    password_hash: $2b$12$EwA1JG39.DQ4BK7YI33IxevagDfo4Nx5PvuRbVBA6.9ZmfPiVrAr. # This password is 'admin123'
+    - username: admin
+      password_hash: $2b$12$EwA1JG39.DQ4BK7YI33IxevagDfo4Nx5PvuRbVBA6.9ZmfPiVrAr.  # This password is 'admin123'
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+# Configure application logging levels and outputs.
+logging:
+  # Global logging level
+  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Log message format
+  format: "%(asctime)s %(levelname)s %(name)s: %(message)s"
+  
+  # Log to file (comment out to only log to stdout/stderr)
+  file: "./logtriage.log"
+  
+  # Configure specific loggers with different levels
+  loggers:
+    # Verbose logging for RAG operations (useful for debugging)
+    logtriage.rag: "DEBUG"
+    
+    # Core component logging
+    logtriage.engine: "INFO"
+    logtriage.llm_client: "INFO"
+    
+    # Reduce noise from stream processing (many status messages)
+    logtriage.stream: "WARNING"
+    
+    # Web UI logging
+    logtriage.webui: "INFO"

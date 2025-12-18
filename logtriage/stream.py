@@ -12,6 +12,15 @@ from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
 from .webui.db import store_finding, get_next_finding_index
 
+# Import RAG service client (optional import to avoid circular dependencies)
+try:
+    from .rag.service_client import create_rag_client
+    from .config import load_config, build_rag_config
+except ImportError:
+    create_rag_client = None
+    load_config = None
+    build_rag_config = None
+
 
 def _stat_inode(path: Path) -> Optional[Tuple[int, int, int]]:
     """Return (inode, device, size) tuple or None if path is missing."""
@@ -133,6 +142,24 @@ def stream_file(
         deque(maxlen=context_prefix_lines) if context_prefix_lines > 0 else deque()
     )
 
+    # Create RAG client if available
+    rag_client = None
+    if create_rag_client is not None and load_config is not None and build_rag_config is not None:
+        try:
+            # Load config to get RAG settings
+            config_path = Path(os.environ.get("LOGTRIAGE_CONFIG", "./config.yaml"))
+            cfg = load_config(config_path)
+            rag_config = build_rag_config(cfg)
+            if rag_config and rag_config.enabled:
+                rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
+                rag_client = create_rag_client(rag_service_url, fallback=True)
+                if rag_client.is_healthy():
+                    print(f"RAG service client configured for module {mod.name}")
+                else:
+                    print(f"RAG service unavailable for module {mod.name}, proceeding without RAG")
+        except Exception as e:
+            print(f"Warning: Failed to initialize RAG service client for {mod.name}: {e}, proceeding without RAG")
+
     try:
         finding_index = get_next_finding_index(mod.name) - 1
     except Exception:
@@ -179,7 +206,7 @@ def stream_file(
 
         for f in findings:
             if f.needs_llm:
-                analyze_findings_with_llm([f], llm_defaults, mod.llm)
+                analyze_findings_with_llm([f], llm_defaults, mod.llm, rag_client=rag_client, module_name=mod.name)
             if emit_llm_dir is not None and f.needs_llm:
                 write_llm_payloads([f], mod.llm, emit_llm_dir)
 

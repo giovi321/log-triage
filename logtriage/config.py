@@ -18,6 +18,9 @@ from .models import (
     ModuleLLMConfig,
     PipelineConfig,
     Severity,
+    RAGGlobalConfig,
+    RAGModuleConfig,
+    KnowledgeSourceConfig,
 )
 
 
@@ -149,9 +152,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
     defaults = cfg.get("defaults", {}) or {}
 
     enabled = bool(llm_cfg.get("enabled", defaults.get("llm_enabled", False)))
-    min_severity = Severity.from_string(
-        llm_cfg.get("min_severity", defaults.get("llm_min_severity", "WARNING"))
-    )
     default_provider = llm_cfg.get("default_provider")
 
     base_max_excerpt_lines = int(
@@ -168,8 +168,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
     base_request_timeout = float(llm_cfg.get("request_timeout", 30.0))
     base_temperature = float(llm_cfg.get("temperature", 0.0))
     base_top_p = float(llm_cfg.get("top_p", 1.0))
-    summary_prompt_raw = llm_cfg.get("summary_prompt_path")
-    summary_prompt_path = Path(summary_prompt_raw) if summary_prompt_raw else None
 
     providers: Dict[str, LLMProviderConfig] = {}
     providers_raw = llm_cfg.get("providers", {}) or {}
@@ -201,12 +199,10 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
 
     return GlobalLLMConfig(
         enabled=enabled,
-        min_severity=min_severity,
         default_provider=default_provider,
         providers=providers,
         context_prefix_lines=base_context_prefix_lines,
         context_suffix_lines=base_context_suffix_lines,
-        summary_prompt_path=summary_prompt_path,
     )
 
 
@@ -248,7 +244,7 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         llm_cfg = item.get("llm", {}) or {}
         llm_enabled = bool(llm_cfg.get("enabled", llm_defaults.enabled))
         llm_min_sev = Severity.from_string(
-            llm_cfg.get("min_severity", llm_defaults.min_severity.name)
+            llm_cfg.get("min_severity", "WARNING")  # Default to WARNING for modules
         )
         provider_name = llm_cfg.get("provider")
         provider = None
@@ -356,6 +352,9 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
 
         enabled = bool(item.get("enabled", True))
 
+        # Build RAG configuration
+        module_rag_cfg = build_module_rag_config(item)
+
         modules.append(
             ModuleConfig(
                 name=name,
@@ -371,7 +370,51 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
                 alert_mqtt=alert_mqtt_cfg,
                 alert_webhook=alert_webhook_cfg,
                 enabled=enabled,
+                rag=module_rag_cfg,
             )
         )
 
     return modules
+
+
+def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
+    """Build global RAG configuration."""
+    rag_cfg = cfg.get("rag", {})
+    if not rag_cfg or not rag_cfg.get("enabled", False):
+        return None
+    
+    return RAGGlobalConfig(
+        enabled=True,
+        service_url=rag_cfg.get("service_url"),
+        cache_dir=Path(rag_cfg.get("cache_dir", "./rag_cache")),
+        vector_store_dir=Path(rag_cfg.get("vector_store_dir", "./rag_vector_store")),
+        embedding_model=rag_cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2"),
+        device=rag_cfg.get("device", "cpu"),
+        batch_size=int(rag_cfg.get("batch_size", 32)),
+        top_k=int(rag_cfg.get("top_k", 5)),
+        similarity_threshold=float(rag_cfg.get("similarity_threshold", 0.7)),
+        max_chunks=int(rag_cfg.get("max_chunks", 10)),
+        # Hidden advanced settings with sensible defaults
+        embedding_batch_size=int(rag_cfg.get("embedding", {}).get("batch_size", 32)),
+        vector_store_type=rag_cfg.get("vector_store", {}).get("type", "chroma"),
+    )
+
+
+def build_module_rag_config(module_cfg: Dict[str, Any]) -> Optional[RAGModuleConfig]:
+    """Build module-specific RAG configuration."""
+    rag_cfg = module_cfg.get("rag", {})
+    if not rag_cfg or not rag_cfg.get("enabled", False):
+        return None
+    
+    knowledge_sources = []
+    for source_cfg in rag_cfg.get("knowledge_sources", []):
+        knowledge_sources.append(KnowledgeSourceConfig(
+            repo_url=source_cfg["repo_url"],
+            branch=source_cfg.get("branch", "main"),
+            include_paths=source_cfg.get("include_paths", [])
+        ))
+    
+    return RAGModuleConfig(
+        enabled=True,
+        knowledge_sources=knowledge_sources
+    )

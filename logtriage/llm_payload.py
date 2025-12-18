@@ -54,7 +54,7 @@ def _load_prompt_template(path: Path) -> Optional[str]:
 
 
 def render_llm_payload(
-    finding: Finding, llm_cfg: ModuleLLMConfig, mode: str = "errors_only"
+    finding: Finding, llm_cfg: ModuleLLMConfig, mode: str = "errors_only", rag_context: str = ""
 ) -> Optional[str]:
     if not finding.needs_llm:
         return None
@@ -65,10 +65,10 @@ def render_llm_payload(
     else:
         payload_lines = finding.excerpt
 
-    return build_llm_payload(llm_cfg, finding, payload_lines)
+    return build_llm_payload(llm_cfg, finding, payload_lines, rag_context)
 
 
-def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines: List[str]) -> str:
+def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines: List[str], rag_context: str = "") -> str:
     template_text = None
     if llm_cfg.prompt_template_path:
         template_text = _load_prompt_template(llm_cfg.prompt_template_path)
@@ -112,6 +112,11 @@ def build_llm_payload(llm_cfg: ModuleLLMConfig, finding: Finding, payload_lines:
         + body
         + "\n----- END LOG CHUNK -----\n"
     )
+    
+    # Add RAG context if provided
+    if rag_context:
+        payload += rag_context
+    
     return payload
 
 

@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import datetime
 import importlib.util
+import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Optional, Dict, List, TYPE_CHECKING
+
+from ..models import Severity, LLMResponse
+
+logger = logging.getLogger(__name__)
 
 _sqlalchemy_spec = importlib.util.find_spec("sqlalchemy")
 if _sqlalchemy_spec is None:
@@ -56,9 +62,11 @@ def _ensure_llm_columns(engine):
         return
 
     ddl_statements = [
+        ("needs_llm", "BOOLEAN"),
         ("llm_provider", "VARCHAR(128)"),
         ("llm_model", "VARCHAR(128)"),
         ("llm_response_content", "TEXT"),
+        ("llm_error", "TEXT"),
         ("llm_prompt_tokens", "INTEGER"),
         ("llm_completion_tokens", "INTEGER"),
     ]
@@ -89,9 +97,11 @@ if Base is not None:
         rule_id = Column(String(256), nullable=True)
         excerpt = Column(Text, nullable=True)
         anomaly_flag = Column(Boolean, nullable=False, default=False)
+        needs_llm = Column(Boolean, nullable=False, default=False)
         llm_provider = Column(String(128), nullable=True)
         llm_model = Column(String(128), nullable=True)
         llm_response_content = Column(Text, nullable=True)
+        llm_error = Column(Text, nullable=True)
         llm_prompt_tokens = Column(Integer, nullable=True)
         llm_completion_tokens = Column(Integer, nullable=True)
         created_at = Column(
@@ -123,6 +133,60 @@ if Base is not None:
         def warning_count(self):
             sev = (self.severity or "").upper()
             return 1 if sev == "WARNING" else 0
+
+        @property
+        def severity_enum(self):
+            """Convert string severity back to Severity enum for compatibility."""
+            try:
+                severity_value = self.severity or "WARNING"
+                if not isinstance(severity_value, str):
+                    severity_value = str(severity_value)
+                return Severity.from_string(severity_value)
+            except (ValueError, AttributeError, TypeError) as e:
+                # Log the error for debugging
+                logger.warning(f"Invalid severity value '{self.severity}' in finding {self.id}: {e}")
+                return Severity.WARNING
+
+        @property
+        def llm_response(self):
+            """Reconstruct LLMResponse object from database columns."""
+            if not self.llm_provider:
+                return None
+            return LLMResponse(
+                provider=self.llm_provider,
+                model=self.llm_model or "unknown",
+                content=self.llm_response_content or "",
+                prompt_tokens=self.llm_prompt_tokens,
+                completion_tokens=self.llm_completion_tokens,
+            )
+
+        @llm_response.setter
+        def llm_response(self, value):
+            """Set LLMResponse object by updating individual database columns."""
+            if value is None:
+                self.llm_provider = None
+                self.llm_model = None
+                self.llm_response_content = None
+                self.llm_prompt_tokens = None
+                self.llm_completion_tokens = None
+            else:
+                self.llm_provider = value.provider
+                self.llm_model = value.model
+                self.llm_response_content = value.content
+                self.llm_prompt_tokens = value.prompt_tokens
+                self.llm_completion_tokens = value.completion_tokens
+
+        @property
+        def excerpt_as_list(self):
+            """Convert excerpt string to list for compatibility with LLM functions."""
+            if not self.excerpt:
+                return []
+            return self.excerpt.splitlines()
+
+        @property
+        def file_path_obj(self):
+            """Convert file_path string to Path object for compatibility."""
+            return Path(self.file_path)
 
 
 else:  # pragma: no cover - used when sqlalchemy is absent
@@ -187,6 +251,42 @@ def get_next_finding_index(module_name: str) -> int:
         sess.close()
 
 
+def update_finding_llm_error(
+    finding_id: int,
+    *,
+    error: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> bool:
+    sess = get_session()
+    if sess is None:
+        return False
+
+    try:
+        updated = (
+            sess.query(FindingRecord)
+            .filter(FindingRecord.id == finding_id)
+            .update(
+                {
+                    "llm_provider": provider,
+                    "llm_model": model,
+                    "llm_response_content": None,
+                    "llm_error": error,
+                    "llm_prompt_tokens": None,
+                    "llm_completion_tokens": None,
+                },
+                synchronize_session=False,
+            )
+        )
+        sess.commit()
+        return bool(updated)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
 def _normalize_created_at(value: Optional[datetime.datetime]) -> Optional[datetime.datetime]:
     if value is None:
         return None
@@ -202,6 +302,7 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         return
 
     llm_response = getattr(finding, "llm_response", None)
+    llm_error = getattr(finding, "llm_error", None)
     created_at = _normalize_created_at(getattr(finding, "created_at", None))
 
     # Check for duplicate finding to prevent re-inserting the same issue
@@ -240,9 +341,11 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
         rule_id=getattr(finding, "rule_id", None),
         excerpt="\n".join(getattr(finding, "excerpt", []) or []),
         anomaly_flag=bool(anomaly_flag),
+        needs_llm=bool(getattr(finding, "needs_llm", False)),
         llm_provider=getattr(llm_response, "provider", None),
         llm_model=getattr(llm_response, "model", None),
         llm_response_content=getattr(llm_response, "content", None),
+        llm_error=str(llm_error) if llm_error else None,
         llm_prompt_tokens=getattr(llm_response, "prompt_tokens", None),
         llm_completion_tokens=getattr(llm_response, "completion_tokens", None),
     )
@@ -593,6 +696,7 @@ def update_finding_llm_data(
                     "llm_provider": provider,
                     "llm_model": model,
                     "llm_response_content": content,
+                    "llm_error": None,
                     "llm_prompt_tokens": prompt_tokens,
                     "llm_completion_tokens": completion_tokens,
                 },

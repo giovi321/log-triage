@@ -6,6 +6,8 @@
 
 `log-triage` is a Python tool that sits between your log collector (for example Fluent Bit) and an LLM. It filters noisy logs, detects problems, and gives you a dashboard and API-ready payloads so you can triage faster.
 
+In addition to raw LLM prompting, `log-triage` can run in **RAG (Retrieval-Augmented Generation)** mode: it indexes your documentation repositories and automatically retrieves relevant snippets to ground AI responses with context and citations.
+
 ## Overview
 
 ### Key concepts
@@ -21,7 +23,8 @@
 2. **Group:** Apply the pipeline's grouping strategy (whole-file or marker-based) to carve the stream into logical chunks.
 3. **Classify:** Count warnings and errors with regex rules, ignore known-noise patterns, and assign a severity.
 4. **Enrich:** Generate an LLM payload per finding using your prompt template and context lines.
-5. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
+5. **Ground with RAG (optional):** Retrieve relevant documentation snippets from your configured knowledge sources and append them to the prompt to improve accuracy and add citations.
+6. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
 
 ### Getting started
 1. **Install the package:**
@@ -30,7 +33,7 @@
    source .venv/bin/activate
    pip install --upgrade pip
    # Install core plus optional Web UI + MQTT extras
-   pip install ".[webui,alerts]"
+   pip install ".[webui,alerts,rag]"
    ```
 2. **Configure:** Copy `config.yaml` and edit pipelines/modules to point at your log files.
 3. **Run a module:**
@@ -43,13 +46,24 @@
    logtriage-webui
    ```
    Visit `http://127.0.0.1:8090` to review findings, adjust severity, or mark false positives.
+5. **Start RAG service (optional, for improved performance):**
+   ```bash
+   logtriage-rag --config ./config.yaml
+   ```
+   The RAG service runs on port 8091 and provides documentation retrieval capabilities. When running, WebUI and CLI will automatically use it for better performance.
 
 ## Documentation
 
 See here the [full documentation](https://giovi321.github.io/log-triage/)
 
-> **Security note:** The Web UI is not designed to be exposed to the public internet due to missing CSRF protections, weak sess
-ion cookies, and other controls. Run it only on trusted networks and see the documentation for the full disclaimer.
+- **Architecture:** https://giovi321.github.io/log-triage/architecture/
+- **Security considerations:** https://giovi321.github.io/log-triage/security/
+- **RAG:**
+  - https://giovi321.github.io/log-triage/RAG/
+  - https://giovi321.github.io/log-triage/RAG-QuickStart/
+  - https://giovi321.github.io/log-triage/RAG-Service/
+
+> **Security note:** The Web UI is not designed to be exposed to the public internet due to missing CSRF protections, weak session cookies, and other controls. Run it only on trusted networks and see the documentation for the full disclaimer.
 
 ## Features
 

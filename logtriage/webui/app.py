@@ -2,27 +2,95 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
+import secrets
+import sys
+import time
 import re
 import urllib.parse
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Dict, List, Optional, Any
 
-import yaml
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-from starlette.middleware.sessions import SessionMiddleware
-from starlette import status
-from fastapi.staticfiles import StaticFiles
+try:
+    import yaml  # type: ignore
+except ImportError:
+    yaml = None
 
-from ..config import build_llm_config, build_modules, load_config
-from ..models import GlobalLLMConfig, ModuleConfig, Severity, Finding
-from ..llm_client import _call_chat_completion
+# Import FastAPI and related dependencies
+try:
+    from fastapi import FastAPI, Request, Response, HTTPException, status, Form
+    from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+    from fastapi.templating import Jinja2Templates
+    from fastapi.staticfiles import StaticFiles
+    try:
+        from fastapi.middleware import SessionMiddleware
+    except ImportError:
+        # Fallback for older FastAPI versions
+        from starlette.middleware.sessions import SessionMiddleware
+except ImportError as e:
+    print(f"FastAPI dependencies are missing. Error: {e}", file=sys.stderr)
+    print("Install with: pip install fastapi uvicorn jinja2 python-multipart", file=sys.stderr)
+    sys.exit(1)
+
+# Import LogTriage components
+from ..models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig, ModuleLLMConfig
+from ..config import build_llm_config, build_modules, build_pipelines, load_config, build_rag_config
+from ..engine import analyze_path
+from ..llm_client import analyze_findings_with_llm
+from ..llm_payload import write_llm_payloads, should_send_to_llm
+from ..utils import select_pipeline
+from ..stream import stream_file
+from ..alerts import send_alerts
 from ..version import __version__
 from ..notifications import add_notification, list_notifications, notification_summary
+from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
+from ..rag.monitor import RAGServiceMonitor
+
+# Import RAG client (optional import to avoid circular dependencies)
+try:
+    from ..rag import RAGClient
+    from ..rag.service_client import create_rag_client
+except ImportError:
+    RAGClient = None
+    create_rag_client = None
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
+
+logger = logging.getLogger(__name__)
+
+# Global RAG monitoring state
+rag_monitor_status = {
+    "last_check": None,
+    "rag_available": False,
+    "rag_ready": False,
+    "detailed_status": None,
+    "check_interval": 10  # seconds
+}
+
+_rag_monitor: Optional[RAGServiceMonitor] = None
+
+
+def _get_webui_rag_service_url() -> Optional[str]:
+    try:
+        rag_config = build_rag_config(raw_config)
+    except Exception:
+        return None
+    if not rag_config or not getattr(rag_config, "enabled", False):
+        return None
+    return getattr(rag_config, "service_url", None) or "http://127.0.0.1:8091"
+
+
+def _webui_create_rag_client(service_url: str):
+    if create_rag_client is None:
+        raise RuntimeError("RAG client factory not available")
+    return create_rag_client(service_url, fallback=False)
+
+
+def _set_webui_rag_client(client) -> None:
+    global rag_client
+    rag_client = client
+
 from .db import (
     delete_all_findings,
     delete_findings_for_module,
@@ -33,9 +101,11 @@ from .db import (
     get_module_stats,
     count_open_findings_for_module,
     get_next_finding_index,
+    cleanup_old_findings,
     setup_database,
     get_recent_findings_for_module,
     update_finding_llm_data,
+    update_finding_llm_error,
     update_finding_severity,
     store_finding,
 )
@@ -62,8 +132,23 @@ app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
     if value is None:
         return ""
+    if isinstance(value, (int, float)):
+        try:
+            ts = datetime.datetime.fromtimestamp(float(value), tz=datetime.timezone.utc)
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            return str(value)
     if isinstance(value, str):
-        return value
+        try:
+            raw = value.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            ts = datetime.datetime.fromisoformat(raw)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=datetime.timezone.utc)
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            return value
     ts = value
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=datetime.timezone.utc)
@@ -71,6 +156,14 @@ def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
 
 
 templates.env.filters["localtime"] = _format_local_timestamp
+
+
+def _ensure_csrf_token(request: Request) -> str:
+    token = request.session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session["csrf_token"] = token
+    return str(token)
 
 
 db_status: Dict[str, Any] = {
@@ -176,16 +269,6 @@ def _sample_source_label(value: str) -> str:
     return "Log tail (live)"
 
 
-def _load_summary_prompt_template() -> Optional[str]:
-    path = getattr(llm_defaults, "summary_prompt_path", None)
-    if not path:
-        return None
-    try:
-        return Path(path).read_text(encoding="utf-8")
-    except Exception:
-        return None
-
-
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
@@ -205,8 +288,11 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
 
 settings, raw_config, CONFIG_PATH = _load_settings_and_config()
 llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
+rag_client: Optional[RAGClient] = None
 context_hints = _load_context_hints()
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
+
+if not getattr(settings, "secret_key", None) or settings.secret_key == "CHANGE_ME":
+    logger.warning("WebUI secret_key is not set (or still CHANGE_ME). Please set webui.secret_key in config.yaml to a strong random value.")
 
 REGEX_WIZARD_STEPS = [
     ("pick", "Pick sample lines"),
@@ -333,6 +419,42 @@ def _evaluate_regex_against_lines(
     return matches, error_msg
 
 
+def start_rag_monitor():
+    """Start the RAG monitoring background thread."""
+    global _rag_monitor
+
+    if _rag_monitor is None:
+        _rag_monitor = RAGServiceMonitor(
+            status=rag_monitor_status,
+            get_service_url=_get_webui_rag_service_url,
+            create_client=_webui_create_rag_client,
+            get_client=lambda: rag_client,
+            set_client=_set_webui_rag_client,
+            timestamp_mode="iso",
+            include_detailed_status=True,
+            logger=logger,
+        )
+
+    _rag_monitor.start()
+    logger.info("RAG monitoring thread started")
+
+
+def stop_rag_monitor():
+    """Stop the RAG monitoring background thread."""
+    global _rag_monitor
+
+    if _rag_monitor is not None:
+        _rag_monitor.stop()
+    logger.info("RAG monitoring thread stopped")
+
+
+def get_rag_monitor_status() -> Dict[str, Any]:
+    """Get current RAG monitor status."""
+    if _rag_monitor is None:
+        return rag_monitor_status.copy()
+    return _rag_monitor.get_status()
+
+
 def get_settings() -> WebUISettings:
     return settings
 
@@ -345,12 +467,54 @@ def _refresh_llm_defaults() -> None:
         add_notification("error", "LLM defaults error", str(exc))
         llm_defaults = GlobalLLMConfig(
             enabled=False,
-            min_severity=Severity.ERROR,
             providers={},
+            default_provider=None,
             context_prefix_lines=0,
-            summary_prompt_path=None,
+            context_suffix_lines=0,
         )
 
+
+def _refresh_rag_client() -> None:
+    """Initialize or update the RAG client based on configuration."""
+    global rag_client
+    
+    # Try to use RAG service client
+    if create_rag_client is not None:
+        try:
+            logger.info("Initializing RAG service client...")
+            rag_config = build_rag_config(raw_config)
+            if rag_config and rag_config.enabled:
+                logger.info(f"RAG config found and enabled, using service client")
+                # Get RAG service URL from config or use default
+                rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
+                rag_client = create_rag_client(rag_service_url, fallback=True)
+                
+                if rag_client.is_healthy():
+                    logger.info("RAG service client is healthy")
+                    # Add module configurations to RAG client
+                    modules = _build_modules_from_config()
+                    logger.info(f"Adding {len(modules)} modules to RAG service")
+                    for module in modules:
+                        if module.rag and module.rag.enabled:
+                            logger.info(f"Adding RAG config for module: {module.name}")
+                            rag_client.add_module_config(module.name, module.rag)
+                    # Update knowledge base
+                    logger.info("Updating RAG service knowledge base...")
+                    rag_client.update_knowledge_base()
+                    logger.info("RAG service client initialization completed")
+                else:
+                    logger.warning("RAG service is not available, RAG functionality will be disabled")
+                    # Keep rag_client as NoOp (already returned by create_rag_client)
+            else:
+                logger.info("RAG disabled in configuration")
+                rag_client = None
+        except Exception as exc:
+            logger.error(f"RAG service client initialization failed: {exc}", exc_info=True)
+            add_notification("warning", "RAG service unavailable", "RAG functionality will be disabled")
+            rag_client = None
+    else:
+        logger.info("RAG service client not available, RAG functionality disabled")
+        rag_client = None
 
 def _build_modules_from_config() -> List[ModuleConfig]:
     try:
@@ -360,7 +524,8 @@ def _build_modules_from_config() -> List[ModuleConfig]:
         return []
 
 
-from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
+# Initialize RAG client after function definition
+_refresh_rag_client()
 
 
 def _render_config_editor(
@@ -444,6 +609,46 @@ async def ip_allowlist_middleware(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if not getattr(settings, "csrf_enabled", True):
+        return await call_next(request)
+
+    # Ensure every browser session has a CSRF token available for templates
+    _ensure_csrf_token(request)
+
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return await call_next(request)
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    # Only enforce CSRF on form posts. JSON API requests are intentionally exempt.
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        body = await request.body()
+        try:
+            parsed = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+        except Exception:
+            parsed = {}
+        provided = (parsed.get("csrf_token") or [None])[0]
+        expected = request.session.get("csrf_token")
+        if not provided or not expected or not secrets.compare_digest(str(provided), str(expected)):
+            return HTMLResponse("CSRF validation failed", status_code=status.HTTP_400_BAD_REQUEST)
+
+    elif content_type.startswith("multipart/form-data"):
+        try:
+            form = await request.form()
+        except Exception:
+            form = {}
+        provided = form.get("csrf_token") if hasattr(form, "get") else None
+        expected = request.session.get("csrf_token")
+        if not provided or not expected or not secrets.compare_digest(str(provided), str(expected)):
+            return HTMLResponse("CSRF validation failed", status_code=status.HTTP_400_BAD_REQUEST)
+
+    return await call_next(request)
+
+
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
+
+
 @app.get("/login", name="login_form")
 async def login_form(request: Request):
     return templates.TemplateResponse(
@@ -494,6 +699,92 @@ async def dashboard(request: Request):
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
     ingestion_status = _derive_ingestion_status(modules, now=page_rendered_at)
     notif_summary = notification_summary()
+    
+    # Get RAG status from monitor
+    rag_monitor_data = get_rag_monitor_status()
+    
+    # Ensure we always have detailed status, even when RAG is not ready
+    if rag_monitor_data["detailed_status"] is None:
+        # Create a default detailed status when service is not available
+        rag_monitor_data["detailed_status"] = {
+            "initialization": {
+                "started": False,
+                "completed": False,
+                "updating": False,
+                "error": None,
+                "current_phase": "unavailable",
+                "progress": {
+                    "current_step": 0,
+                    "total_steps": 5,
+                    "step_description": "RAG service not available",
+                    "percentage": 0.0
+                },
+                "repository_updates": {
+                    "current_repo": None,
+                    "total_repos": 0,
+                    "completed_repos": 0,
+                    "current_progress": 0.0
+                }
+            }
+        }
+    elif rag_monitor_data["rag_available"] and not rag_monitor_data["rag_ready"]:
+        # Ensure detailed status shows initialization progress when available but not ready
+        if rag_monitor_data["detailed_status"].get("initialization") is None:
+            rag_monitor_data["detailed_status"]["initialization"] = {
+                "started": True,
+                "completed": False,
+                "updating": True,
+                "error": None,
+                "current_phase": "initializing",
+                "progress": {
+                    "current_step": 0,
+                    "total_steps": 5,
+                    "step_description": "RAG service initializing...",
+                    "percentage": 0.0
+                },
+                "repository_updates": {
+                    "current_repo": None,
+                    "total_repos": 0,
+                    "completed_repos": 0,
+                    "current_progress": 0.0
+                }
+            }
+    
+    # Create a normalized rag_status for the template that has the expected fields
+    normalized_rag_status = {
+        "enabled": rag_monitor_data["rag_ready"],  # Only enabled when fully ready
+        "total_repositories": 0,
+        "vector_store_stats": {"total_chunks": 0, "persist_directory": "N/A"},
+        "repositories": [],
+        "detailed_status": rag_monitor_data["detailed_status"]  # Include detailed info for new UI elements
+    }
+    
+    # If RAG is ready, try to get the real status
+    if rag_monitor_data["rag_ready"] and rag_client:
+        try:
+            real_status = rag_client.get_status()
+            if real_status:
+                logger.debug(f"Real RAG status received: {real_status}")
+                # Ensure vector_store_stats is properly merged
+                if "vector_store_stats" in real_status and real_status["vector_store_stats"]:
+                    normalized_rag_status["vector_store_stats"] = real_status["vector_store_stats"]
+                else:
+                    # Service is up but returned empty stats - provide defaults
+                    normalized_rag_status["vector_store_stats"] = {
+                        "total_chunks": 0,
+                        "persist_directory": "Service running but no data"
+                    }
+                # Update other fields
+                for key, value in real_status.items():
+                    if key != "vector_store_stats":
+                        normalized_rag_status[key] = value
+            else:
+                logger.warning("RAG client get_status() returned None")
+        except Exception as e:
+            logger.warning(f"Failed to get real RAG status: {e}")
+            # Update to show service is not working
+            normalized_rag_status["vector_store_stats"]["persist_directory"] = "Service error"
+    
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -505,11 +796,152 @@ async def dashboard(request: Request):
             "page_rendered_at": page_rendered_at,
             "ingestion_status": ingestion_status,
             "notif_summary": notif_summary,
+            "rag_status": normalized_rag_status,
+            "rag_service_available": rag_monitor_data["rag_available"],
+            "rag_service_ready": rag_monitor_data["rag_ready"],
+            "rag_monitor": rag_monitor_data,
         },
     )
 
 
 
+
+@app.get("/api/rag/status")
+async def get_rag_status():
+    """Get RAG service status for AJAX calls."""
+    monitor_data = get_rag_monitor_status()
+    
+    # Ensure we always have detailed status
+    if monitor_data["detailed_status"] is None:
+        monitor_data["detailed_status"] = {
+            "initialization": {
+                "started": False,
+                "completed": False,
+                "updating": False,
+                "error": None,
+                "current_phase": "unavailable",
+                "progress": {
+                    "current_step": 0,
+                    "total_steps": 5,
+                    "step_description": "RAG service not available",
+                    "percentage": 0.0
+                },
+                "repository_updates": {
+                    "current_repo": None,
+                    "total_repos": 0,
+                    "completed_repos": 0,
+                    "current_progress": 0.0
+                }
+            }
+        }
+    
+    if not monitor_data["rag_available"]:
+        return {
+            "enabled": False,
+            "message": "RAG service unavailable",
+            "service_available": False,
+            "service_ready": False,
+            "detailed_status": monitor_data["detailed_status"],
+            "monitor": monitor_data
+        }
+    
+    if not monitor_data["rag_ready"]:
+        return {
+            "enabled": False,
+            "message": "RAG service initializing",
+            "service_available": True,
+            "service_ready": False,
+            "detailed_status": monitor_data["detailed_status"],
+            "monitor": monitor_data
+        }
+    
+    # RAG is ready
+    try:
+        if rag_client:
+            status = rag_client.get_status()
+            vector_stats = status.get("vector_store_stats", {})
+            if not vector_stats:
+                vector_stats = {"total_chunks": 0, "persist_directory": "Service running but no data"}
+            
+            return {
+                "enabled": status.get("enabled", False),
+                "service_available": True,
+                "service_ready": True,
+                "total_repositories": status.get("total_repositories", 0),
+                "vector_store_stats": vector_stats,
+                "repositories": status.get("repositories", []),
+                "monitor": monitor_data
+            }
+        else:
+            return {
+                "enabled": False,
+                "message": "RAG client not initialized",
+                "service_available": True,
+                "service_ready": False,
+                "monitor": monitor_data
+            }
+    except Exception as e:
+        return {
+            "enabled": False,
+            "message": f"Error getting RAG status: {str(e)}",
+            "service_available": False,
+            "service_ready": False,
+            "monitor": monitor_data
+        }
+
+
+@app.get("/api/rag/progress", name="rag_progress")
+async def get_rag_progress():
+    monitor_data = get_rag_monitor_status()
+
+    if rag_client is None or not hasattr(rag_client, "_make_request"):
+        return {
+            "service_available": monitor_data.get("rag_available", False),
+            "service_ready": monitor_data.get("rag_ready", False),
+            "progress": None,
+            "monitor": monitor_data,
+        }
+
+    try:
+        progress = rag_client._make_request("GET", "/progress", max_retries=0)
+        return {
+            "service_available": monitor_data.get("rag_available", False),
+            "service_ready": monitor_data.get("rag_ready", False),
+            "progress": progress,
+            "monitor": monitor_data,
+        }
+    except Exception as e:
+        return {
+            "service_available": False,
+            "service_ready": False,
+            "progress": None,
+            "error": str(e),
+            "monitor": monitor_data,
+        }
+
+
+@app.post("/api/rag/reindex/{repo_id}")
+async def reindex_rag_repo(repo_id: str, request: Request):
+    username = get_current_user(request, settings)
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    monitor_data = get_rag_monitor_status()
+    if not monitor_data.get("rag_available"):
+        raise HTTPException(status_code=503, detail="RAG service unavailable")
+
+    if rag_client is None or not hasattr(rag_client, "_make_request"):
+        raise HTTPException(status_code=503, detail="RAG client not available")
+
+    try:
+        result = rag_client._make_request("POST", f"/reindex/{repo_id}", json={"refresh": True}, max_retries=0)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if not result:
+        raise HTTPException(status_code=502, detail="Failed to start reindex")
+
+    return result
 
 @app.get("/config/edit", name="edit_config")
 async def edit_config(request: Request):
@@ -530,11 +962,20 @@ async def edit_config_post(
     request: Request,
     config_text: str = Form(...),
 ):
-    global settings, raw_config, llm_defaults
+    global settings, raw_config, llm_defaults, rag_client
 
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if yaml is None:
+        return _render_config_editor(
+            request,
+            username,
+            config_text,
+            error="YAML support is not available (missing PyYAML dependency).",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     try:
         parsed = yaml.safe_load(config_text) or {}
@@ -569,6 +1010,7 @@ async def edit_config_post(
         settings = parse_webui_settings(raw_config)
         _init_database(raw_config)
         _refresh_llm_defaults()
+        _refresh_rag_client()
     except Exception as exc:
         add_notification("error", "Configuration reload failed", str(exc))
         return _render_config_editor(
@@ -589,7 +1031,7 @@ async def edit_config_post(
 
 @app.post("/config/reload", name="reload_config")
 async def reload_config(request: Request):
-    global settings, raw_config, llm_defaults
+    global settings, raw_config, llm_defaults, rag_client
 
     username = get_current_user(request, settings)
     if not username:
@@ -608,6 +1050,7 @@ async def reload_config(request: Request):
         settings = parse_webui_settings(new_raw)
         _init_database(new_raw)
         _refresh_llm_defaults()
+        _refresh_rag_client()
     except Exception as e:
         add_notification("error", "Config reload failed", str(e))
         return _render_config_editor(
@@ -678,12 +1121,8 @@ async def regex_lab(
 
     # Fetch findings for the module
     recent_findings = []
-    open_findings_count = None
     if module_obj and db_status.get("connected"):
         recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
-        open_findings_count = count_open_findings_for_module(
-            module_obj.name, severities=SEVERITY_CHOICES
-        )
 
     wizard = _regex_wizard_metadata(active_step)
     step_hints = _build_all_regex_hints()
@@ -705,7 +1144,6 @@ async def regex_lab(
             step_hints=step_hints,
             active_step=active_step,
             recent_findings=recent_findings,
-            open_findings_count=open_findings_count,
         ),
     )
 
@@ -913,7 +1351,6 @@ async def ai_logs(
 
     seed_prompt = None
     module_prompt_template = None
-    summary_prompt_template = _load_summary_prompt_template()
     if module_obj is not None and log_state["recent_findings"]:
         max_lines = provider_cfg.max_excerpt_lines if provider_cfg else 20
         seed_prompt = _finding_excerpt_preview(log_state["recent_findings"][0], max_lines)
@@ -943,7 +1380,6 @@ async def ai_logs(
             "selected_provider": provider_name,
             "seed_prompt": seed_prompt,
             "module_prompt_template": module_prompt_template,
-            "summary_prompt_template": summary_prompt_template,
             "regex_presets": regex_presets,
             "sample_source": safe_sample_source,
             "stats": stats,
@@ -1013,6 +1449,7 @@ async def api_log_lines(
                         "rule_id": getattr(finding, "rule_id", None),
                         "created_at": _format_local_timestamp(getattr(finding, "created_at", None)),
                         "llm_response_content": getattr(finding, "llm_response_content", None),
+                        "llm_error": getattr(finding, "llm_error", None),
                         "llm_provider": getattr(finding, "llm_provider", None),
                         "llm_model": getattr(finding, "llm_model", None),
                     }
@@ -1046,6 +1483,124 @@ def _finding_excerpt_preview(finding, max_lines: int) -> str:
     if max_lines > 0:
         excerpt_lines = excerpt_lines[:max_lines]
     return "\n".join(excerpt_lines)
+
+
+@app.post("/llm/query_finding", name="llm_query_finding")
+async def llm_query_finding(
+    request: Request,
+    finding_id: str = Form(...),
+    provider: str = Form(...),
+):
+    """Query LLM for a specific finding with RAG context."""
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse(
+            {"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED
+        )
+
+    try:
+        # Validate finding_id parameter
+        try:
+            finding_id_int = int(finding_id)
+            if finding_id_int <= 0:
+                return JSONResponse({"error": "Invalid finding ID"}, status_code=400)
+        except (ValueError, TypeError):
+            return JSONResponse({"error": "Invalid finding ID format"}, status_code=400)
+        
+        # Get the finding from database
+        finding = get_finding_by_id(finding_id_int)
+        if not finding:
+            return JSONResponse({"error": "Finding not found"}, status_code=404)
+        
+        # Get module name from finding
+        module_name = getattr(finding, "module_name", None)
+        if not module_name:
+            return JSONResponse({"error": "Module name not found for finding"}, status_code=400)
+        
+        # Get provider configuration
+        provider_config = llm_defaults.providers.get(provider)
+        if not provider_config:
+            return JSONResponse({"error": f"Provider '{provider}' not found"}, status_code=400)
+        
+        # Create a temporary module config for LLM analysis
+        temp_module_llm = ModuleLLMConfig(
+            enabled=True,
+            provider_name=provider,
+            emit_llm_payloads_dir=None,
+            min_severity=Severity.WARNING,  # Use lowest severity for manual requests
+            max_excerpt_lines=provider_config.max_excerpt_lines,  # Use provider's setting
+        )
+        
+        # Analyze finding with LLM (including RAG context)
+        # Create a compatible Finding object from the FindingRecord
+        from ..models import Finding
+        compatible_finding = Finding(
+            file_path=finding.file_path_obj,
+            pipeline_name=finding.pipeline_name,
+            finding_index=finding.finding_index,
+            severity=finding.severity_enum,
+            message=finding.message,
+            line_start=finding.line_start,
+            line_end=finding.line_end,
+            rule_id=finding.rule_id,
+            excerpt=finding.excerpt_as_list,
+            needs_llm=True,
+        )
+        
+        analyze_findings_with_llm(
+            [compatible_finding], 
+            llm_defaults, 
+            temp_module_llm,
+            rag_client=rag_client,
+            module_name=module_name
+        )
+        
+        # Update the database record with the LLM response
+        if compatible_finding.llm_response:
+            update_finding_llm_data(
+                finding.id,
+                provider=compatible_finding.llm_response.provider,
+                model=compatible_finding.llm_response.model,
+                content=compatible_finding.llm_response.content,
+                prompt_tokens=compatible_finding.llm_response.prompt_tokens,
+                completion_tokens=compatible_finding.llm_response.completion_tokens,
+            )
+            # Update the original finding object with the response for the return value
+            finding.llm_response = compatible_finding.llm_response
+        else:
+            llm_error = getattr(compatible_finding, "llm_error", None)
+            if llm_error:
+                update_finding_llm_error(
+                    finding.id,
+                    error=str(llm_error),
+                    provider=provider_config.name,
+                    model=provider_config.model,
+                )
+                setattr(finding, "llm_error", str(llm_error))
+        
+        # Return the LLM response
+        if finding.llm_response:
+            response_data = {
+                "provider": finding.llm_response.provider,
+                "model": finding.llm_response.model,
+                "content": finding.llm_response.content,
+                "usage": {
+                    "prompt_tokens": finding.llm_response.prompt_tokens,
+                    "completion_tokens": finding.llm_response.completion_tokens,
+                },
+                "citations": finding.llm_response.citations,
+            }
+            return JSONResponse(response_data)
+        llm_error = getattr(finding, "llm_error", None)
+        if llm_error:
+            return JSONResponse({"error": str(llm_error)}, status_code=502)
+        else:
+            return JSONResponse({"error": "No LLM response generated"}, status_code=500)
+            
+    except Exception as e:
+        logger.error(f"LLM query failed for finding_id {finding_id}: {e}", exc_info=True)
+        add_notification("error", "LLM query failed", f"Finding {finding_id}: {str(e)}")
+        return JSONResponse({"error": f"LLM query failed: {str(e)}"}, status_code=500)
 
 
 @app.post("/llm/query", name="llm_query")
@@ -1749,7 +2304,7 @@ async def change_password(
     new_password: str = Form(...),
     confirm_password: str = Form(...),
 ):
-    global settings, raw_config, llm_defaults
+    global settings, raw_config, llm_defaults, rag_client
 
     username = get_current_user(request, settings)
     if not username:
@@ -1853,6 +2408,7 @@ async def change_password(
     raw_config = load_config(CONFIG_PATH)
     settings = parse_webui_settings(raw_config)
     _refresh_llm_defaults()
+    _refresh_rag_client()
 
     return templates.TemplateResponse(
         "account.html",
@@ -2571,4 +3127,15 @@ async def regex_save(
             active_step="save",
         ),
     )
+
+# Startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """Start RAG monitoring when WebUI starts."""
+    start_rag_monitor()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop RAG monitoring when WebUI shuts down."""
+    stop_rag_monitor()
 

@@ -33,11 +33,23 @@ setup(
             "itsdangerous>=2.1",
         ],
         "alerts": ["paho-mqtt>=1.6"],
+        "rag": [
+            "sentence-transformers>=2.2.0",
+            "faiss-cpu>=1.7.0",
+            "GitPython>=3.1.0",
+            "markdown>=3.4.0",
+            "numpy>=1.23.0",
+            "requests>=2.31.0",
+            "psutil>=5.9.0",
+            "fastapi>=0.109",
+            "uvicorn>=0.23",
+        ],
     },
     entry_points={
         "console_scripts": [
             "logtriage=logtriage.cli:main",
             "logtriage-webui=logtriage.webui.__main__:main",
+            "logtriage-rag=logtriage.rag.service:main",
         ],
     },
     package_data={

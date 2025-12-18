@@ -35,3 +35,9 @@ nav:
   - CLI: cli.md
   - Classifiers: classifiers.md
   - Web UI: web-ui.md
+  - Architecture: architecture.md
+  - RAG:
+    - Overview: RAG.md
+    - Quick start: RAG-QuickStart.md
+    - Service: RAG-Service.md
+  - Security: security.md

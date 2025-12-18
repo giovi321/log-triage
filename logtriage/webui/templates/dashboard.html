@@ -28,11 +28,297 @@
       <span class="status-chip">Latest log activity: {{ ingestion_status.latest_log_update|localtime }}</span>
     {% endif %}
   </div>
+
+<script type="application/json" id="rag-api-urls-json">{{ {
+  'reindexBase': (url_for('reindex_rag_repo', repo_id='REPO_ID') | string),
+  'progress': (url_for('rag_progress') | string)
+}|tojson }}</script>
 </div>
+
+{% if rag_status %}
+<div class="card">
+  <h2>Knowledge Base (RAG) Status</h2>
+  <div class="status-strip">
+    {% if rag_service_available and rag_service_ready %}
+      <span class="status-chip ok">RAG Enabled</span>
+      <span class="status-chip">Repositories: {{ rag_status.total_repositories }}</span>
+      <span class="status-chip">Total chunks: {{ rag_status.vector_store_stats.total_chunks }}</span>
+      <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
+      <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
+    {% elif rag_service_available and not rag_service_ready %}
+      <span class="status-chip warn">RAG Initializing</span>
+      <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
+      <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
+    {% else %}
+      <span class="status-chip warn">RAG Disabled</span>
+      <span class="status-chip">Service unavailable</span>
+    {% endif %}
+  </div>
+  
+  {% if rag_service_available %}
+  <div style="margin-top: 1rem;">
+    <table style="font-size:0.85rem;" id="rag-repos-table">
+      <thead>
+        <tr>
+          <th>Repository</th>
+          <th>Branch</th>
+          <th>Last Commit</th>
+          <th>Indexed</th>
+          <th style="text-align:right;">Chunks</th>
+          <th>Action / Status</th>
+          <th style="text-align:right;">Progress</th>
+        </tr>
+      </thead>
+      <tbody id="rag-repos-body">
+        {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
+        {% for repo in rag_status.repositories %}
+        <tr data-repo-id="{{ repo.repo_id }}">
+          <td class="rag-repo-name" style="font-family:monospace; font-size:0.8rem;">
+            <a href="{{ repo.url }}" target="_blank" style="color: inherit; text-decoration: none;" title="{{ repo.url }}">{{ repo.url.split('/')[-1] }}</a>
+          </td>
+          <td class="rag-repo-branch"><span class="tag">{{ repo.branch }}</span></td>
+          <td style="font-family:monospace; font-size:0.8rem;">
+            <div>{{ repo.last_commit_hash[:8] }}</div>
+            <div class="muted" style="font-size:0.75rem;">{% if repo.last_commit_at %}{{ repo.last_commit_at|localtime }}{% else %}n/a{% endif %}</div>
+          </td>
+          <td style="font-family:monospace; font-size:0.8rem;">
+            <div>
+              {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
+            </div>
+            <div class="muted" style="font-size:0.75rem;">{% if repo.last_indexed_at %}{{ repo.last_indexed_at|localtime }}{% else %}n/a{% endif %}</div>
+          </td>
+          <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
+          <td class="rag-action-status" style="white-space:nowrap;">
+            {% if repo.needs_reindexing %}
+              <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️</span>
+            {% elif repo.chunk_count == 0 %}
+              <span class="status-badge sev-ERROR" title="Repository cloned but no indexed content">❌</span>
+            {% else %}
+              <span class="status-badge sev-OK" title="Repository indexed and current">✅</span>
+            {% endif %}
+            <button type="button" class="secondary rag-reindex-btn" data-repo-id="{{ repo.repo_id }}" data-needs-reindex="{{ 1 if repo.needs_reindexing else 0 }}" data-chunks="{{ repo.chunk_count }}">Re-index</button>
+          </td>
+          <td class="rag-progress" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<script>
+  (function() {
+    const ragApiUrls = JSON.parse((document.getElementById('rag-api-urls-json') || {}).textContent || '{}');
+    const ragReindexBase = (ragApiUrls.reindexBase || '').replace('REPO_ID', '');
+    const ragProgressUrl = ragApiUrls.progress || '/api/rag/progress';
+
+    async function triggerReindex(repoId, buttonEl) {
+      if (!repoId) {
+        return;
+      }
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.textContent = 'Queued…';
+      }
+      try {
+        const response = await fetch(`${ragReindexBase}${repoId}`, { method: 'POST' });
+        if (!response.ok) {
+          const text = await response.text();
+          if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = 'Re-index';
+          }
+          alert(text || 'Failed to start reindex');
+          return;
+        }
+        if (buttonEl) {
+          buttonEl.textContent = 'Started';
+        }
+      } catch (e) {
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.textContent = 'Re-index';
+        }
+        alert('Failed to start reindex');
+      }
+    }
+
+    document.addEventListener('click', (ev) => {
+      const target = ev.target;
+      if (!target) {
+        return;
+      }
+      if (target.classList && target.classList.contains('rag-reindex-btn')) {
+        const repoId = target.getAttribute('data-repo-id');
+        triggerReindex(repoId, target);
+      }
+    });
+
+    async function refreshRagProgress() {
+      try {
+        const response = await fetch(ragProgressUrl, { cache: 'no-store' });
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        const progress = payload && payload.progress ? payload.progress : null;
+
+        const rssEl = document.getElementById('rag-live-rss');
+        const updatingEl = document.getElementById('rag-live-updating');
+
+        if (!progress) {
+          if (updatingEl) {
+            updatingEl.textContent = 'Live indexing: unavailable';
+            updatingEl.className = 'status-chip warn';
+          }
+          if (rssEl) {
+            rssEl.textContent = 'RAG RSS: n/a';
+          }
+          return;
+        }
+
+        const init = progress.initialization || {};
+        const initProgress = (init.progress || {});
+        const idx = progress.indexing_progress || {};
+        const idxMeta = idx.indexing || {};
+        const idxRepos = idx.repositories || {};
+        const updating = !!idxMeta.updating;
+        const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
+        const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
+
+        const proc = progress.process || {};
+        if (rssEl) {
+          if (typeof proc.rss_mb === 'number') {
+            rssEl.textContent = `RAG memory: ${proc.rss_mb.toFixed(0)}MB`;
+          } else if (typeof proc.rss_gb === 'number') {
+            rssEl.textContent = `RAG memory: ${proc.rss_gb.toFixed(3)}GB`;
+          } else {
+            rssEl.textContent = 'RAG memory: n/a';
+          }
+        }
+
+        if (updatingEl) {
+          updatingEl.textContent = updating ? `Live indexing: running (${done}/${total})` : 'Live indexing: idle';
+          updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
+        }
+
+        document.querySelectorAll('button.rag-reindex-btn').forEach((btn) => {
+          const needs = btn.getAttribute('data-needs-reindex');
+          const chunks = btn.getAttribute('data-chunks');
+          const needsReindex = (needs === '1' || needs === 'true');
+          const chunkCount = (chunks !== null) ? parseInt(chunks, 10) : NaN;
+          const allow = (!updating) && (needsReindex || (!Number.isNaN(chunkCount) && chunkCount === 0));
+          btn.disabled = !allow;
+          if (updating) {
+            btn.title = 'Indexing is already running';
+          } else if (allow) {
+            btn.title = 'Re-index this repository';
+          } else {
+            btn.title = 'Repository is up to date';
+          }
+        });
+
+        const tbody = document.getElementById('rag-repos-body');
+        if (tbody && idxRepos && typeof idxRepos === 'object') {
+          const existing = {};
+          tbody.querySelectorAll('tr[data-repo-id]').forEach((row) => {
+            const repoId = row.getAttribute('data-repo-id');
+            if (repoId) {
+              existing[repoId] = row;
+            }
+          });
+
+          Object.entries(idxRepos).forEach(([repoId, repo]) => {
+            if (!repo || typeof repo !== 'object') {
+              return;
+            }
+            if (!existing[repoId]) {
+              const url = repo.url || null;
+              const name = url ? url.split('/').slice(-1)[0] : repoId;
+              const branch = repo.branch || '-';
+
+              const row = document.createElement('tr');
+              row.setAttribute('data-repo-id', repoId);
+              row.innerHTML = `
+                <td class="rag-repo-name" style="font-family:monospace; font-size:0.8rem;">${url ? `<a href="${url}" target="_blank" style="color: inherit; text-decoration: none;" title="${url}">${name}</a>` : '<span class="muted">pending</span>'}</td>
+                <td class="rag-repo-branch"><span class="tag">${branch}</span></td>
+                <td style="font-family:monospace; font-size:0.8rem;">-</td>
+                <td style="font-family:monospace; font-size:0.8rem;"><span class="muted">-</span></td>
+                <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">-</td>
+                <td class="rag-action-status" style="white-space:nowrap;"><span class="muted">-</span> <button type="button" class="secondary rag-reindex-btn" data-repo-id="${repoId}" data-needs-reindex="0" data-chunks="0" disabled>Re-index</button></td>
+                <td class="rag-progress" data-repo-id="${repoId}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
+              `;
+              tbody.appendChild(row);
+              existing[repoId] = row;
+            }
+
+            const row = existing[repoId];
+            if (row) {
+              const url = repo.url || null;
+              const name = url ? url.split('/').slice(-1)[0] : null;
+              const branch = repo.branch || null;
+              const localPath = repo.local_path || null;
+
+              const nameCell = row.querySelector('td.rag-repo-name');
+              if (nameCell && url && name) {
+                nameCell.innerHTML = `<a href="${url}" target="_blank" style="color: inherit; text-decoration: none;" title="${url}">${name}</a>`;
+              }
+
+              const branchCell = row.querySelector('td.rag-repo-branch');
+              if (branchCell && branch) {
+                branchCell.innerHTML = `<span class="tag">${branch}</span>`;
+              }
+            }
+          });
+
+          const cells = document.querySelectorAll('td.rag-progress');
+          cells.forEach((cell) => {
+            const repoId = cell.getAttribute('data-repo-id');
+            const repo = repoId ? idxRepos[repoId] : null;
+            if (!repo || typeof repo !== 'object') {
+              cell.textContent = '-';
+              return;
+            }
+            const state = repo.state || 'n/a';
+            const cur = (typeof repo.file_current === 'number') ? repo.file_current : 0;
+            const tot = (typeof repo.file_total === 'number') ? repo.file_total : 0;
+            const pct = (tot > 0) ? Math.round((cur / tot) * 100) : null;
+
+            const parts = [];
+            parts.push(state);
+            if (tot > 0) {
+              parts.push(`${cur}/${tot}`);
+              if (pct !== null) {
+                parts.push(`(${pct}%)`);
+              }
+            }
+            const text = parts.join(' ');
+            const barPct = (pct !== null) ? pct : 0;
+            cell.innerHTML = `
+              <div style="text-align:right;">
+                <div style="margin-bottom: 2px;">${text}</div>
+                <div style="height: 6px; background: rgba(0,0,0,0.12); border-radius: 999px; overflow: hidden;">
+                  <div style="height: 100%; width: ${barPct}%; background: rgba(50, 158, 88, 0.95);"></div>
+                </div>
+              </div>
+            `;
+          });
+        }
+      } catch (e) {
+        return;
+      }
+    }
+
+    refreshRagProgress();
+    setInterval(refreshRagProgress, 2000);
+  })();
+</script>
 
 <div class="card">
   <h2>Modules</h2>
-  <p class="helper-text">Live view of configured modules with last log updates and their severities.</p>
   {% if modules %}
     <table style="font-size:0.9rem;">
       <thead>

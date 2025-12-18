@@ -240,3 +240,65 @@ database:
 ```
 
 SQLite and Postgres URLs are both supported. When omitted, the Web UI stores data in memory and only reflects the current session.
+
+## RAG (Retrieval-Augmented Generation)
+
+RAG enhances log analysis by automatically retrieving relevant documentation from knowledge bases and including it in LLM prompts. This provides more accurate, context-aware responses with proper citations.
+
+### Global RAG Configuration
+
+```yaml
+rag:
+  enabled: true
+  cache_dir: "./rag_cache"
+  vector_store_dir: "./rag_vector_store"
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "cpu"  # or "cuda" for GPU acceleration
+  batch_size: 32
+  top_k: 5
+  similarity_threshold: 0.7
+  max_chunks: 10
+```
+
+### Module-Level RAG Configuration
+
+Add RAG configuration to individual modules:
+
+```yaml
+modules:
+  my_service:
+    path: "/var/log/my_service"
+    pipeline: "my_pipeline"
+    llm:
+      enabled: true
+      provider: "openai"
+    rag:
+      enabled: true
+      knowledge_sources:
+        - repo_url: "https://github.com/myorg/service-docs"
+          branch: "main"
+          include_paths:
+            - "docs/**/*.md"      # All .md files in docs and subdirectories
+            - "README.md"          # Specific file in root
+            - "troubleshooting/*.md"  # .md files in troubleshooting directory only
+        - repo_url: "https://github.com/myorg/troubleshooting-guide"
+          branch: "main"
+          include_paths:
+            - "**/*.md"           # All .md files in entire repository
+            - "**/*.markdown"     # All .markdown files in entire repository
+```
+
+#### RAG Configuration Options
+
+- **cache_dir**: Directory for storing cloned Git repositories
+- **vector_store.persist_directory**: Directory for ChromaDB vector storage
+- **embedding.model_name**: SentenceTransformer model for embeddings
+- **embedding.device**: "cpu" or "cuda" for GPU acceleration
+- **embedding.batch_size**: Batch size for embedding generation
+- **retrieval.top_k**: Maximum number of chunks to retrieve
+- **retrieval.similarity_threshold**: Minimum similarity score (0.0-1.0)
+- **retrieval.max_chunks**: Maximum chunks to consider during search
+- **knowledge_sources**: List of Git repositories containing documentation
+- **include_paths**: Glob patterns for selecting files from repositories
+
+For detailed RAG setup instructions, see the [RAG Quick Start Guide](RAG-QuickStart.md) and [RAG documentation](RAG.md).
