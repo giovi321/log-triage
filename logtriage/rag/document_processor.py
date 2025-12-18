@@ -1,7 +1,10 @@
-"""Processes documentation files into chunks."""
+"""Processes documentation files into chunks with aggressive memory management."""
 
 import logging
 import re
+import gc
+import os
+import psutil
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import markdown
@@ -11,18 +14,40 @@ from ..models import DocumentChunk
 
 logger = logging.getLogger(__name__)
 
+def get_memory_usage():
+    """Get current memory usage in GB."""
+    try:
+        process = psutil.Process(os.getpid())
+        return process.memory_info().rss / 1024**3
+    except:
+        return 0.0
+
+def force_cleanup():
+    """Force aggressive memory cleanup."""
+    for _ in range(3):
+        gc.collect()
+
 class DocumentProcessor:
-    """Processes documentation files into indexed chunks."""
+    """Processes documentation files into indexed chunks with memory management."""
     
     def __init__(self, target_chunk_size: int = 400, overlap_ratio: float = 0.1):
         self.target_chunk_size = target_chunk_size
         self.overlap_size = int(target_chunk_size * overlap_ratio)
+        self.chunks_processed = 0
+        
+        logger.info(f"DocumentProcessor initialized: chunk_size={target_chunk_size}, overlap={overlap_ratio}")
     
     def process_file(self, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
-        """Process a single documentation file into chunks."""
+        """Process a single documentation file into chunks with memory management."""
         try:
             logger.debug(f"Processing file: {file_path}")
+            
+            # Read file content
             content = file_path.read_text(encoding='utf-8')
+            
+            # Force cleanup after reading file
+            force_cleanup()
+            
         except UnicodeDecodeError as e:
             logger.warning(f"Failed to read {file_path} due to encoding error: {e}")
             return []
@@ -35,12 +60,25 @@ class DocumentProcessor:
             return []
         
         try:
+            # Process content and get chunks
             if file_path.suffix.lower() == '.md':
                 chunks = self._process_markdown(content, file_path, repo_id, commit_hash)
             else:
                 chunks = self._process_plain_text(content, file_path, repo_id, commit_hash)
             
+            # Force cleanup after processing
+            del content
+            force_cleanup()
+            
             logger.debug(f"Generated {len(chunks)} chunks from {file_path}")
+            self.chunks_processed += len(chunks)
+            
+            # Periodic cleanup every 100 chunks
+            if self.chunks_processed % 100 == 0:
+                current_memory = get_memory_usage()
+                logger.info(f"Processed {self.chunks_processed} chunks total (memory: {current_memory:.2f}GB)")
+                force_cleanup()
+            
             return chunks
             
         except Exception as e:
@@ -48,7 +86,7 @@ class DocumentProcessor:
             return []
     
     def _process_markdown(self, content: str, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
-        """Process markdown file by splitting on headings."""
+        """Process markdown file by splitting on headings with memory management."""
         # Split on headings (# ## ### ####)
         heading_pattern = r'^(#{1,4})\s+(.+)$'
         lines = content.split('\n')
@@ -57,7 +95,7 @@ class DocumentProcessor:
         current_heading = "Introduction"
         current_content = []
         
-        for line in lines:
+        for i, line in enumerate(lines):
             match = re.match(heading_pattern, line)
             if match:
                 # Save previous chunk if it has content
@@ -68,12 +106,20 @@ class DocumentProcessor:
                             chunk_text, file_path, repo_id, commit_hash, current_heading
                         )
                         chunks.extend(chunk)
+                        
+                        # Cleanup after creating chunk
+                        del chunk_text
+                        force_cleanup()
                 
                 # Start new chunk
                 current_heading = match.group(2).strip()
                 current_content = [line]
             else:
                 current_content.append(line)
+            
+            # Periodic cleanup every 50 lines
+            if i % 50 == 0:
+                force_cleanup()
         
         # Don't forget the last chunk
         if current_content:
@@ -83,18 +129,27 @@ class DocumentProcessor:
                     chunk_text, file_path, repo_id, commit_hash, current_heading
                 )
                 chunks.extend(chunk)
+                
+                # Cleanup
+                del chunk_text
+                force_cleanup()
+        
+        # Final cleanup
+        del lines
+        del current_content
+        force_cleanup()
         
         return chunks
     
     def _process_plain_text(self, content: str, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
-        """Process plain text file by paragraph."""
+        """Process plain text file by paragraph with memory management."""
         paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
         
         chunks = []
         current_content = []
         current_length = 0
         
-        for paragraph in paragraphs:
+        for i, paragraph in enumerate(paragraphs):
             para_length = len(paragraph.split())
             
             if current_length + para_length > self.target_chunk_size and current_content:
@@ -104,6 +159,10 @@ class DocumentProcessor:
                     chunk_text, file_path, repo_id, commit_hash, "Documentation"
                 )
                 chunks.extend(chunk)
+                
+                # Cleanup after creating chunk
+                del chunk_text
+                force_cleanup()
                 
                 # Start new chunk with overlap
                 if self.overlap_size > 0 and len(current_content) > 1:
@@ -124,6 +183,10 @@ class DocumentProcessor:
             
             current_content.append(paragraph)
             current_length += para_length
+            
+            # Periodic cleanup every 20 paragraphs
+            if i % 20 == 0:
+                force_cleanup()
         
         # Final chunk
         if current_content:
@@ -132,6 +195,15 @@ class DocumentProcessor:
                 chunk_text, file_path, repo_id, commit_hash, "Documentation"
             )
             chunks.extend(chunk)
+            
+            # Cleanup
+            del chunk_text
+            force_cleanup()
+        
+        # Final cleanup
+        del paragraphs
+        del current_content
+        force_cleanup()
         
         return chunks
     

@@ -217,23 +217,31 @@ class RAGClient:
         total_files_processed = 0
         
         memory_start = get_memory_usage()
-        logger.info(f"Starting balanced reindex for {repo_id} (memory: {memory_start:.2f}GB)")
+        logger.info(f"Starting ultra-aggressive reindex for {repo_id} (memory: {memory_start:.2f}GB)")
         
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
             
-            # Process files one by one with balanced memory management
+            # Process files one by one with ultra-aggressive memory management
             for file_idx, file_path in enumerate(files):
                 try:
                     # Monitor memory before each file
-                    if file_idx % 5 == 0:
+                    if file_idx % 3 == 0:  # Monitor more frequently
                         current_memory = get_memory_usage()
                         logger.info(f"Processing file {file_idx+1}/{len(files)}: {file_path.name} (memory: {current_memory:.2f}GB)")
                         
                         # Force cleanup if memory is growing too much
-                        if current_memory > memory_start + 4.0:  # 4GB increase threshold for balanced approach
-                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing cleanup")
-                            force_cleanup()
+                        if current_memory > memory_start + 3.0:  # 3GB threshold for more aggressive cleanup
+                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing ultra-aggressive cleanup")
+                            # Ultra-aggressive cleanup
+                            for _ in range(5):
+                                gc.collect()
+                            try:
+                                import torch
+                                if torch.cuda.is_available():
+                                    torch.cuda.empty_cache()
+                            except ImportError:
+                                pass
                     
                     logger.debug(f"Processing file: {file_path.name}")
                     
@@ -242,46 +250,61 @@ class RAGClient:
                         file_path, repo_id, repo_state.last_commit_hash
                     )
                     
-                    # Force cleanup after document processing
-                    force_cleanup()
+                    # Ultra-aggressive cleanup after document processing
+                    for _ in range(3):
+                        gc.collect()
                     
                     if chunks:
-                        # Process this file in balanced batches
-                        chunk_texts = [chunk.content for chunk in chunks]
-                        
-                        # Generate embeddings in balanced batches
-                        embeddings = self.embedding_service.embed_texts(chunk_texts)
-                        
-                        if embeddings.size > 0 and len(embeddings) == len(chunks):
-                            # Store embeddings immediately
-                            self.vector_store.add_chunks(chunks, embeddings)
-                            total_chunks_processed += len(chunks)
+                        # Process this file in smaller batches to reduce memory
+                        batch_size = min(10, len(chunks))  # Smaller batches
+                        for chunk_start in range(0, len(chunks), batch_size):
+                            chunk_batch = chunks[chunk_start:chunk_start + batch_size]
+                            chunk_texts = [chunk.content for chunk in chunk_batch]
                             
-                            logger.debug(f"Processed {file_path.name}: {len(chunks)} chunks, total: {total_chunks_processed}")
+                            # Generate embeddings in small batches
+                            embeddings = self.embedding_service.embed_texts(chunk_texts)
+                            
+                            if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
+                                # Store embeddings immediately
+                                self.vector_store.add_chunks(chunk_batch, embeddings)
+                                total_chunks_processed += len(chunk_batch)
+                                
+                                logger.debug(f"Processed batch {chunk_start//batch_size + 1} from {file_path.name}: {len(chunk_batch)} chunks")
+                            
+                            # Ultra-aggressive cleanup after each batch
+                            del embeddings
+                            del chunk_texts
+                            del chunk_batch
+                            for _ in range(3):
+                                gc.collect()
                         
-                        # Cleanup after processing file
-                        del embeddings
-                        del chunk_texts
-                        force_cleanup()
+                        # Cleanup after processing all chunks for this file
+                        del chunks
+                        for _ in range(3):
+                            gc.collect()
                     
                     total_files_processed += 1
                     
-                    # Balanced cleanup after each file
-                    force_cleanup()
+                    # Ultra-aggressive cleanup after each file
+                    for _ in range(3):
+                        gc.collect()
                     
-                    if total_files_processed % 10 == 0:
+                    # More frequent progress reporting
+                    if total_files_processed % 5 == 0:
                         current_memory = get_memory_usage()
                         logger.info(f"Progress: {total_files_processed} files, {total_chunks_processed} chunks (memory: {current_memory:.2f}GB)")
                         
                         # Force cleanup if memory is growing too much
-                        if current_memory > memory_start + 4.0:
-                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing cleanup")
-                            force_cleanup()
+                        if current_memory > memory_start + 3.0:
+                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing ultra-aggressive cleanup")
+                            for _ in range(5):
+                                gc.collect()
                     
                 except Exception as e:
                     logger.error(f"Failed to process file {file_path}: {e}")
-                    # Force cleanup after error
-                    force_cleanup()
+                    # Ultra-aggressive cleanup after error
+                    for _ in range(5):
+                        gc.collect()
                     continue
         
         # Final cleanup and mark as indexed
@@ -294,7 +317,7 @@ class RAGClient:
         if total_chunks_processed > 0:
             add_notification(
                 "info",
-                "Repository reindexed (balanced)",
+                "Repository reindexed (ultra-aggressive)",
                 f"Repository {repo_id}: {total_chunks_processed} chunks indexed from {total_files_processed} files"
             )
         else:
