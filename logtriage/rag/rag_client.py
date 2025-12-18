@@ -497,7 +497,15 @@ class RAGClient:
                     pass
                 
                 # Stream chunks from the document processor so we never retain the full list
-                batch_size = 10
+                index_batch_size = 10
+                try:
+                    index_batch_size = int(getattr(self.global_config, "batch_size", 10) or 10)
+                except Exception:
+                    index_batch_size = 10
+                if index_batch_size < 1:
+                    index_batch_size = 1
+                if index_batch_size > 128:
+                    index_batch_size = 128
                 chunk_batch = []
                 chunk_texts = []
 
@@ -507,7 +515,7 @@ class RAGClient:
                     chunk_batch.append(chunk)
                     chunk_texts.append(chunk.content)
 
-                    if len(chunk_batch) >= batch_size:
+                    if len(chunk_batch) >= index_batch_size:
                         embeddings = self.embedding_service.embed_texts(chunk_texts)
                         if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
                             self.vector_store.add_chunks(chunk_batch, embeddings)
