@@ -135,6 +135,26 @@ class RAGClient:
                     try:
                         repo_id = self.knowledge_manager.add_knowledge_source(source)
                         self.initialized_repos.add(repo_id)
+                        with self._progress_lock:
+                            if repo_id not in self._repo_progress:
+                                repo_state = self.knowledge_manager.get_repo_state(repo_id)
+                                self._repo_progress[repo_id] = {
+                                    "repo_id": repo_id,
+                                    "state": "idle",
+                                    "file_current": 0,
+                                    "file_total": 0,
+                                    "current_file": None,
+                                    "chunks_processed": 0,
+                                    "memory_gb": None,
+                                    "errors": 0,
+                                    "error": None,
+                                    "started_at": None,
+                                    "updated_at": time.time(),
+                                    "finished_at": None,
+                                    "url": getattr(repo_state, "url", None) if repo_state else None,
+                                    "branch": getattr(repo_state, "branch", None) if repo_state else None,
+                                    "local_path": str(getattr(repo_state, "local_path", "")) if repo_state else None,
+                                }
                         logger.debug(f"Successfully initialized knowledge source {repo_id} for module {module_name}")
                     except Exception as e:
                         logger.error(f"Failed to initialize knowledge source for module {module_name}: {e}", exc_info=True)
@@ -195,6 +215,27 @@ class RAGClient:
                 with self._progress_lock:
                     self._indexing_progress["current_repo_id"] = repo_id
                     self._indexing_progress["updated_at"] = time.time()
+
+                    prev = self._repo_progress.get(repo_id, {})
+                    repo_state = self.knowledge_manager.get_repo_state(repo_id)
+                    repo_progress = dict(prev)
+                    repo_progress.update(
+                        {
+                            "repo_id": repo_id,
+                            "state": repo_progress.get("state") or "pending",
+                            "file_current": int(repo_progress.get("file_current") or 0),
+                            "file_total": int(repo_file_totals.get(repo_id) or repo_progress.get("file_total") or 0),
+                            "current_file": repo_progress.get("current_file"),
+                            "chunks_processed": int(repo_progress.get("chunks_processed") or 0),
+                            "errors": int(repo_progress.get("errors") or 0),
+                            "error": repo_progress.get("error"),
+                            "updated_at": time.time(),
+                            "url": getattr(repo_state, "url", None) if repo_state else repo_progress.get("url"),
+                            "branch": getattr(repo_state, "branch", None) if repo_state else repo_progress.get("branch"),
+                            "local_path": str(getattr(repo_state, "local_path", "")) if repo_state else repo_progress.get("local_path"),
+                        }
+                    )
+                    self._repo_progress[repo_id] = repo_progress
 
                 try:
                     logger.debug(f"Reindexing repository: {repo_id}")
@@ -371,6 +412,9 @@ class RAGClient:
                     "started_at": time.time(),
                     "updated_at": time.time(),
                     "finished_at": None,
+                    "url": getattr(repo_state, "url", None),
+                    "branch": getattr(repo_state, "branch", None),
+                    "local_path": str(getattr(repo_state, "local_path", "")),
                 }
             )
             self._repo_progress[repo_id] = repo_progress

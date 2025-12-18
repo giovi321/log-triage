@@ -52,9 +52,9 @@
     {% endif %}
   </div>
   
-  {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
+  {% if rag_service_available %}
   <div style="margin-top: 1rem;">
-    <table style="font-size:0.85rem;">
+    <table style="font-size:0.85rem;" id="rag-repos-table">
       <thead>
         <tr>
           <th>Repository</th>
@@ -62,11 +62,13 @@
           <th>Last Commit</th>
           <th>Indexed</th>
           <th style="text-align:right;">Chunks</th>
+          <th style="text-align:right;">Progress</th>
           <th>Status</th>
           <th>Local Path</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="rag-repos-body">
+        {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
         {% for repo in rag_status.repositories %}
         <tr data-repo-id="{{ repo.repo_id }}">
           <td style="font-family:monospace; font-size:0.8rem;">
@@ -78,6 +80,7 @@
             {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
           </td>
           <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
+          <td class="rag-progress" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
           <td>
             {% if repo.needs_reindexing %}
               <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️</span>
@@ -92,16 +95,10 @@
           </td>
         </tr>
         {% endfor %}
+        {% endif %}
       </tbody>
     </table>
   </div>
-  {% else %}
-  {% if rag_service_available and rag_service_ready %}
-  <div style="margin-top: 1rem; padding: 0.5rem; background: #fff3cd; border-radius: 4px; font-size: 0.8rem;">
-    <strong>No repositories configured</strong><br>
-    Add RAG knowledge sources to module configurations to enable documentation indexing.
-  </div>
-  {% endif %}
   {% endif %}
 </div>
 {% endif %}
@@ -194,6 +191,68 @@
         if (updatingEl) {
           updatingEl.textContent = updating ? `Live indexing: running (${done}/${total})` : 'Live indexing: idle';
           updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
+        }
+
+        const tbody = document.getElementById('rag-repos-body');
+        if (tbody && idxRepos && typeof idxRepos === 'object') {
+          const existing = {};
+          tbody.querySelectorAll('tr[data-repo-id]').forEach((row) => {
+            const repoId = row.getAttribute('data-repo-id');
+            if (repoId) {
+              existing[repoId] = row;
+            }
+          });
+
+          Object.entries(idxRepos).forEach(([repoId, repo]) => {
+            if (!repo || typeof repo !== 'object') {
+              return;
+            }
+            if (!existing[repoId]) {
+              const url = repo.url || null;
+              const name = url ? url.split('/').slice(-1)[0] : repoId;
+              const branch = repo.branch || '-';
+              const localPath = repo.local_path || '-';
+
+              const row = document.createElement('tr');
+              row.setAttribute('data-repo-id', repoId);
+              row.innerHTML = `
+                <td style="font-family:monospace; font-size:0.8rem;">${url ? `<a href="${url}" target="_blank" style="color: inherit; text-decoration: none;" title="${url}">${name}</a>` : name}</td>
+                <td><span class="tag">${branch}</span></td>
+                <td style="font-family:monospace; font-size:0.8rem;">-</td>
+                <td style="font-family:monospace; font-size:0.8rem;"><span class="muted">-</span></td>
+                <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">-</td>
+                <td class="rag-progress" data-repo-id="${repoId}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
+                <td style="font-family:monospace; font-size:0.75rem;">-</td>
+                <td style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${localPath}">${localPath}</td>
+              `;
+              tbody.appendChild(row);
+              existing[repoId] = row;
+            }
+          });
+
+          const cells = document.querySelectorAll('td.rag-progress');
+          cells.forEach((cell) => {
+            const repoId = cell.getAttribute('data-repo-id');
+            const repo = repoId ? idxRepos[repoId] : null;
+            if (!repo || typeof repo !== 'object') {
+              cell.textContent = '-';
+              return;
+            }
+            const state = repo.state || 'n/a';
+            const cur = (typeof repo.file_current === 'number') ? repo.file_current : 0;
+            const tot = (typeof repo.file_total === 'number') ? repo.file_total : 0;
+            const pct = (tot > 0) ? Math.round((cur / tot) * 100) : null;
+
+            const parts = [];
+            parts.push(state);
+            if (tot > 0) {
+              parts.push(`${cur}/${tot}`);
+              if (pct !== null) {
+                parts.push(`(${pct}%)`);
+              }
+            }
+            cell.textContent = parts.join(' ');
+          });
         }
       } catch (e) {
         return;
