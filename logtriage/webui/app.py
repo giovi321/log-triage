@@ -4,9 +4,11 @@ import datetime
 import json
 import logging
 import os
+import secrets
 import sys
 import time
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -134,6 +136,14 @@ def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
 
 
 templates.env.filters["localtime"] = _format_local_timestamp
+
+
+def _ensure_csrf_token(request: Request) -> str:
+    token = request.session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session["csrf_token"] = token
+    return str(token)
 
 
 db_status: Dict[str, Any] = {
@@ -575,6 +585,43 @@ async def ip_allowlist_middleware(request: Request, call_next):
             return HTMLResponse("Access denied", status_code=status.HTTP_403_FORBIDDEN)
     response = await call_next(request)
     return response
+
+
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    if not getattr(settings, "csrf_enabled", True):
+        return await call_next(request)
+
+    # Ensure every browser session has a CSRF token available for templates
+    _ensure_csrf_token(request)
+
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return await call_next(request)
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    # Only enforce CSRF on form posts. JSON API requests are intentionally exempt.
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        body = await request.body()
+        try:
+            parsed = urllib.parse.parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
+        except Exception:
+            parsed = {}
+        provided = (parsed.get("csrf_token") or [None])[0]
+        expected = request.session.get("csrf_token")
+        if not provided or not expected or not secrets.compare_digest(str(provided), str(expected)):
+            return HTMLResponse("CSRF validation failed", status_code=status.HTTP_400_BAD_REQUEST)
+
+    elif content_type.startswith("multipart/form-data"):
+        try:
+            form = await request.form()
+        except Exception:
+            form = {}
+        provided = form.get("csrf_token") if hasattr(form, "get") else None
+        expected = request.session.get("csrf_token")
+        if not provided or not expected or not secrets.compare_digest(str(provided), str(expected)):
+            return HTMLResponse("CSRF validation failed", status_code=status.HTTP_400_BAD_REQUEST)
+
+    return await call_next(request)
 
 
 @app.get("/login", name="login_form")

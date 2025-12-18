@@ -28,6 +28,11 @@
       <span class="status-chip">Latest log activity: {{ ingestion_status.latest_log_update|localtime }}</span>
     {% endif %}
   </div>
+
+<script type="application/json" id="rag-api-urls-json">{{ {
+  'reindexBase': url_for('reindex_rag_repo', repo_id='REPO_ID'),
+  'progress': url_for('rag_progress')
+}|tojson }}</script>
 </div>
 
 {% if rag_status %}
@@ -117,6 +122,10 @@
 
 <script>
   (function() {
+    const ragApiUrls = JSON.parse((document.getElementById('rag-api-urls-json') || {}).textContent || '{}');
+    const ragReindexBase = (ragApiUrls.reindexBase || '').replace('REPO_ID', '');
+    const ragProgressUrl = ragApiUrls.progress || '/api/rag/progress';
+
     async function triggerReindex(repoId, buttonEl) {
       if (!repoId) {
         return;
@@ -126,7 +135,7 @@
         buttonEl.textContent = 'Queued…';
       }
       try {
-        const response = await fetch(`/api/rag/reindex/${repoId}`, { method: 'POST' });
+        const response = await fetch(`${ragReindexBase}${repoId}`, { method: 'POST' });
         if (!response.ok) {
           const text = await response.text();
           if (buttonEl) {
@@ -161,7 +170,7 @@
 
     async function refreshRagProgress() {
       try {
-        const response = await fetch('/api/rag/progress', { cache: 'no-store' });
+        const response = await fetch(ragProgressUrl, { cache: 'no-store' });
         if (!response.ok) {
           return;
         }

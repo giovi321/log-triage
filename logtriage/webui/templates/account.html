@@ -4,6 +4,7 @@
   <div class="card" style="grid-column: span 2;">
     <p class="helper-text">Update your bcrypt hash inside <code>webui.admin_users</code>. A backup of <code>config.yaml</code> will be written.</p>
     <form method="post" action="{{ url_for('change_password') }}" style="display:grid; gap:0.75rem; max-width:520px;">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <label>
         <span class="muted" style="display:block; margin-bottom:0.25rem;">Current password</span>
         <input type="password" name="current_password" required>

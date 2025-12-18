@@ -99,6 +99,7 @@
         </div>
         {% if sample_lines %}
           <form id="draft-form" method="post" action="{{ url_for('regex_suggest') }}" data-draft-form>
+            <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
@@ -135,6 +136,7 @@
             </div>
 
           <form id="regex-test-form" method="post" action="{{ url_for('regex_test') }}" style="margin-top:0.65rem;">
+            <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
@@ -156,6 +158,7 @@
             </div>
           </form>
           <form id="regex-save-form" method="post" action="{{ url_for('regex_save') }}" class="inline-controls" style="margin-top:0.45rem;">
+            <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
             <input type="hidden" name="module" value="{{ current_module.name }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <input type="hidden" name="regex_value" value="{{ regex_value }}">

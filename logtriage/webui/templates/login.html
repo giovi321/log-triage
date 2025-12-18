@@ -4,6 +4,7 @@
   <div class="card" style="max-width: 460px; width: 100%;">
     <p class="helper-text">Sign in with a web UI admin user from <code>config.yaml</code>.</p>
     <form method="post" action="{{ url_for('login_form') }}" style="display:grid; gap:0.75rem;">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <label style="display:block;">
         <span class="muted" style="display:block; margin-bottom:0.25rem;">Username</span>
         <input type="text" name="username" required>

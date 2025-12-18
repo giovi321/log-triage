@@ -171,6 +171,7 @@
           <button type="button" class="secondary" id="load-more-btn" onclick="loadMoreLines()" style="padding:0.35rem 0.75rem;">Load older lines</button>
         {% endif %}
       <form id="manual-finding-form" method="post" action="{{ url_for('create_manual_finding') }}" style="display:none;">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
         <input type="hidden" name="severity" id="manual-finding-severity" value="{{ severity_choices[0] if severity_choices else 'ERROR' }}">
           <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
           <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -187,6 +188,7 @@
       {% endif %}
     </div>
     <form id="delete-selected-findings-form" method="post" action="{{ url_for('delete_selected_findings') }}" style="display:none;">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
       <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
       <input type="hidden" name="issue_filter" value="{{ issue_filter }}">
@@ -230,6 +232,7 @@
                                 <button type="button" class="secondary" onclick="queryLLMForFinding('{{ line_finding.id }}')">Query LLM</button>
                                 {% endif %}
                                 <form method="post" action="{{ url_for('mark_false_positive') }}" class="false-positive-form">
+                                  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
                                   <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
                                   <input type="hidden" name="module" value="{{ current_module.name }}">
                                   <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -239,6 +242,7 @@
                                   <button type="button" class="secondary" onclick="launchFalsePositiveFlow(this.form)">False positive</button>
                                 </form>
                                 <form method="post" action="{{ url_for('change_finding_severity') }}" id="finding-severity-form-{{ line_finding.id }}">
+                                  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
                                   <input type="hidden" name="finding_id" value="{{ line_finding.id }}">
                                   <input type="hidden" name="module" value="{{ current_module.name }}">
                                   <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -421,6 +425,7 @@
 </div>
 
 <form id="false-positive-hidden-form" method="post" action="{{ url_for('mark_false_positive') }}" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
   <input type="hidden" name="finding_id">
   <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
   <input type="hidden" name="tail_filter" value="{{ tail_filter }}">
@@ -430,6 +435,7 @@
   <input type="hidden" name="regex_value">
 </form>
 
+<script type="application/json" id="csrf-token-json">{{ request.session.get('csrf_token', '')|tojson }}</script>
 <script type="application/json" id="provider-settings-json">{{ provider_settings|tojson }}</script>
 <script type="application/json" id="module-prompt-template-json">{{ module_prompt_template|tojson }}</script>
 <script type="application/json" id="regex-presets-json">{{ regex_presets|tojson }}</script>
@@ -444,6 +450,7 @@
 
 <script>
   /* eslint-disable */
+  const csrfToken = JSON.parse((document.getElementById('csrf-token-json') || {}).textContent || '""');
   const providerSettings = JSON.parse((document.getElementById('provider-settings-json') || {}).textContent || '{}');
   const modulePromptTemplate = JSON.parse((document.getElementById('module-prompt-template-json') || {}).textContent || 'null');
   const regexPresets = JSON.parse((document.getElementById('regex-presets-json') || {}).textContent || '{}');
@@ -1056,6 +1063,7 @@
     if (citations) citations.textContent = '';
 
     const formData = new FormData();
+    formData.append('csrf_token', csrfToken);
     formData.append('finding_id', findingId);
     formData.append('provider', document.getElementById('llm-provider').value);
 
@@ -1353,6 +1361,7 @@
   async function persistOpinionToFinding(findingId, data = {}) {
     const status = document.getElementById('llm-status');
     const payload = new FormData();
+    payload.append('csrf_token', csrfToken);
     payload.append('finding_id', findingId);
     payload.append('provider', data.provider || '');
     payload.append('model', data.model || '');

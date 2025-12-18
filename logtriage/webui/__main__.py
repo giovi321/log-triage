@@ -53,9 +53,10 @@ def main():
     
     host = settings.host
     port = settings.port
+    base_path = settings.base_path
     logger.info(f"Starting WebUI on {host}:{port}")
     
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, root_path=base_path)
 
 
 if __name__ == "__main__":

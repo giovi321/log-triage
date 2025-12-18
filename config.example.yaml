@@ -5,6 +5,19 @@
 # Copy this file to config.yaml and adjust the values for your environment.
 
 # =============================================================================
+# DEFAULTS (BACKWARD COMPATIBILITY)
+# =============================================================================
+# Optional fallback settings used for backward compatibility.
+# Prefer configuring the primary sections (llm/rag/etc.) directly.
+defaults:
+  # Backward-compatible alias for llm.enabled
+  llm_enabled: true
+  
+  # Backward-compatible global default for LLM excerpt size.
+  # Prefer llm.max_excerpt_lines.
+  max_excerpt_lines: 20
+
+# =============================================================================
 # GLOBAL LLM CONFIGURATION
 # =============================================================================
 # Configure LLM providers and global settings for AI-powered log analysis.
@@ -21,6 +34,26 @@ llm:
   # Number of lines to include before and after a finding when sending to LLM
   context_prefix_lines: 0    # Lines before the matching line
   context_suffix_lines: 0    # Lines after the matching line
+
+  # Global LLM request defaults (providers inherit these unless overridden)
+  # Maximum number of log lines to send to the LLM per finding
+  max_excerpt_lines: 200
+  
+  # Backward-compatible alias for max_excerpt_lines
+  # max_chunk_lines: 200
+  
+  # Maximum number of tokens in the LLM response
+  max_output_tokens: 512
+  
+  # Backward-compatible alias for max_output_tokens
+  # max_tokens: 512
+  
+  # Request timeout in seconds
+  request_timeout: 30
+  
+  # Sampling parameters (0.0 = deterministic, 1.0 = very creative)
+  temperature: 0.0
+  top_p: 1.0
   
   # Define available LLM providers
   providers:
@@ -28,6 +61,8 @@ llm:
     openai:
       # Base URL for the API (OpenAI or compatible services)
       api_base: https://api.openai.com/v1
+      # Backward-compatible alias for api_base
+      # base_url: https://api.openai.com/v1
       
       # Environment variable containing the API key
       # Set this in your environment: export OPENAI_API_KEY=your_key
@@ -75,6 +110,9 @@ llm:
 rag:
   # Enable/disable RAG functionality
   enabled: true
+
+  # Optional: URL of a standalone RAG service (if you run it separately)
+  # service_url: "http://127.0.0.1:8091"
   
   # Directory for caching downloaded repositories and processed data
   cache_dir: "./rag_cache"
@@ -101,6 +139,14 @@ rag:
   
   # Maximum number of chunks to include in the final context
   max_chunks: 10
+
+  # Advanced settings
+  embedding:
+    # Batch size for embedding generation (advanced)
+    batch_size: 32
+  vector_store:
+    # Vector store implementation type (advanced)
+    type: chroma
 
 # =============================================================================
 # PIPELINE CONFIGURATION
@@ -136,6 +182,10 @@ pipelines:
     # How to group related log entries
     grouping:
       type: separator  # Group by separator pattern
+      # start_regex/end_regex are accepted too; they are used as additional markers
+      # by some classifiers (e.g. rsnapshot_basic).
+      # start_regex: '^rsnapshot '
+      # end_regex: '^rsnapshot '
       separator_regex: '^rsnapshot '  # Start each group at this pattern
       only_last: true  # Only keep the last entry in each group
 
@@ -292,13 +342,30 @@ modules:
       
       # Directory to save LLM payloads for debugging
       emit_llm_payloads_dir: ./rsnapshot_payloads
+
+      # Alternative location for emit_llm_payloads_dir:
+      # you can also set it at the module level as emit_llm_payloads_dir.
       
       # Context lines around findings (overrides global settings)
       context_prefix_lines: 2
       context_suffix_lines: 2
+
+      # Maximum number of log lines to send to the LLM per finding for this module
+      # (overrides provider/global defaults)
+      # max_excerpt_lines: 200
+      
+      # Backward-compatible alias for max_excerpt_lines
+      # max_chunk_lines: 200
       
       # Maximum output tokens for this module
       # max_output_tokens: 512
+      
+      # Backward-compatible alias for max_output_tokens
+      # max_tokens: 512
+
+    # Optional: set emit_llm_payloads_dir at the module level
+    # (used when modules.llm.emit_llm_payloads_dir is not set)
+    # emit_llm_payloads_dir: ./rsnapshot_payloads
     
     # Alert configuration for this module
     alerts:
@@ -515,6 +582,9 @@ webui:
   
   # UI preferences
   dark_mode_default: true  # Default to dark theme
+
+  # CSRF protection for form posts
+  csrf_enabled: true
   
   # Access control
   allowed_ips:  # Restrict access to specific IP addresses (empty = allow all)
