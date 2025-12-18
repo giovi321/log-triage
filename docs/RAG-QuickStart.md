@@ -146,38 +146,3 @@ rag:
   top_k: 10  # More context
   similarity_threshold: 0.6  # Lower threshold = more results
 ```
-
-## Troubleshooting
-
-### No RAG Results?
-
-1. Check dashboard for RAG status
-2. Verify repositories are accessible
-3. Check log files for errors
-4. Ensure documentation contains relevant content
-
-### Slow Performance?
-
-1. Use smaller embedding model
-2. Increase `similarity_threshold`
-3. Consider GPU acceleration
-
-### Memory Issues?
-
-1. Use CPU instead of GPU if limited VRAM
-2. Limit number of knowledge sources
-3. Monitor vector store size
-
-## Next Steps
-
-- Review full [RAG documentation](RAG.md)
-- Check [example configuration](../config.example.yaml)
-- Explore advanced configuration options
-- Set up monitoring and alerts
-
-## Support
-
-- Check logs: `tail -f logtriage.log`
-- Enable debug logging: Set `logtriage.rag` to DEBUG
-- Review dashboard status indicators
-- Check repository access and permissions
