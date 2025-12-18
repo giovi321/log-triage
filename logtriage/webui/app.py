@@ -12,6 +12,11 @@ import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+try:
+    import yaml  # type: ignore
+except ImportError:
+    yaml = None
+
 # Import FastAPI and related dependencies
 try:
     from fastapi import FastAPI, Request, Response, HTTPException, status, Form
@@ -270,7 +275,9 @@ settings, raw_config, CONFIG_PATH = _load_settings_and_config()
 llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 rag_client: Optional[RAGClient] = None
 context_hints = _load_context_hints()
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
+
+if not getattr(settings, "secret_key", None) or settings.secret_key == "CHANGE_ME":
+    logger.warning("WebUI secret_key is not set (or still CHANGE_ME). Please set webui.secret_key in config.yaml to a strong random value.")
 
 REGEX_WIZARD_STEPS = [
     ("pick", "Pick sample lines"),
@@ -624,6 +631,9 @@ async def csrf_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
+
+
 @app.get("/login", name="login_form")
 async def login_form(request: Request):
     return templates.TemplateResponse(
@@ -942,6 +952,15 @@ async def edit_config_post(
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if yaml is None:
+        return _render_config_editor(
+            request,
+            username,
+            config_text,
+            error="YAML support is not available (missing PyYAML dependency).",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     try:
         parsed = yaml.safe_load(config_text) or {}
