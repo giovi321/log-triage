@@ -1,0 +1,21 @@
+[Unit]
+Description=Log Triage rag service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/logtriage
+Environment=LOGTRIAGE_CONFIG=/etc/logtriage/config.yaml
+ExecStart=/opt/logtriage/.venv/bin/logtriage-rag --config /home/programmi/log-triage/config.yaml
+Restart=on-failure
+RestartSec=5s
+StateDirectory=logtriage-rag
+RuntimeDirectory=logtriage-rag
+StandardOutput=journal
+StandardError=journal
+
+
+[Install]
+WantedBy=multi-user.target
