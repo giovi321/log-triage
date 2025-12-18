@@ -858,6 +858,30 @@ async def get_rag_progress():
             "monitor": monitor_data,
         }
 
+
+@app.post("/api/rag/reindex/{repo_id}")
+async def reindex_rag_repo(repo_id: str, request: Request):
+    username = get_current_user(request, settings)
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    monitor_data = get_rag_monitor_status()
+    if not monitor_data.get("rag_available"):
+        raise HTTPException(status_code=503, detail="RAG service unavailable")
+
+    if rag_client is None or not hasattr(rag_client, "_make_request"):
+        raise HTTPException(status_code=503, detail="RAG client not available")
+
+    try:
+        result = rag_client._make_request("POST", f"/reindex/{repo_id}", json={"refresh": True}, max_retries=0)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if not result:
+        raise HTTPException(status_code=502, detail="Failed to start reindex")
+
+    return result
+
 @app.get("/config/edit", name="edit_config")
 async def edit_config(request: Request):
     username = get_current_user(request, settings)

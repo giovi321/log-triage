@@ -113,6 +113,10 @@ class ModuleConfigRequest(BaseModel):
     enabled: bool
     knowledge_sources: List[Dict[str, Any]]
 
+
+class RepoReindexRequest(BaseModel):
+    refresh: bool = True
+
 def configure_logging_from_config(cfg: dict) -> None:
     """Configure logging based on configuration dictionary."""
     configure_logging_from_dict(cfg)
@@ -408,6 +412,27 @@ async def update_knowledge_base(background_tasks: BackgroundTasks):
     # Run update in background to avoid blocking
     background_tasks.add_task(rag_client.update_knowledge_base)
     return {"message": "Knowledge base update initiated in background"}
+
+
+@app.post("/reindex/{repo_id}")
+async def reindex_repository(repo_id: str, payload: RepoReindexRequest, background_tasks: BackgroundTasks):
+    with init_lock:
+        if initialization_status["updating"]:
+            raise HTTPException(status_code=509, detail="RAG service is currently initializing, please try again later")
+        if initialization_status["error"]:
+            raise HTTPException(status_code=503, detail=f"RAG initialization failed: {initialization_status['error']}")
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="RAG service not initialized")
+
+    refresh = True
+    try:
+        refresh = bool(payload.refresh)
+    except Exception:
+        refresh = True
+
+    background_tasks.add_task(rag_client.reindex_repository, repo_id, refresh=refresh)
+    return {"message": f"Repository reindex initiated in background", "repo_id": repo_id}
 
 @app.post("/module/{module_name}/config")
 async def update_module_config(module_name: str, config: ModuleConfigRequest):

@@ -334,6 +334,10 @@ class RAGClient:
         }
         
         for repo_id in self.initialized_repos:
+            try:
+                self.knowledge_manager.refresh_repo(repo_id)
+            except Exception:
+                pass
             repo_state = self.knowledge_manager.get_repo_state(repo_id)
             if repo_state:
                 chunk_count = self.vector_store.get_repo_chunk_count(repo_id)
@@ -342,13 +346,44 @@ class RAGClient:
                     "url": repo_state.url,
                     "branch": repo_state.branch,
                     "last_commit_hash": repo_state.last_commit_hash,
+                    "last_commit_at": repo_state.last_commit_at,
                     "last_indexed_hash": repo_state.last_indexed_hash,
+                    "last_indexed_at": repo_state.last_indexed_at,
                     "needs_reindexing": self.knowledge_manager.needs_reindexing(repo_id),
                     "chunk_count": chunk_count,
                     "local_path": str(repo_state.local_path)
                 })
         
         return status
+
+    def reindex_repository(self, repo_id: str, *, refresh: bool = True) -> None:
+        if repo_id not in self.initialized_repos:
+            raise ValueError(f"Unknown repo_id: {repo_id}")
+
+        if refresh:
+            self.knowledge_manager.refresh_repo(repo_id, min_interval_seconds=0.0)
+
+        now = time.time()
+        with self._progress_lock:
+            self._indexing_progress["updating"] = True
+            self._indexing_progress["current_repo_id"] = repo_id
+            self._indexing_progress["repos_total"] = 1
+            self._indexing_progress["repos_done"] = 0
+            self._indexing_progress["started_at"] = now
+            self._indexing_progress["updated_at"] = now
+            self._indexing_progress["finished_at"] = None
+
+        try:
+            self._reindex_repository(repo_id)
+            with self._progress_lock:
+                self._indexing_progress["repos_done"] = 1
+                self._indexing_progress["updated_at"] = time.time()
+        finally:
+            with self._progress_lock:
+                self._indexing_progress["updating"] = False
+                self._indexing_progress["current_repo_id"] = None
+                self._indexing_progress["updated_at"] = time.time()
+                self._indexing_progress["finished_at"] = time.time()
     
     def _reindex_repository(self, repo_id: str):
         """Reindex a repository with ultra-aggressive memory management."""

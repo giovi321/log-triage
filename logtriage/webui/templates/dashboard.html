@@ -59,6 +59,7 @@
           <th>Branch</th>
           <th>Last Commit</th>
           <th>Indexed</th>
+          <th>Actions</th>
           <th style="text-align:right;">Chunks</th>
           <th style="text-align:right;">Progress</th>
           <th>Status</th>
@@ -73,9 +74,22 @@
             <a href="{{ repo.url }}" target="_blank" style="color: inherit; text-decoration: none;" title="{{ repo.url }}">{{ repo.url.split('/')[-1] }}</a>
           </td>
           <td class="rag-repo-branch"><span class="tag">{{ repo.branch }}</span></td>
-          <td style="font-family:monospace; font-size:0.8rem;">{{ repo.last_commit_hash[:8] }}</td>
           <td style="font-family:monospace; font-size:0.8rem;">
-            {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
+            <div>{{ repo.last_commit_hash[:8] }}</div>
+            <div class="muted" style="font-size:0.75rem;">{% if repo.last_commit_at %}{{ repo.last_commit_at }}{% else %}n/a{% endif %}</div>
+          </td>
+          <td style="font-family:monospace; font-size:0.8rem;">
+            <div>
+              {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
+            </div>
+            <div class="muted" style="font-size:0.75rem;">{% if repo.last_indexed_at %}{{ repo.last_indexed_at }}{% else %}n/a{% endif %}</div>
+          </td>
+          <td style="white-space:nowrap;">
+            {% if repo.needs_reindexing %}
+              <button type="button" class="secondary rag-reindex-btn" data-repo-id="{{ repo.repo_id }}">Re-index</button>
+            {% else %}
+              <span class="muted">-</span>
+            {% endif %}
           </td>
           <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
           <td class="rag-progress" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
@@ -103,6 +117,48 @@
 
 <script>
   (function() {
+    async function triggerReindex(repoId, buttonEl) {
+      if (!repoId) {
+        return;
+      }
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.textContent = 'Queued…';
+      }
+      try {
+        const response = await fetch(`/api/rag/reindex/${repoId}`, { method: 'POST' });
+        if (!response.ok) {
+          const text = await response.text();
+          if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = 'Re-index';
+          }
+          alert(text || 'Failed to start reindex');
+          return;
+        }
+        if (buttonEl) {
+          buttonEl.textContent = 'Started';
+        }
+      } catch (e) {
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.textContent = 'Re-index';
+        }
+        alert('Failed to start reindex');
+      }
+    }
+
+    document.addEventListener('click', (ev) => {
+      const target = ev.target;
+      if (!target) {
+        return;
+      }
+      if (target.classList && target.classList.contains('rag-reindex-btn')) {
+        const repoId = target.getAttribute('data-repo-id');
+        triggerReindex(repoId, target);
+      }
+    });
+
     async function refreshRagProgress() {
       try {
         const response = await fetch('/api/rag/progress', { cache: 'no-store' });
@@ -178,6 +234,7 @@
                 <td class="rag-repo-branch"><span class="tag">${branch}</span></td>
                 <td style="font-family:monospace; font-size:0.8rem;">-</td>
                 <td style="font-family:monospace; font-size:0.8rem;"><span class="muted">-</span></td>
+                <td style="white-space:nowrap;"><span class="muted">-</span></td>
                 <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">-</td>
                 <td class="rag-progress" data-repo-id="${repoId}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
                 <td style="font-family:monospace; font-size:0.75rem;">-</td>
