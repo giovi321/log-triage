@@ -6,7 +6,7 @@ import gc
 import os
 import psutil
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterator
 import markdown
 from dataclasses import dataclass
 
@@ -39,51 +39,124 @@ class DocumentProcessor:
     
     def process_file(self, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
         """Process a single documentation file into chunks with memory management."""
+        return list(self.process_file_iter(file_path, repo_id, commit_hash))
+
+    def process_file_iter(self, file_path: Path, repo_id: str, commit_hash: str) -> Iterator[DocumentChunk]:
         try:
             logger.debug(f"Processing file: {file_path}")
-            
-            # Read file content
-            content = file_path.read_text(encoding='utf-8')
-            
-            # Force cleanup after reading file
-            force_cleanup()
-            
+
+            if file_path.suffix.lower() == '.md':
+                yield from self._iter_process_markdown_file(file_path, repo_id, commit_hash)
+            else:
+                yield from self._iter_process_plain_text_file(file_path, repo_id, commit_hash)
+
         except UnicodeDecodeError as e:
             logger.warning(f"Failed to read {file_path} due to encoding error: {e}")
-            return []
+            return
         except Exception as e:
             logger.error(f"Failed to read {file_path}: {e}", exc_info=True)
-            return []
-        
-        if not content.strip():
-            logger.debug(f"Skipping empty file: {file_path}")
-            return []
-        
-        try:
-            # Process content and get chunks
-            if file_path.suffix.lower() == '.md':
-                chunks = self._process_markdown(content, file_path, repo_id, commit_hash)
-            else:
-                chunks = self._process_plain_text(content, file_path, repo_id, commit_hash)
-            
-            # Force cleanup after processing
-            del content
+
+            return
+
+    def _iter_process_markdown_file(self, file_path: Path, repo_id: str, commit_hash: str) -> Iterator[DocumentChunk]:
+        heading_pattern = re.compile(r'^(#{1,4})\s+(.+)$')
+
+        current_heading = "Introduction"
+        current_lines: List[str] = []
+
+        with file_path.open('r', encoding='utf-8', errors='ignore') as f:
+            for i, line in enumerate(f):
+                match = heading_pattern.match(line)
+                if match:
+                    if current_lines:
+                        chunk_text = ''.join(current_lines).strip()
+                        if chunk_text:
+                            for chunk in self._iter_create_chunk(chunk_text, file_path, repo_id, commit_hash, current_heading):
+                                yield chunk
+                                self.chunks_processed += 1
+                        current_lines = []
+
+                    current_heading = match.group(2).strip() or current_heading
+                    current_lines.append(line)
+                else:
+                    current_lines.append(line)
+
+                if i % 200 == 0:
+                    force_cleanup()
+
+        if current_lines:
+            chunk_text = ''.join(current_lines).strip()
+            if chunk_text:
+                for chunk in self._iter_create_chunk(chunk_text, file_path, repo_id, commit_hash, current_heading):
+                    yield chunk
+                    self.chunks_processed += 1
+
+        if self.chunks_processed % 100 == 0 and self.chunks_processed > 0:
+            current_memory = get_memory_usage()
+            logger.info(f"Processed {self.chunks_processed} chunks total (memory: {current_memory:.2f}GB)")
             force_cleanup()
-            
-            logger.debug(f"Generated {len(chunks)} chunks from {file_path}")
-            self.chunks_processed += len(chunks)
-            
-            # Periodic cleanup every 100 chunks
-            if self.chunks_processed % 100 == 0:
-                current_memory = get_memory_usage()
-                logger.info(f"Processed {self.chunks_processed} chunks total (memory: {current_memory:.2f}GB)")
+
+    def _iter_process_plain_text_file(self, file_path: Path, repo_id: str, commit_hash: str) -> Iterator[DocumentChunk]:
+        def paragraph_iter() -> Iterator[str]:
+            buf: List[str] = []
+            with file_path.open('r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if line.strip() == "":
+                        if buf:
+                            yield ''.join(buf).strip()
+                            buf = []
+                    else:
+                        buf.append(line)
+                if buf:
+                    yield ''.join(buf).strip()
+
+        chunks: List[str] = []
+        current_length = 0
+
+        for i, paragraph in enumerate(paragraph_iter()):
+            if not paragraph:
+                continue
+
+            para_length = len(paragraph.split())
+
+            if current_length + para_length > self.target_chunk_size and chunks:
+                chunk_text = '\n\n'.join(chunks)
+                for chunk in self._iter_create_chunk(chunk_text, file_path, repo_id, commit_hash, "Documentation"):
+                    yield chunk
+                    self.chunks_processed += 1
+
+                if self.overlap_size > 0 and len(chunks) > 1:
+                    overlap_content: List[str] = []
+                    overlap_length = 0
+                    for para in reversed(chunks):
+                        para_len = len(para.split())
+                        if overlap_length + para_len <= self.overlap_size:
+                            overlap_content.insert(0, para)
+                            overlap_length += para_len
+                        else:
+                            break
+                    chunks = overlap_content
+                    current_length = overlap_length
+                else:
+                    chunks = []
+                    current_length = 0
+
+            chunks.append(paragraph)
+            current_length += para_length
+
+            if i % 50 == 0:
                 force_cleanup()
-            
-            return chunks
-            
-        except Exception as e:
-            logger.error(f"Failed to process {file_path}: {e}", exc_info=True)
-            return []
+
+        if chunks:
+            chunk_text = '\n\n'.join(chunks)
+            for chunk in self._iter_create_chunk(chunk_text, file_path, repo_id, commit_hash, "Documentation"):
+                yield chunk
+                self.chunks_processed += 1
+
+        if self.chunks_processed % 100 == 0 and self.chunks_processed > 0:
+            current_memory = get_memory_usage()
+            logger.info(f"Processed {self.chunks_processed} chunks total (memory: {current_memory:.2f}GB)")
+            force_cleanup()
     
     def _process_markdown(self, content: str, file_path: Path, repo_id: str, commit_hash: str) -> List[DocumentChunk]:
         """Process markdown file by splitting on headings with memory management."""
@@ -256,8 +329,60 @@ class DocumentProcessor:
                     "part": chunk_num + 1
                 }
             ))
-            
-            start_idx = end_idx - self.overlap_size
+
+            if end_idx >= len(words):
+                break
+
+            start_idx = max(0, end_idx - self.overlap_size)
             chunk_num += 1
         
         return chunks
+
+    def _iter_create_chunk(self, content: str, file_path: Path, repo_id: str, commit_hash: str, heading: str) -> Iterator[DocumentChunk]:
+        if len(content.split()) <= self.target_chunk_size * 1.5:
+            chunk_id = f"{repo_id}:{file_path.name}:{hash(content) % 10000}"
+            yield DocumentChunk(
+                chunk_id=chunk_id,
+                repo_id=repo_id,
+                file_path=str(file_path),
+                heading=heading,
+                content=content,
+                commit_hash=commit_hash,
+                metadata={
+                    "file_extension": file_path.suffix,
+                    "word_count": len(content.split()),
+                    "char_count": len(content)
+                }
+            )
+            return
+
+        words = content.split()
+        start_idx = 0
+        chunk_num = 0
+
+        while start_idx < len(words):
+            end_idx = min(start_idx + self.target_chunk_size, len(words))
+            chunk_content = ' '.join(words[start_idx:end_idx])
+            chunk_id = f"{repo_id}:{file_path.name}:{hash(chunk_content) % 10000}_{chunk_num}"
+            chunk_heading = f"{heading} (part {chunk_num + 1})" if chunk_num > 0 else heading
+
+            yield DocumentChunk(
+                chunk_id=chunk_id,
+                repo_id=repo_id,
+                file_path=str(file_path),
+                heading=chunk_heading,
+                content=chunk_content,
+                commit_hash=commit_hash,
+                metadata={
+                    "file_extension": file_path.suffix,
+                    "word_count": len(chunk_content.split()),
+                    "char_count": len(chunk_content),
+                    "part": chunk_num + 1
+                }
+            )
+
+            if end_idx >= len(words):
+                break
+
+            start_idx = max(0, end_idx - self.overlap_size)
+            chunk_num += 1

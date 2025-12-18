@@ -243,43 +243,46 @@ class RAGClient:
                                 pass
                     
                     logger.debug(f"Processing file: {file_path.name}")
+                    try:
+                        file_size_mb = file_path.stat().st_size / 1024**2
+                        logger.info(f"File size: {file_path.name} ({file_size_mb:.2f}MB)")
+                    except Exception:
+                        pass
                     
-                    # Process single file
-                    chunks = self.document_processor.process_file(
+                    # Stream chunks from the document processor so we never retain the full list
+                    batch_size = 10
+                    chunk_batch = []
+                    chunk_texts = []
+
+                    for chunk in self.document_processor.process_file_iter(
                         file_path, repo_id, repo_state.last_commit_hash
-                    )
-                    
-                    # Ultra-aggressive cleanup after document processing
-                    for _ in range(3):
-                        gc.collect()
-                    
-                    if chunks:
-                        # Process this file in smaller batches to reduce memory
-                        batch_size = min(10, len(chunks))  # Smaller batches
-                        for chunk_start in range(0, len(chunks), batch_size):
-                            chunk_batch = chunks[chunk_start:chunk_start + batch_size]
-                            chunk_texts = [chunk.content for chunk in chunk_batch]
-                            
-                            # Generate embeddings in small batches
+                    ):
+                        chunk_batch.append(chunk)
+                        chunk_texts.append(chunk.content)
+
+                        if len(chunk_batch) >= batch_size:
                             embeddings = self.embedding_service.embed_texts(chunk_texts)
-                            
                             if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
-                                # Store embeddings immediately
                                 self.vector_store.add_chunks(chunk_batch, embeddings)
                                 total_chunks_processed += len(chunk_batch)
-                                
-                                logger.debug(f"Processed batch {chunk_start//batch_size + 1} from {file_path.name}: {len(chunk_batch)} chunks")
-                            
-                            # Ultra-aggressive cleanup after each batch
+
                             del embeddings
-                            del chunk_texts
-                            del chunk_batch
-                            for _ in range(3):
+                            chunk_batch.clear()
+                            chunk_texts.clear()
+                            for _ in range(2):
                                 gc.collect()
-                        
-                        # Cleanup after processing all chunks for this file
-                        del chunks
-                        for _ in range(3):
+
+                    # Flush final partial batch
+                    if chunk_batch:
+                        embeddings = self.embedding_service.embed_texts(chunk_texts)
+                        if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
+                            self.vector_store.add_chunks(chunk_batch, embeddings)
+                            total_chunks_processed += len(chunk_batch)
+
+                        del embeddings
+                        chunk_batch.clear()
+                        chunk_texts.clear()
+                        for _ in range(2):
                             gc.collect()
                     
                     total_files_processed += 1
