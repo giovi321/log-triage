@@ -30,8 +30,8 @@
   </div>
 
 <script type="application/json" id="rag-api-urls-json">{{ {
-  'reindexBase': url_for('reindex_rag_repo', repo_id='REPO_ID'),
-  'progress': url_for('rag_progress')
+  'reindexBase': (url_for('reindex_rag_repo', repo_id='REPO_ID') | string),
+  'progress': (url_for('rag_progress') | string)
 }|tojson }}</script>
 </div>
 
