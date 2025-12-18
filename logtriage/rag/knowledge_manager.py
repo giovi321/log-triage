@@ -1,6 +1,7 @@
 """Manages git repository knowledge sources."""
 
 import hashlib
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -30,12 +31,37 @@ class KnowledgeManager:
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.repositories: Dict[str, RepoState] = {}
-        
+        self._index_state_path = self.cache_dir / "repo_index_state.json"
+        self._index_state: Dict[str, str] = self._load_index_state()
+
+    def _load_index_state(self) -> Dict[str, str]:
+        try:
+            if not self._index_state_path.exists():
+                return {}
+            data = json.loads(self._index_state_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            out: Dict[str, str] = {}
+            for k, v in data.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    out[k] = v
+            return out
+        except Exception:
+            return {}
+
+    def _save_index_state(self) -> None:
+        try:
+            tmp_path = self._index_state_path.with_suffix(self._index_state_path.suffix + ".tmp")
+            tmp_path.write_text(json.dumps(self._index_state, sort_keys=True), encoding="utf-8")
+            tmp_path.replace(self._index_state_path)
+        except Exception:
+            return
+
     def _get_repo_id(self, repo_url: str, branch: str) -> str:
         """Generate unique repository ID."""
         content = f"{repo_url}#{branch}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
-    
+
     def add_knowledge_source(self, config: KnowledgeSourceConfig) -> str:
         """Add a knowledge source and return repo ID."""
         repo_id = self._get_repo_id(config.repo_url, config.branch)
@@ -69,12 +95,15 @@ class KnowledgeManager:
             # Get current commit hash
             commit_hash = repo.head.commit.hexsha
             
+            last_indexed_hash = self._index_state.get(repo_id)
+            
             state = RepoState(
                 repo_id=repo_id,
                 url=config.repo_url,
                 branch=config.branch,
                 local_path=local_path,
-                last_commit_hash=commit_hash
+                last_commit_hash=commit_hash,
+                last_indexed_hash=last_indexed_hash
             )
             
             self.repositories[repo_id] = state
@@ -111,6 +140,8 @@ class KnowledgeManager:
         """Mark repository as indexed."""
         if repo_id in self.repositories:
             self.repositories[repo_id].last_indexed_hash = self.repositories[repo_id].last_commit_hash
+            self._index_state[repo_id] = self.repositories[repo_id].last_indexed_hash
+            self._save_index_state()
     
     def get_repo_files(self, repo_id: str, include_paths: List[str]) -> List[Path]:
         """Get all documentation files from repository using glob patterns."""

@@ -307,6 +307,21 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Failed to get repo chunks: {e}")
             return []
+
+    def get_repo_chunk_count(self, repo_id: str) -> int:
+        """Get the total number of chunks stored for a repository."""
+        try:
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) as count FROM chunks WHERE repo_id = ?",
+                (repo_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return 0
+            return int(row["count"])
+        except Exception as e:
+            logger.error(f"Failed to get repo chunk count: {e}")
+            return 0
     
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about the vector store."""

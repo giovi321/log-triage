@@ -102,9 +102,17 @@ class RAGClient:
             logger.info("Updating knowledge base...")
             repos_updated = 0
 
-            repos_to_update = [
-                repo_id for repo_id in self.initialized_repos if self.knowledge_manager.needs_reindexing(repo_id)
-            ]
+            repos_to_update = []
+            for repo_id in self.initialized_repos:
+                try:
+                    needs_reindex = self.knowledge_manager.needs_reindexing(repo_id)
+                    chunk_count = self.vector_store.get_repo_chunk_count(repo_id)
+                    # If we have no stored chunks, we must reindex regardless of state.
+                    if needs_reindex or chunk_count == 0:
+                        repos_to_update.append(repo_id)
+                except Exception:
+                    # Conservative default: if we can't determine status, reindex.
+                    repos_to_update.append(repo_id)
 
             now = time.time()
             with self._progress_lock:
