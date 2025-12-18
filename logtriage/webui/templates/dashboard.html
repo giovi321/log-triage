@@ -140,6 +140,7 @@
         const initText = initProgress.step_description || init.current_phase || 'n/a';
         const idx = progress.indexing_progress || {};
         const idxMeta = idx.indexing || {};
+        const idxRepos = idx.repositories || {};
         const updating = !!idxMeta.updating;
         const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
         const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
@@ -149,6 +150,28 @@
         if (init && init.updating && updating) {
           if (filesOverallPct !== null) {
             initPct = filesOverallPct;
+          } else if (idxRepos && typeof idxRepos === 'object') {
+            let filesDone = 0;
+            let filesTotal = 0;
+            Object.values(idxRepos).forEach((repo) => {
+              if (!repo || typeof repo !== 'object') {
+                return;
+              }
+              const tot = (typeof repo.file_total === 'number') ? repo.file_total : 0;
+              const cur = (typeof repo.file_current === 'number') ? repo.file_current : 0;
+              if (tot <= 0) {
+                return;
+              }
+              filesTotal += tot;
+              if (repo.state === 'done') {
+                filesDone += tot;
+              } else {
+                filesDone += Math.max(0, Math.min(tot, cur));
+              }
+            });
+            if (filesTotal > 0) {
+              initPct = (filesDone / filesTotal) * 100;
+            }
           } else if (total > 0) {
             initPct = (done / total) * 100;
           }
