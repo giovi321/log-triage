@@ -132,8 +132,23 @@ app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
     if value is None:
         return ""
+    if isinstance(value, (int, float)):
+        try:
+            ts = datetime.datetime.fromtimestamp(float(value), tz=datetime.timezone.utc)
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            return str(value)
     if isinstance(value, str):
-        return value
+        try:
+            raw = value.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            ts = datetime.datetime.fromisoformat(raw)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=datetime.timezone.utc)
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            return value
     ts = value
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=datetime.timezone.utc)

@@ -64,11 +64,9 @@
           <th>Branch</th>
           <th>Last Commit</th>
           <th>Indexed</th>
-          <th>Actions</th>
           <th style="text-align:right;">Chunks</th>
+          <th>Action / Status</th>
           <th style="text-align:right;">Progress</th>
-          <th>Status</th>
-          <th>Local Path</th>
         </tr>
       </thead>
       <tbody id="rag-repos-body">
@@ -81,24 +79,16 @@
           <td class="rag-repo-branch"><span class="tag">{{ repo.branch }}</span></td>
           <td style="font-family:monospace; font-size:0.8rem;">
             <div>{{ repo.last_commit_hash[:8] }}</div>
-            <div class="muted" style="font-size:0.75rem;">{% if repo.last_commit_at %}{{ repo.last_commit_at }}{% else %}n/a{% endif %}</div>
+            <div class="muted" style="font-size:0.75rem;">{% if repo.last_commit_at %}{{ repo.last_commit_at|localtime }}{% else %}n/a{% endif %}</div>
           </td>
           <td style="font-family:monospace; font-size:0.8rem;">
             <div>
               {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
             </div>
-            <div class="muted" style="font-size:0.75rem;">{% if repo.last_indexed_at %}{{ repo.last_indexed_at }}{% else %}n/a{% endif %}</div>
-          </td>
-          <td style="white-space:nowrap;">
-            {% if repo.needs_reindexing %}
-              <button type="button" class="secondary rag-reindex-btn" data-repo-id="{{ repo.repo_id }}">Re-index</button>
-            {% else %}
-              <span class="muted">-</span>
-            {% endif %}
+            <div class="muted" style="font-size:0.75rem;">{% if repo.last_indexed_at %}{{ repo.last_indexed_at|localtime }}{% else %}n/a{% endif %}</div>
           </td>
           <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
-          <td class="rag-progress" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
-          <td>
+          <td class="rag-action-status" style="white-space:nowrap;">
             {% if repo.needs_reindexing %}
               <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️</span>
             {% elif repo.chunk_count == 0 %}
@@ -106,10 +96,9 @@
             {% else %}
               <span class="status-badge sev-OK" title="Repository indexed and current">✅</span>
             {% endif %}
+            <button type="button" class="secondary rag-reindex-btn" data-repo-id="{{ repo.repo_id }}" data-needs-reindex="{{ 1 if repo.needs_reindexing else 0 }}" data-chunks="{{ repo.chunk_count }}">Re-index</button>
           </td>
-          <td class="rag-repo-local-path" style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{{ repo.local_path }}">
-            {{ repo.local_path }}
-          </td>
+          <td class="rag-progress" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
         </tr>
         {% endfor %}
         {% endif %}
@@ -216,6 +205,22 @@
           updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
         }
 
+        document.querySelectorAll('button.rag-reindex-btn').forEach((btn) => {
+          const needs = btn.getAttribute('data-needs-reindex');
+          const chunks = btn.getAttribute('data-chunks');
+          const needsReindex = (needs === '1' || needs === 'true');
+          const chunkCount = (chunks !== null) ? parseInt(chunks, 10) : NaN;
+          const allow = (!updating) && (needsReindex || (!Number.isNaN(chunkCount) && chunkCount === 0));
+          btn.disabled = !allow;
+          if (updating) {
+            btn.title = 'Indexing is already running';
+          } else if (allow) {
+            btn.title = 'Re-index this repository';
+          } else {
+            btn.title = 'Repository is up to date';
+          }
+        });
+
         const tbody = document.getElementById('rag-repos-body');
         if (tbody && idxRepos && typeof idxRepos === 'object') {
           const existing = {};
@@ -234,7 +239,6 @@
               const url = repo.url || null;
               const name = url ? url.split('/').slice(-1)[0] : repoId;
               const branch = repo.branch || '-';
-              const localPath = repo.local_path || '-';
 
               const row = document.createElement('tr');
               row.setAttribute('data-repo-id', repoId);
@@ -243,11 +247,9 @@
                 <td class="rag-repo-branch"><span class="tag">${branch}</span></td>
                 <td style="font-family:monospace; font-size:0.8rem;">-</td>
                 <td style="font-family:monospace; font-size:0.8rem;"><span class="muted">-</span></td>
-                <td style="white-space:nowrap;"><span class="muted">-</span></td>
                 <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">-</td>
+                <td class="rag-action-status" style="white-space:nowrap;"><span class="muted">-</span> <button type="button" class="secondary rag-reindex-btn" data-repo-id="${repoId}" data-needs-reindex="0" data-chunks="0" disabled>Re-index</button></td>
                 <td class="rag-progress" data-repo-id="${repoId}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
-                <td style="font-family:monospace; font-size:0.75rem;">-</td>
-                <td class="rag-repo-local-path" style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${localPath}">${localPath}</td>
               `;
               tbody.appendChild(row);
               existing[repoId] = row;
@@ -268,12 +270,6 @@
               const branchCell = row.querySelector('td.rag-repo-branch');
               if (branchCell && branch) {
                 branchCell.innerHTML = `<span class="tag">${branch}</span>`;
-              }
-
-              const localCell = row.querySelector('td.rag-repo-local-path');
-              if (localCell && localPath) {
-                localCell.textContent = localPath;
-                localCell.title = localPath;
               }
             }
           });
@@ -299,7 +295,16 @@
                 parts.push(`(${pct}%)`);
               }
             }
-            cell.textContent = parts.join(' ');
+            const text = parts.join(' ');
+            const barPct = (pct !== null) ? pct : 0;
+            cell.innerHTML = `
+              <div style="text-align:right;">
+                <div style="margin-bottom: 2px;">${text}</div>
+                <div style="height: 6px; background: rgba(0,0,0,0.12); border-radius: 999px; overflow: hidden;">
+                  <div style="height: 100%; width: ${barPct}%; background: rgba(50, 158, 88, 0.95);"></div>
+                </div>
+              </div>
+            `;
           });
         }
       } catch (e) {
