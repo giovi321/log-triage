@@ -40,12 +40,10 @@
       <span class="status-chip">Total chunks: {{ rag_status.vector_store_stats.total_chunks }}</span>
       <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
       <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
-      <span class="status-chip" id="rag-live-init">Init: n/a</span>
     {% elif rag_service_available and not rag_service_ready %}
       <span class="status-chip warn">RAG Initializing</span>
       <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
       <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
-      <span class="status-chip" id="rag-live-init">Init: n/a</span>
     {% else %}
       <span class="status-chip warn">RAG Disabled</span>
       <span class="status-chip">Service unavailable</span>
@@ -71,10 +69,10 @@
         {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
         {% for repo in rag_status.repositories %}
         <tr data-repo-id="{{ repo.repo_id }}">
-          <td style="font-family:monospace; font-size:0.8rem;">
+          <td class="rag-repo-name" style="font-family:monospace; font-size:0.8rem;">
             <a href="{{ repo.url }}" target="_blank" style="color: inherit; text-decoration: none;" title="{{ repo.url }}">{{ repo.url.split('/')[-1] }}</a>
           </td>
-          <td><span class="tag">{{ repo.branch }}</span></td>
+          <td class="rag-repo-branch"><span class="tag">{{ repo.branch }}</span></td>
           <td style="font-family:monospace; font-size:0.8rem;">{{ repo.last_commit_hash[:8] }}</td>
           <td style="font-family:monospace; font-size:0.8rem;">
             {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
@@ -90,7 +88,7 @@
               <span class="status-badge sev-OK" title="Repository indexed and current">✅</span>
             {% endif %}
           </td>
-          <td style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{{ repo.local_path }}">
+          <td class="rag-repo-local-path" style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="{{ repo.local_path }}">
             {{ repo.local_path }}
           </td>
         </tr>
@@ -107,14 +105,13 @@
   (function() {
     async function refreshRagProgress() {
       try {
-        const response = await fetch('/api/rag/progress');
+        const response = await fetch('/api/rag/progress', { cache: 'no-store' });
         if (!response.ok) {
           return;
         }
         const payload = await response.json();
         const progress = payload && payload.progress ? payload.progress : null;
 
-        const initEl = document.getElementById('rag-live-init');
         const rssEl = document.getElementById('rag-live-rss');
         const updatingEl = document.getElementById('rag-live-updating');
 
@@ -126,63 +123,24 @@
           if (rssEl) {
             rssEl.textContent = 'RAG RSS: n/a';
           }
-          if (initEl) {
-            initEl.textContent = 'Init: n/a';
-          }
           return;
         }
 
         const init = progress.initialization || {};
         const initProgress = (init.progress || {});
-        const initText = initProgress.step_description || init.current_phase || 'n/a';
         const idx = progress.indexing_progress || {};
         const idxMeta = idx.indexing || {};
         const idxRepos = idx.repositories || {};
         const updating = !!idxMeta.updating;
         const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
         const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
-        const filesOverallPct = (typeof idxMeta.overall_pct === 'number') ? idxMeta.overall_pct : null;
-
-        let initPct = (typeof initProgress.percentage === 'number') ? initProgress.percentage : null;
-        if (init && init.updating && updating) {
-          if (filesOverallPct !== null) {
-            initPct = filesOverallPct;
-          } else if (idxRepos && typeof idxRepos === 'object') {
-            let filesDone = 0;
-            let filesTotal = 0;
-            Object.values(idxRepos).forEach((repo) => {
-              if (!repo || typeof repo !== 'object') {
-                return;
-              }
-              const tot = (typeof repo.file_total === 'number') ? repo.file_total : 0;
-              const cur = (typeof repo.file_current === 'number') ? repo.file_current : 0;
-              if (tot <= 0) {
-                return;
-              }
-              filesTotal += tot;
-              if (repo.state === 'done') {
-                filesDone += tot;
-              } else {
-                filesDone += Math.max(0, Math.min(tot, cur));
-              }
-            });
-            if (filesTotal > 0) {
-              initPct = (filesDone / filesTotal) * 100;
-            }
-          } else if (total > 0) {
-            initPct = (done / total) * 100;
-          }
-        }
-        const initPctText = (typeof initPct === 'number') ? initPct.toFixed(0) : null;
-        if (initEl) {
-          initEl.textContent = initPctText !== null ? `Init: ${initText} (${initPctText}%)` : `Init: ${initText}`;
-          initEl.className = 'status-chip' + (init.updating ? ' warn' : '');
-        }
 
         const proc = progress.process || {};
         if (rssEl) {
-          if (typeof proc.rss_gb === 'number') {
-            rssEl.textContent = `RAG memory: ${proc.rss_gb.toFixed(2)}GB`;
+          if (typeof proc.rss_mb === 'number') {
+            rssEl.textContent = `RAG memory: ${proc.rss_mb.toFixed(0)}MB`;
+          } else if (typeof proc.rss_gb === 'number') {
+            rssEl.textContent = `RAG memory: ${proc.rss_gb.toFixed(3)}GB`;
           } else {
             rssEl.textContent = 'RAG memory: n/a';
           }
@@ -216,17 +174,41 @@
               const row = document.createElement('tr');
               row.setAttribute('data-repo-id', repoId);
               row.innerHTML = `
-                <td style="font-family:monospace; font-size:0.8rem;">${url ? `<a href="${url}" target="_blank" style="color: inherit; text-decoration: none;" title="${url}">${name}</a>` : name}</td>
-                <td><span class="tag">${branch}</span></td>
+                <td class="rag-repo-name" style="font-family:monospace; font-size:0.8rem;">${url ? `<a href="${url}" target="_blank" style="color: inherit; text-decoration: none;" title="${url}">${name}</a>` : '<span class="muted">pending</span>'}</td>
+                <td class="rag-repo-branch"><span class="tag">${branch}</span></td>
                 <td style="font-family:monospace; font-size:0.8rem;">-</td>
                 <td style="font-family:monospace; font-size:0.8rem;"><span class="muted">-</span></td>
                 <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">-</td>
                 <td class="rag-progress" data-repo-id="${repoId}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
                 <td style="font-family:monospace; font-size:0.75rem;">-</td>
-                <td style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${localPath}">${localPath}</td>
+                <td class="rag-repo-local-path" style="font-family:monospace; font-size:0.7rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${localPath}">${localPath}</td>
               `;
               tbody.appendChild(row);
               existing[repoId] = row;
+            }
+
+            const row = existing[repoId];
+            if (row) {
+              const url = repo.url || null;
+              const name = url ? url.split('/').slice(-1)[0] : null;
+              const branch = repo.branch || null;
+              const localPath = repo.local_path || null;
+
+              const nameCell = row.querySelector('td.rag-repo-name');
+              if (nameCell && url && name) {
+                nameCell.innerHTML = `<a href="${url}" target="_blank" style="color: inherit; text-decoration: none;" title="${url}">${name}</a>`;
+              }
+
+              const branchCell = row.querySelector('td.rag-repo-branch');
+              if (branchCell && branch) {
+                branchCell.innerHTML = `<span class="tag">${branch}</span>`;
+              }
+
+              const localCell = row.querySelector('td.rag-repo-local-path');
+              if (localCell && localPath) {
+                localCell.textContent = localPath;
+                localCell.title = localPath;
+              }
             }
           });
 
@@ -264,11 +246,8 @@
   })();
 </script>
 
-<br>
-
 <div class="card">
   <h2>Modules</h2>
-  <p class="helper-text">Live view of configured modules with last log updates and their severities.</p>
   {% if modules %}
     <table style="font-size:0.9rem;">
       <thead>

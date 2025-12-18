@@ -323,11 +323,17 @@ async def get_progress():
         except Exception:
             progress = {}
 
-    process = psutil.Process(os.getpid())
+    rss_bytes = None
+    rss_mb = None
     rss_gb = None
     try:
-        rss_gb = process.memory_info().rss / 1024**3
+        process = psutil.Process(os.getpid())
+        rss_bytes = int(process.memory_info().rss)
+        rss_mb = float(rss_bytes) / 1024**2
+        rss_gb = float(rss_bytes) / 1024**3
     except Exception:
+        rss_bytes = None
+        rss_mb = None
         rss_gb = None
 
     return {
@@ -335,6 +341,8 @@ async def get_progress():
         "indexing_progress": progress,
         "process": {
             "pid": os.getpid(),
+            "rss_bytes": rss_bytes,
+            "rss_mb": rss_mb,
             "rss_gb": rss_gb,
         },
     }
