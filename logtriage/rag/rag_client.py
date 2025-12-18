@@ -1,6 +1,9 @@
 """Main RAG client that coordinates all components."""
 
+import gc
 import logging
+import os
+import psutil
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -165,9 +168,6 @@ class RAGClient:
     
     def _reindex_repository(self, repo_id: str):
         """Reindex a repository with ultra-aggressive memory management."""
-        # Import memory monitoring functions
-        import os
-        import psutil
         
         def get_memory_usage():
             """Get current memory usage in GB."""
@@ -181,7 +181,6 @@ class RAGClient:
             """Force aggressive memory cleanup."""
             # Multiple garbage collection passes
             for _ in range(3):
-                import gc
                 gc.collect()
             
             # Clear any cached data
