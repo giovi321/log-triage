@@ -331,6 +331,42 @@ async def get_status():
     status = rag_client.get_status()
     return StatusResponse(**status)
 
+@app.get("/progress")
+async def get_progress():
+    with init_lock:
+        init_data = {
+            "started": initialization_status["started"],
+            "completed": initialization_status["completed"],
+            "updating": initialization_status["updating"],
+            "error": initialization_status["error"],
+            "current_phase": initialization_status["current_phase"],
+            "progress": initialization_status["progress"].copy(),
+            "repository_updates": initialization_status["repository_updates"].copy(),
+        }
+
+    progress: Dict[str, Any] = {}
+    if rag_client is not None:
+        try:
+            progress = rag_client.get_indexing_progress()
+        except Exception:
+            progress = {}
+
+    process = psutil.Process(os.getpid())
+    rss_gb = None
+    try:
+        rss_gb = process.memory_info().rss / 1024**3
+    except Exception:
+        rss_gb = None
+
+    return {
+        "initialization": init_data,
+        "indexing_progress": progress,
+        "process": {
+            "pid": os.getpid(),
+            "rss_gb": rss_gb,
+        },
+    }
+
 @app.post("/retrieve/{module_name}", response_model=RetrievalResponse)
 async def retrieve_for_finding(module_name: str, finding: FindingRequest):
     """Retrieve relevant documentation for a finding."""

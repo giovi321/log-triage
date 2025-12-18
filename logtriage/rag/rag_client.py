@@ -4,6 +4,8 @@ import gc
 import logging
 import os
 import psutil
+import threading
+import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
@@ -43,6 +45,25 @@ class RAGClient:
         
         # Track initialized repositories
         self.initialized_repos = set()
+
+        self._progress_lock = threading.Lock()
+        self._indexing_progress: Dict[str, Any] = {
+            "updating": False,
+            "current_repo_id": None,
+            "repos_total": 0,
+            "repos_done": 0,
+            "started_at": None,
+            "updated_at": None,
+            "finished_at": None,
+        }
+        self._repo_progress: Dict[str, Dict[str, Any]] = {}
+
+    def get_indexing_progress(self) -> Dict[str, Any]:
+        with self._progress_lock:
+            return {
+                "indexing": dict(self._indexing_progress),
+                "repositories": {k: dict(v) for k, v in self._repo_progress.items()},
+            }
     
     def add_module_config(self, module_name: str, config: RAGModuleConfig):
         """Add RAG configuration for a module."""
@@ -77,20 +98,53 @@ class RAGClient:
         try:
             logger.info("Updating knowledge base...")
             repos_updated = 0
-            
-            for repo_id in self.initialized_repos:
-                if self.knowledge_manager.needs_reindexing(repo_id):
-                    try:
-                        logger.debug(f"Reindexing repository: {repo_id}")
-                        self._reindex_repository(repo_id)
-                        repos_updated += 1
-                    except Exception as e:
-                        logger.error(f"Failed to reindex repository {repo_id}: {e}", exc_info=True)
-                        add_notification(
-                            "error",
-                            "Failed to reindex repository",
-                            f"Repository {repo_id}: {e}"
+
+            repos_to_update = [
+                repo_id for repo_id in self.initialized_repos if self.knowledge_manager.needs_reindexing(repo_id)
+            ]
+
+            now = time.time()
+            with self._progress_lock:
+                self._indexing_progress["updating"] = True
+                self._indexing_progress["current_repo_id"] = None
+                self._indexing_progress["repos_total"] = len(repos_to_update)
+                self._indexing_progress["repos_done"] = 0
+                self._indexing_progress["started_at"] = now
+                self._indexing_progress["updated_at"] = now
+                self._indexing_progress["finished_at"] = None
+
+            for repo_id in repos_to_update:
+                with self._progress_lock:
+                    self._indexing_progress["current_repo_id"] = repo_id
+                    self._indexing_progress["updated_at"] = time.time()
+
+                try:
+                    logger.debug(f"Reindexing repository: {repo_id}")
+                    self._reindex_repository(repo_id)
+                    repos_updated += 1
+                except Exception as e:
+                    logger.error(f"Failed to reindex repository {repo_id}: {e}", exc_info=True)
+                    with self._progress_lock:
+                        prev = self._repo_progress.get(repo_id, {})
+                        repo_state = dict(prev)
+                        repo_state.update(
+                            {
+                                "state": "error",
+                                "error": str(e),
+                                "updated_at": time.time(),
+                            }
                         )
+                        self._repo_progress[repo_id] = repo_state
+
+                    add_notification(
+                        "error",
+                        "Failed to reindex repository",
+                        f"Repository {repo_id}: {e}",
+                    )
+                finally:
+                    with self._progress_lock:
+                        self._indexing_progress["repos_done"] = repos_updated
+                        self._indexing_progress["updated_at"] = time.time()
             
             if repos_updated > 0:
                 logger.info(f"Successfully updated {repos_updated} repositories in knowledge base")
@@ -101,10 +155,21 @@ class RAGClient:
                 )
             else:
                 logger.debug("No repositories needed updating")
+
+            with self._progress_lock:
+                self._indexing_progress["updating"] = False
+                self._indexing_progress["current_repo_id"] = None
+                self._indexing_progress["updated_at"] = time.time()
+                self._indexing_progress["finished_at"] = time.time()
                 
         except Exception as e:
             logger.error(f"Failed to update knowledge base: {e}", exc_info=True)
             add_notification("error", "Failed to update knowledge base", str(e))
+
+            with self._progress_lock:
+                self._indexing_progress["updating"] = False
+                self._indexing_progress["updated_at"] = time.time()
+                self._indexing_progress["finished_at"] = time.time()
     
     def retrieve_for_finding(self, finding: Finding, module_name: str) -> Optional[RetrievalResult]:
         """Retrieve relevant documentation for a finding."""
@@ -217,97 +282,169 @@ class RAGClient:
         
         memory_start = get_memory_usage()
         logger.info(f"Starting ultra-aggressive reindex for {repo_id} (memory: {memory_start:.2f}GB)")
+
+        with self._progress_lock:
+            prev = self._repo_progress.get(repo_id, {})
+            repo_progress = dict(prev)
+            repo_progress.update(
+                {
+                    "repo_id": repo_id,
+                    "state": "indexing",
+                    "file_current": 0,
+                    "file_total": 0,
+                    "current_file": None,
+                    "chunks_processed": 0,
+                    "memory_gb": memory_start,
+                    "errors": repo_progress.get("errors", 0),
+                    "error": None,
+                    "started_at": time.time(),
+                    "updated_at": time.time(),
+                    "finished_at": None,
+                }
+            )
+            self._repo_progress[repo_id] = repo_progress
         
+        all_files: List[Path] = []
+        seen_files = set()
         for module_name, source in modules_for_repo:
             files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
-            
-            # Process files one by one with ultra-aggressive memory management
-            for file_idx, file_path in enumerate(files):
+            for file_path in files:
+                key = str(file_path)
+                if key in seen_files:
+                    continue
+                seen_files.add(key)
+                all_files.append(file_path)
+
+        with self._progress_lock:
+            repo_progress = dict(self._repo_progress.get(repo_id, {}))
+            repo_progress["file_total"] = len(all_files)
+            repo_progress["updated_at"] = time.time()
+            self._repo_progress[repo_id] = repo_progress
+
+        for file_idx, file_path in enumerate(all_files):
+            try:
+                # Monitor memory before each file
+                if file_idx % 3 == 0:  # Monitor more frequently
+                    current_memory = get_memory_usage()
+                    logger.info(f"Processing file {file_idx+1}/{len(all_files)}: {file_path.name} (memory: {current_memory:.2f}GB)")
+
+                    with self._progress_lock:
+                        repo_progress = dict(self._repo_progress.get(repo_id, {}))
+                        repo_progress["file_current"] = file_idx + 1
+                        repo_progress["file_total"] = len(all_files)
+                        repo_progress["current_file"] = file_path.name
+                        repo_progress["memory_gb"] = current_memory
+                        repo_progress["updated_at"] = time.time()
+                        self._repo_progress[repo_id] = repo_progress
+                    
+                    # Force cleanup if memory is growing too much
+                    if current_memory > memory_start + 3.0:  # 3GB threshold for more aggressive cleanup
+                        logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing ultra-aggressive cleanup")
+                        # Ultra-aggressive cleanup
+                        for _ in range(5):
+                            gc.collect()
+                        try:
+                            import torch
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                        except ImportError:
+                            pass
+                
+                logger.debug(f"Processing file: {file_path.name}")
                 try:
-                    # Monitor memory before each file
-                    if file_idx % 3 == 0:  # Monitor more frequently
-                        current_memory = get_memory_usage()
-                        logger.info(f"Processing file {file_idx+1}/{len(files)}: {file_path.name} (memory: {current_memory:.2f}GB)")
-                        
-                        # Force cleanup if memory is growing too much
-                        if current_memory > memory_start + 3.0:  # 3GB threshold for more aggressive cleanup
-                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing ultra-aggressive cleanup")
-                            # Ultra-aggressive cleanup
-                            for _ in range(5):
-                                gc.collect()
-                            try:
-                                import torch
-                                if torch.cuda.is_available():
-                                    torch.cuda.empty_cache()
-                            except ImportError:
-                                pass
-                    
-                    logger.debug(f"Processing file: {file_path.name}")
-                    try:
-                        file_size_mb = file_path.stat().st_size / 1024**2
-                        logger.info(f"File size: {file_path.name} ({file_size_mb:.2f}MB)")
-                    except Exception:
-                        pass
-                    
-                    # Stream chunks from the document processor so we never retain the full list
-                    batch_size = 10
-                    chunk_batch = []
-                    chunk_texts = []
+                    file_size_mb = file_path.stat().st_size / 1024**2
+                    logger.info(f"File size: {file_path.name} ({file_size_mb:.2f}MB)")
+                except Exception:
+                    pass
+                
+                # Stream chunks from the document processor so we never retain the full list
+                batch_size = 10
+                chunk_batch = []
+                chunk_texts = []
 
-                    for chunk in self.document_processor.process_file_iter(
-                        file_path, repo_id, repo_state.last_commit_hash
-                    ):
-                        chunk_batch.append(chunk)
-                        chunk_texts.append(chunk.content)
+                for chunk in self.document_processor.process_file_iter(
+                    file_path, repo_id, repo_state.last_commit_hash
+                ):
+                    chunk_batch.append(chunk)
+                    chunk_texts.append(chunk.content)
 
-                        if len(chunk_batch) >= batch_size:
-                            embeddings = self.embedding_service.embed_texts(chunk_texts)
-                            if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
-                                self.vector_store.add_chunks(chunk_batch, embeddings)
-                                total_chunks_processed += len(chunk_batch)
-
-                            del embeddings
-                            chunk_batch.clear()
-                            chunk_texts.clear()
-                            for _ in range(2):
-                                gc.collect()
-
-                    # Flush final partial batch
-                    if chunk_batch:
+                    if len(chunk_batch) >= batch_size:
                         embeddings = self.embedding_service.embed_texts(chunk_texts)
                         if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
                             self.vector_store.add_chunks(chunk_batch, embeddings)
                             total_chunks_processed += len(chunk_batch)
+
+                        with self._progress_lock:
+                            repo_progress = dict(self._repo_progress.get(repo_id, {}))
+                            repo_progress["chunks_processed"] = total_chunks_processed
+                            repo_progress["updated_at"] = time.time()
+                            self._repo_progress[repo_id] = repo_progress
 
                         del embeddings
                         chunk_batch.clear()
                         chunk_texts.clear()
                         for _ in range(2):
                             gc.collect()
-                    
-                    total_files_processed += 1
-                    
-                    # Ultra-aggressive cleanup after each file
-                    for _ in range(3):
+
+                # Flush final partial batch
+                if chunk_batch:
+                    embeddings = self.embedding_service.embed_texts(chunk_texts)
+                    if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
+                        self.vector_store.add_chunks(chunk_batch, embeddings)
+                        total_chunks_processed += len(chunk_batch)
+
+                    with self._progress_lock:
+                        repo_progress = dict(self._repo_progress.get(repo_id, {}))
+                        repo_progress["chunks_processed"] = total_chunks_processed
+                        repo_progress["updated_at"] = time.time()
+                        self._repo_progress[repo_id] = repo_progress
+
+                    del embeddings
+                    chunk_batch.clear()
+                    chunk_texts.clear()
+                    for _ in range(2):
                         gc.collect()
+                
+                total_files_processed += 1
+
+                with self._progress_lock:
+                    repo_progress = dict(self._repo_progress.get(repo_id, {}))
+                    repo_progress["file_current"] = total_files_processed
+                    repo_progress["file_total"] = len(all_files)
+                    repo_progress["current_file"] = file_path.name
+                    repo_progress["chunks_processed"] = total_chunks_processed
+                    repo_progress["updated_at"] = time.time()
+                    self._repo_progress[repo_id] = repo_progress
+                
+                # Ultra-aggressive cleanup after each file
+                for _ in range(3):
+                    gc.collect()
+                
+                # More frequent progress reporting
+                if total_files_processed % 5 == 0:
+                    current_memory = get_memory_usage()
+                    logger.info(f"Progress: {total_files_processed} files, {total_chunks_processed} chunks (memory: {current_memory:.2f}GB)")
                     
-                    # More frequent progress reporting
-                    if total_files_processed % 5 == 0:
-                        current_memory = get_memory_usage()
-                        logger.info(f"Progress: {total_files_processed} files, {total_chunks_processed} chunks (memory: {current_memory:.2f}GB)")
-                        
-                        # Force cleanup if memory is growing too much
-                        if current_memory > memory_start + 3.0:
-                            logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing ultra-aggressive cleanup")
-                            for _ in range(5):
-                                gc.collect()
-                    
-                except Exception as e:
-                    logger.error(f"Failed to process file {file_path}: {e}")
-                    # Ultra-aggressive cleanup after error
-                    for _ in range(5):
-                        gc.collect()
-                    continue
+                    # Force cleanup if memory is growing too much
+                    if current_memory > memory_start + 3.0:
+                        logger.warning(f"Memory usage high ({current_memory:.2f}GB), forcing ultra-aggressive cleanup")
+                        for _ in range(5):
+                            gc.collect()
+                
+            except Exception as e:
+                logger.error(f"Failed to process file {file_path}: {e}")
+
+                with self._progress_lock:
+                    repo_progress = dict(self._repo_progress.get(repo_id, {}))
+                    repo_progress["errors"] = int(repo_progress.get("errors", 0)) + 1
+                    repo_progress["error"] = str(e)
+                    repo_progress["updated_at"] = time.time()
+                    self._repo_progress[repo_id] = repo_progress
+
+                # Ultra-aggressive cleanup after error
+                for _ in range(5):
+                    gc.collect()
+                continue
         
         # Final cleanup and mark as indexed
         force_cleanup()
@@ -315,6 +452,22 @@ class RAGClient:
         
         memory_end = get_memory_usage()
         logger.info(f"Completed reindex for {repo_id}: {total_chunks_processed} chunks from {total_files_processed} files (memory: {memory_end:.2f}GB, delta: {memory_end - memory_start:.2f}GB)")
+
+        with self._progress_lock:
+            repo_progress = dict(self._repo_progress.get(repo_id, {}))
+            repo_progress.update(
+                {
+                    "state": "done",
+                    "file_current": total_files_processed,
+                    "file_total": len(all_files),
+                    "current_file": None,
+                    "chunks_processed": total_chunks_processed,
+                    "memory_gb": memory_end,
+                    "updated_at": time.time(),
+                    "finished_at": time.time(),
+                }
+            )
+            self._repo_progress[repo_id] = repo_progress
         
         if total_chunks_processed > 0:
             add_notification(

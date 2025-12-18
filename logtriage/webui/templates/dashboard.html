@@ -47,6 +47,12 @@
       <span class="status-chip">Service unavailable</span>
     {% endif %}
   </div>
+
+  <div class="status-strip" style="margin-top: 0.75rem;">
+    <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
+    <span class="status-chip" id="rag-live-rss">RAG RSS: n/a</span>
+    <span class="status-chip" id="rag-live-init">Init: n/a</span>
+  </div>
   
   {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
   <div style="margin-top: 1rem;">
@@ -58,13 +64,14 @@
           <th>Last Commit</th>
           <th>Indexed</th>
           <th style="text-align:right;">Chunks</th>
+          <th style="text-align:right;">Indexing</th>
           <th>Status</th>
           <th>Local Path</th>
         </tr>
       </thead>
       <tbody>
         {% for repo in rag_status.repositories %}
-        <tr>
+        <tr data-repo-id="{{ repo.repo_id }}">
           <td style="font-family:monospace; font-size:0.8rem;">
             <a href="{{ repo.url }}" target="_blank" style="color: inherit; text-decoration: none;" title="{{ repo.url }}">{{ repo.url.split('/')[-1] }}</a>
           </td>
@@ -74,6 +81,7 @@
             {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
           </td>
           <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
+          <td class="rag-indexing" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
           <td>
             {% if repo.needs_reindexing %}
               <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️</span>
@@ -101,6 +109,97 @@
   {% endif %}
 </div>
 {% endif %}
+
+<script>
+  (function() {
+    async function refreshRagProgress() {
+      try {
+        const response = await fetch('/api/rag/progress');
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        const progress = payload && payload.progress ? payload.progress : null;
+
+        const initEl = document.getElementById('rag-live-init');
+        const rssEl = document.getElementById('rag-live-rss');
+        const updatingEl = document.getElementById('rag-live-updating');
+
+        if (!progress) {
+          if (updatingEl) {
+            updatingEl.textContent = 'Live indexing: unavailable';
+            updatingEl.className = 'status-chip warn';
+          }
+          if (rssEl) {
+            rssEl.textContent = 'RAG RSS: n/a';
+          }
+          if (initEl) {
+            initEl.textContent = 'Init: n/a';
+          }
+          return;
+        }
+
+        const init = progress.initialization || {};
+        const initProgress = (init.progress || {});
+        const initText = initProgress.step_description || init.current_phase || 'n/a';
+        const initPct = (typeof initProgress.percentage === 'number') ? initProgress.percentage.toFixed(0) : null;
+        if (initEl) {
+          initEl.textContent = initPct !== null ? `Init: ${initText} (${initPct}%)` : `Init: ${initText}`;
+          initEl.className = 'status-chip' + (init.updating ? ' warn' : '');
+        }
+
+        const proc = progress.process || {};
+        if (rssEl) {
+          if (typeof proc.rss_gb === 'number') {
+            rssEl.textContent = `RAG RSS: ${proc.rss_gb.toFixed(2)}GB`;
+          } else {
+            rssEl.textContent = 'RAG RSS: n/a';
+          }
+        }
+
+        const idx = progress.indexing_progress || {};
+        const idxMeta = idx.indexing || {};
+        const updating = !!idxMeta.updating;
+        const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
+        const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
+
+        if (updatingEl) {
+          updatingEl.textContent = updating ? `Live indexing: running (${done}/${total})` : 'Live indexing: idle';
+          updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
+        }
+
+        const repos = idx.repositories || {};
+        const cells = document.querySelectorAll('td.rag-indexing');
+        cells.forEach((cell) => {
+          const repoId = cell.getAttribute('data-repo-id');
+          const repo = repoId ? repos[repoId] : null;
+          if (!repo) {
+            cell.textContent = '-';
+            return;
+          }
+          const state = repo.state || 'n/a';
+          const cur = (typeof repo.file_current === 'number') ? repo.file_current : 0;
+          const tot = (typeof repo.file_total === 'number') ? repo.file_total : 0;
+          const mem = (typeof repo.memory_gb === 'number') ? repo.memory_gb : null;
+          const parts = [];
+          parts.push(state);
+          if (tot > 0) {
+            parts.push(`${cur}/${tot}`);
+          }
+          if (mem !== null) {
+            parts.push(`${mem.toFixed(2)}GB`);
+          }
+          cell.textContent = parts.join(' ');
+        });
+      } catch (e) {
+        return;
+      }
+    }
+
+    refreshRagProgress();
+    setInterval(refreshRagProgress, 2000);
+  })();
+</script>
 
 <br>
 

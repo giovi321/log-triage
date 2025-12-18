@@ -871,6 +871,36 @@ async def get_rag_status():
             "monitor": monitor_data
         }
 
+
+@app.get("/api/rag/progress")
+async def get_rag_progress():
+    monitor_data = get_rag_monitor_status()
+
+    if rag_client is None or not hasattr(rag_client, "_make_request"):
+        return {
+            "service_available": monitor_data.get("rag_available", False),
+            "service_ready": monitor_data.get("rag_ready", False),
+            "progress": None,
+            "monitor": monitor_data,
+        }
+
+    try:
+        progress = rag_client._make_request("GET", "/progress", max_retries=0)
+        return {
+            "service_available": monitor_data.get("rag_available", False),
+            "service_ready": monitor_data.get("rag_ready", False),
+            "progress": progress,
+            "monitor": monitor_data,
+        }
+    except Exception as e:
+        return {
+            "service_available": False,
+            "service_ready": False,
+            "progress": None,
+            "error": str(e),
+            "monitor": monitor_data,
+        }
+
 @app.get("/config/edit", name="edit_config")
 async def edit_config(request: Request):
     username = get_current_user(request, settings)
