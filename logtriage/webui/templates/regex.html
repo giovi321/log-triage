@@ -46,6 +46,14 @@
   .status-badge.sev-CRITICAL { background:#5c1f3a; color:#f8e0ea; }
   .status-badge.sev-INFO { background:#2e4472; color:#d8e8f8; }
   .regex-line.finding-line { background:#1a1f2a; }
+  .switch { position:relative; display:inline-block; width:40px; height:22px; }
+  .switch input { opacity:0; width:0; height:0; }
+  .switch .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#2b3242; transition:0.2s; border-radius:999px; border:1px solid #3a455c; }
+  .switch .slider:before { position:absolute; content:""; height:16px; width:16px; left:3px; top:50%; transform:translateY(-50%); background:#e8ecf2; transition:0.2s; border-radius:999px; }
+  .switch input:checked + .slider { background:#4c6ad4; border-color:#4c6ad4; }
+  .switch input:checked + .slider:before { transform:translate(18px, -50%); }
+  .sort-toggle { display:flex; gap:0.35rem; align-items:center; }
+  .sort-btn.active { background:#1f2a3e; border-color:#2f3b53; color:#cfe1ff; box-shadow: inset 0 0 0 1px rgba(79, 123, 212, 0.4); }
 </style>
 <div class="card">
   <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
@@ -70,12 +78,23 @@
       <div style="flex:1 1 50%; min-width:260px;">
         <div class="section-header">
           <h3 style="margin:0;">Sample lines</h3>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <label style="display:flex; align-items:center; gap:0.3rem; font-size:0.85rem; cursor:pointer;">
-              <input type="checkbox" id="show-findings-only" onchange="toggleFindingsFilter()" style="cursor:pointer;">
+          <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+            <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.85rem; cursor:pointer;">
+              <span class="switch">
+                <input type="checkbox" id="show-findings-only" onchange="toggleFindingsFilter()">
+                <span class="slider"></span>
+              </span>
               <span>Show findings only</span>
             </label>
             <button type="button" class="secondary" id="filter-matches-btn" onclick="toggleMatchFilter()" style="display:none;">Show matches only</button>
+            <div style="display:flex; gap:0.4rem; align-items:center; flex:1; min-width:220px;">
+              <input type="text" id="line-search" placeholder="Search lines..." style="flex:1; min-width:120px; padding:0.3rem 0.5rem; border:1px solid #2b3242; border-radius:0.35rem; background:#0f131b; color:#e8ecf2;" oninput="onLineSearchInput()">
+              <button type="button" class="secondary" onclick="clearLineSearch()">Clear</button>
+            </div>
+            <div class="sort-toggle">
+              <button type="button" class="secondary sort-btn active" data-order="newest" onclick="setSampleSort('newest')">Newest first</button>
+              <button type="button" class="secondary sort-btn" data-order="oldest" onclick="setSampleSort('oldest')">Oldest first</button>
+            </div>
           </div>
         </div>
         {% if sample_lines %}
@@ -88,8 +107,8 @@
               <div class="regex-lines">
                 {% set finding_lines = {} %}
                 {% for f in recent_findings %}
-                  {% if f.line_start %}
-                    {% set _ = finding_lines.update({f.line_start: f}) %}
+                  {% if f.line_start is not none %}
+                    {% set _ = finding_lines.update({(f.line_start|int): f}) %}
                   {% endif %}
                 {% endfor %}
                 {% for entry in sample_lines %}
@@ -149,42 +168,49 @@
         </div>
       </div>
     </div>
-
-    {% if db_status and db_status.connected %}
-      <div class="findings-panel">
-        <div class="section-header" style="margin-bottom:0.5rem;">
-          <h3 style="margin:0;">Open findings</h3>
-          {% if open_findings_count is not none %}
-            <span class="badge">{{ open_findings_count }}</span>
-          {% endif %}
-        </div>
-        {% if recent_findings %}
-          <div class="findings-list">
-            {% for finding in recent_findings %}
-              <div class="finding-item">
-                <span class="status-badge sev-{{ finding.severity }} finding-severity">{{ finding.severity }}</span>
-                <span class="finding-reason">{{ finding.reason }}</span>
-                <span class="finding-meta">{{ finding.created_at|localtime }}</span>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <p class="muted">No findings recorded for this module.</p>
-        {% endif %}
-      </div>
-    {% endif %}
   {% else %}
     <p>No modules configured.</p>
   {% endif %}
 </div>
+<div id="regex-lab-data" data-regex-value="{{ regex_value|e }}" data-has-matches="{{ (matches|length > 0)|tojson }}" style="display:none;"></div>
 <script>
-  const currentRegexValue = {{ regex_value|tojson }};
-  const hasMatches = {{ (matches|length > 0)|tojson }};
+  const regexLabData = document.getElementById('regex-lab-data');
+  const currentRegexValue = regexLabData?.dataset?.regexValue || '';
+  const hasMatches = (regexLabData?.dataset?.hasMatches || '') === 'true';
   let showMatchesOnly = false;
   let showFindingsOnly = false;
+  let lineSearchQuery = '';
 
   function toggleFindingsFilter() {
     showFindingsOnly = document.getElementById('show-findings-only')?.checked || false;
+    applyLineFilters();
+  }
+
+  function fuzzyMatch(query, text) {
+    if (!query) return true;
+    let matchIndex = 0;
+    for (const char of query) {
+      const foundIndex = text.indexOf(char, matchIndex);
+      if (foundIndex === -1) {
+        return false;
+      }
+      matchIndex = foundIndex + 1;
+    }
+    return true;
+  }
+
+  function onLineSearchInput() {
+    const searchInput = document.getElementById('line-search');
+    lineSearchQuery = (searchInput?.value || '').toLowerCase().trim();
+    applyLineFilters();
+  }
+
+  function clearLineSearch() {
+    const searchInput = document.getElementById('line-search');
+    if (searchInput) {
+      searchInput.value = '';
+    }
+    lineSearchQuery = '';
     applyLineFilters();
   }
 
@@ -192,11 +218,38 @@
     document.querySelectorAll('.regex-line').forEach(line => {
       const isMatch = line.classList.contains('match-line');
       const hasFinding = line.hasAttribute('data-has-finding');
+      const textSpan = line.querySelector('.line-content') || line.querySelector('span:last-child');
+      const lineText = (textSpan?.textContent || '').toLowerCase();
       let show = true;
       if (showMatchesOnly && !isMatch) show = false;
       if (showFindingsOnly && !hasFinding) show = false;
+      if (show && lineSearchQuery && !fuzzyMatch(lineSearchQuery, lineText)) show = false;
       line.style.display = show ? '' : 'none';
     });
+  }
+
+  function sortSampleLines() {
+    const activeBtn = document.querySelector('.sort-btn.active');
+    const container = document.querySelector('.regex-lines');
+    if (!activeBtn || !container) return;
+
+    const sortOrder = activeBtn.dataset.order || 'newest';
+    const lines = Array.from(container.querySelectorAll('.regex-line'));
+    lines.sort((a, b) => {
+      const indexA = parseInt(a.dataset.lineIndex, 10) || 0;
+      const indexB = parseInt(b.dataset.lineIndex, 10) || 0;
+      return sortOrder === 'newest' ? indexB - indexA : indexA - indexB;
+    });
+    lines.forEach(line => container.appendChild(line));
+  }
+
+  function setSampleSort(order) {
+    const buttons = document.querySelectorAll('.sort-btn');
+    buttons.forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.order === order);
+    });
+    sortSampleLines();
+    applyLineFilters();
   }
 
   function escapeHtml(text) {
@@ -262,8 +315,10 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    sortSampleLines();
     highlightRegexMatches();
     updateFilterButton();
+    applyLineFilters();
   });
 
   const draftForm = document.querySelector('[data-draft-form]');

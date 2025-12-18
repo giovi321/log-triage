@@ -1040,12 +1040,8 @@ async def regex_lab(
 
     # Fetch findings for the module
     recent_findings = []
-    open_findings_count = None
     if module_obj and db_status.get("connected"):
         recent_findings = get_recent_findings_for_module(module_obj.name, limit=50)
-        open_findings_count = count_open_findings_for_module(
-            module_obj.name, severities=SEVERITY_CHOICES
-        )
 
     wizard = _regex_wizard_metadata(active_step)
     step_hints = _build_all_regex_hints()
@@ -1067,7 +1063,6 @@ async def regex_lab(
             step_hints=step_hints,
             active_step=active_step,
             recent_findings=recent_findings,
-            open_findings_count=open_findings_count,
         ),
     )
 
