@@ -113,7 +113,6 @@ The prompt templates in the `prompts/` directory have been enhanced to take full
 
 All prompt templates now include RAG-aware instructions:
 
-- **ai_opinion_summary.txt**: Enhanced to reference documentation and include citations
 - **authentik.txt**: Added documentation grounding and citation instructions for Authentik-specific analysis
 - **homeassistant.txt**: Updated to leverage Home Assistant documentation from knowledge base
 - **nextcloud.txt**: Enhanced to use Nextcloud documentation for more accurate troubleshooting

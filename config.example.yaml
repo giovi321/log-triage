@@ -17,10 +17,6 @@ llm:
   # Must match one of the provider names defined below
   default_provider: local_vllm
   
-  # Path to a prompt template for generating AI summaries
-  # Used when creating high-level summaries of multiple findings
-  summary_prompt_path: ./prompts/ai_opinion_summary.txt
-  
   # Global context settings (can be overridden per module)
   # Number of lines to include before and after a finding when sending to LLM
   context_prefix_lines: 0    # Lines before the matching line

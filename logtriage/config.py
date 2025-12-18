@@ -168,8 +168,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
     base_request_timeout = float(llm_cfg.get("request_timeout", 30.0))
     base_temperature = float(llm_cfg.get("temperature", 0.0))
     base_top_p = float(llm_cfg.get("top_p", 1.0))
-    summary_prompt_raw = llm_cfg.get("summary_prompt_path")
-    summary_prompt_path = Path(summary_prompt_raw) if summary_prompt_raw else None
 
     providers: Dict[str, LLMProviderConfig] = {}
     providers_raw = llm_cfg.get("providers", {}) or {}
@@ -205,7 +203,6 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
         providers=providers,
         context_prefix_lines=base_context_prefix_lines,
         context_suffix_lines=base_context_suffix_lines,
-        summary_prompt_path=summary_prompt_path,
     )
 
 

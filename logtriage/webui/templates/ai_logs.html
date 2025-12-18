@@ -30,7 +30,7 @@
   .synced-pane { border-radius:0; background:transparent; padding:0; }
   .match-highlight { background:#3d2a0a; color:#f5c842; padding:0 0.1rem; border-radius:0.15rem; }
   .sort-toggle { margin-left:auto; display:flex; align-items:center; gap:0.35rem; }
-  .sort-toggle button { padding:0.25rem 0.6rem; font-size:0.85rem; }
+  .sort-toggle button { padding:0.5rem 0.7rem; font-size:0.95rem; }
   .sort-toggle button.active { background:#2e4472; border-color:#3c5c98; }
   .sync-title { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; }
   .finding-controls { display:flex; gap:0.35rem; flex-wrap:wrap; align-items:center; margin-top:0.3rem; }
@@ -53,7 +53,11 @@
   .action-menu .menu-panel button:hover { background:#1b2234; }
   .action-menu .menu-panel button:focus { outline:none; box-shadow:0 0 0 1px #2f3b53; }
   button.danger { background:#7d3434; border:1px solid #a35f5f; color:#f8eaea; box-shadow:none; }
-  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:column; gap:0.65rem; }
+  .llm-workbench { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; display:flex; flex-direction:row; gap:0.75rem; align-items:stretch; }
+  .llm-workbench .prompt-panel { min-width:0; }
+  .llm-workbench .prompt-panel.llm-analysis-panel { flex:1 1 0; }
+  .llm-workbench .prompt-panel.llm-response-panel { flex:3 1 0; }
+  @media (max-width: 980px) { .llm-workbench { flex-direction:column; } }
   .prompt-grid { grid-template-columns: 1.05fr 0.95fr; gap:0.75rem; align-items:stretch; }
   .prompt-grid textarea { height:240px; }
   .prompt-panel { border:1px solid #2b3242; border-radius:0.6rem; background:#0f131b; padding:0.65rem; display:flex; flex-direction:column; gap:0.4rem; height:100%; }
@@ -344,7 +348,7 @@
 
     {% if providers %}
     <div class="llm-workbench">
-      <div class="prompt-panel">
+      <div class="prompt-panel llm-analysis-panel">
         <div class="prompt-title">
           <span>LLM Analysis</span>
           <span id="llm-status" class="muted"></span>
@@ -360,16 +364,15 @@
           </label>
         </div>
         <div id="provider-hints" class="helper-text"></div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
+          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
+        </div>
       </div>
-      <div class="prompt-panel">
+      <div class="prompt-panel llm-response-panel" style="flex:3; padding-left:0.5rem;">
         <div class="prompt-title" style="margin-bottom:0.3rem;">AI Response</div>
         <div id="llm-response" class="llm-fixed-response muted">Select a finding and click "Query LLM" to get AI analysis.</div>
         <div id="llm-usage" class="helper-text" style="margin-top:0.25rem;"></div>
         <div id="llm-citations" class="helper-text" style="margin-top:0.25rem;"></div>
-        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end; margin-top:0.35rem;">
-          <button type="button" class="secondary" onclick="attachOpinionToSelectedFinding()">Attach AI opinion to selected finding</button>
-          <button type="button" class="secondary" onclick="summarizeAndRecord()">Summarize & record for entry</button>
-        </div>
       </div>
     </div>
   {% else %}
@@ -429,7 +432,6 @@
 
 <script type="application/json" id="provider-settings-json">{{ provider_settings|tojson }}</script>
 <script type="application/json" id="module-prompt-template-json">{{ module_prompt_template|tojson }}</script>
-<script type="application/json" id="summary-prompt-template-json">{{ summary_prompt_template|tojson }}</script>
 <script type="application/json" id="regex-presets-json">{{ regex_presets|tojson }}</script>
 <script type="application/json" id="pagination-state-json">{{ {
   'currentModule': (current_module.name if current_module else ''),
@@ -444,10 +446,7 @@
   /* eslint-disable */
   const providerSettings = JSON.parse((document.getElementById('provider-settings-json') || {}).textContent || '{}');
   const modulePromptTemplate = JSON.parse((document.getElementById('module-prompt-template-json') || {}).textContent || 'null');
-  const summaryPromptTemplate = JSON.parse((document.getElementById('summary-prompt-template-json') || {}).textContent || 'null');
   const regexPresets = JSON.parse((document.getElementById('regex-presets-json') || {}).textContent || '{}');
-  const SUMMARY_PLACEHOLDER = '{' + '{' + 'AI_OPINION' + '}' + '}';
-  const recordedSummaries = {};
 
   // Pagination state
   const paginationStateInit = JSON.parse((document.getElementById('pagination-state-json') || {}).textContent || '{}');
@@ -1291,37 +1290,6 @@
     hints.textContent = `max_excerpt_lines ${cfg.max_excerpt_lines}, max_tokens ${cfg.max_output_tokens}, temp ${cfg.temperature}, top_p ${cfg.top_p}`;
   }
 
-  async function summarizeAndRecord() {
-    const respBox = document.getElementById('llm-response');
-    const status = document.getElementById('llm-status');
-    const targetFinding = getSelectedFindingId();
-    const responseText = respBox ? respBox.textContent.trim() : '';
-    if (!responseText) {
-      if (status) status.textContent = 'No AI opinion to summarize yet.';
-      return;
-    }
-    const template = typeof summaryPromptTemplate === 'string' && summaryPromptTemplate.trim()
-      ? summaryPromptTemplate
-      : `Write a short, concise summary that explains the error described in the following AI opinion and how to address it.\n\n${SUMMARY_PLACEHOLDER}`;
-    const summaryPrompt = template.includes(SUMMARY_PLACEHOLDER)
-      ? template.replace(SUMMARY_PLACEHOLDER, responseText)
-      : `${template.trim()}\n\n${responseText}`;
-    const data = await callLLM(summaryPrompt);
-    if (!data) return;
-    if (!targetFinding) {
-      if (status) status.textContent = 'Summary created. Select a finding line to record it.';
-      return;
-    }
-    recordedSummaries[targetFinding] = data.content || '';
-    const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
-    if (summaryEl) {
-      summaryEl.textContent = `Recorded summary: ${recordedSummaries[targetFinding]}`;
-      summaryEl.style.display = 'block';
-    }
-    await persistOpinionToFinding(targetFinding, data);
-    if (status) status.textContent = 'Summary recorded for finding #' + targetFinding;
-  }
-
   function getSelectedFindingIds() {
     const ids = new Set();
     const checked = Array.from(document.querySelectorAll('input[name="selected_line"]:checked'));
@@ -1373,7 +1341,6 @@
       if (status) status.textContent = 'Run an AI query before attaching.';
       return;
     }
-    recordedSummaries[targetFinding] = responseText;
     const summaryEl = document.querySelector(`[data-summary-for="${targetFinding}"]`);
     if (summaryEl) {
       summaryEl.textContent = `Recorded AI opinion: ${responseText}`;

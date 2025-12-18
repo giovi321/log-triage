@@ -3,7 +3,6 @@
   "llm": "llm: global LLM defaults and provider definitions shared by every module. Configure OpenAI-compatible endpoints, sampling parameters, and context limits.",
   "llm_enabled": "llm.enabled: master switch that allows modules to call an OpenAI-compatible provider when a finding needs LLM analysis.",
   "llm_default_provider": "llm.default_provider: name of the provider to use when modules do not specify one; if omitted and only one provider exists it is picked automatically.",
-  "llm_summary_prompt_path": "llm.summary_prompt_path: filesystem path to the prompt template used for generating high-level summaries of multiple findings.",
   "llm_context_prefix_lines": "llm.context_prefix_lines: global default for number of lines to prepend before a matched finding line when building the excerpt for the LLM.",
   "llm_context_suffix_lines": "llm.context_suffix_lines: global default for number of lines to append after a matched finding line when building the excerpt for the LLM.",
   "llm_providers": "llm.providers.<name>: OpenAI/vLLM compatible endpoint definition with api_base, api_key_env, model, and optional organization/api_version/request_timeout/temperature/top_p/max_output_tokens/max_excerpt_lines. See OpenAI's parameter guide for how sampling works: https://platform.openai.com/docs/guides/text-generation/parameter-details.",
