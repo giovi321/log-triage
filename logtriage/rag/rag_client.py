@@ -63,9 +63,63 @@ class RAGClient:
 
     def get_indexing_progress(self) -> Dict[str, Any]:
         with self._progress_lock:
+            idx = dict(self._indexing_progress)
+            repos = {k: dict(v) for k, v in self._repo_progress.items()}
+
+            overall_pct = None
+            current_repo_pct = None
+            try:
+                if idx.get("updating"):
+                    current_repo_id = idx.get("current_repo_id")
+                    if current_repo_id and current_repo_id in repos:
+                        repo_state = repos[current_repo_id]
+                        cur = int(repo_state.get("file_current") or 0)
+                        tot = int(repo_state.get("file_total") or 0)
+                        if tot > 0:
+                            current_repo_pct = max(0.0, min(1.0, cur / tot)) * 100.0
+                        else:
+                            current_repo_pct = 0.0
+                    else:
+                        current_repo_pct = 0.0
+
+                    repo_file_totals = idx.get("repo_file_totals")
+                    files_total = idx.get("files_total")
+                    if isinstance(repo_file_totals, dict) and isinstance(files_total, int) and files_total > 0:
+                        files_done = 0
+                        for repo_id, file_total in repo_file_totals.items():
+                            try:
+                                repo_total_int = int(file_total or 0)
+                            except Exception:
+                                repo_total_int = 0
+                            if repo_total_int <= 0:
+                                continue
+
+                            repo_state = repos.get(repo_id) or {}
+                            state = repo_state.get("state")
+                            if state == "done":
+                                files_done += repo_total_int
+                                continue
+
+                            try:
+                                cur_files = int(repo_state.get("file_current") or 0)
+                            except Exception:
+                                cur_files = 0
+                            files_done += max(0, min(repo_total_int, cur_files))
+
+                        overall_pct = (float(files_done) / float(files_total)) * 100.0
+                        overall_pct = max(0.0, min(100.0, overall_pct))
+            except Exception:
+                overall_pct = None
+                current_repo_pct = None
+
+            if overall_pct is not None:
+                idx["overall_pct"] = overall_pct
+            if current_repo_pct is not None:
+                idx["current_repo_pct"] = current_repo_pct
+
             return {
-                "indexing": dict(self._indexing_progress),
-                "repositories": {k: dict(v) for k, v in self._repo_progress.items()},
+                "indexing": idx,
+                "repositories": repos,
             }
     
     def add_module_config(self, module_name: str, config: RAGModuleConfig):
@@ -115,6 +169,17 @@ class RAGClient:
                     repos_to_update.append(repo_id)
 
             now = time.time()
+            repo_file_totals: Dict[str, int] = {}
+            files_total = 0
+            for repo_id in repos_to_update:
+                try:
+                    repo_files = self._get_repo_files_for_indexing(repo_id)
+                    file_total = len(repo_files)
+                except Exception:
+                    file_total = 0
+                repo_file_totals[repo_id] = file_total
+                files_total += file_total
+
             with self._progress_lock:
                 self._indexing_progress["updating"] = True
                 self._indexing_progress["current_repo_id"] = None
@@ -123,6 +188,8 @@ class RAGClient:
                 self._indexing_progress["started_at"] = now
                 self._indexing_progress["updated_at"] = now
                 self._indexing_progress["finished_at"] = None
+                self._indexing_progress["repo_file_totals"] = dict(repo_file_totals)
+                self._indexing_progress["files_total"] = int(files_total)
 
             for repo_id in repos_to_update:
                 with self._progress_lock:
@@ -228,7 +295,7 @@ class RAGClient:
         for repo_id in self.initialized_repos:
             repo_state = self.knowledge_manager.get_repo_state(repo_id)
             if repo_state:
-                chunks = self.vector_store.get_repo_chunks(repo_id)
+                chunk_count = self.vector_store.get_repo_chunk_count(repo_id)
                 status["repositories"].append({
                     "repo_id": repo_id,
                     "url": repo_state.url,
@@ -236,7 +303,7 @@ class RAGClient:
                     "last_commit_hash": repo_state.last_commit_hash,
                     "last_indexed_hash": repo_state.last_indexed_hash,
                     "needs_reindexing": self.knowledge_manager.needs_reindexing(repo_id),
-                    "chunk_count": len(chunks),
+                    "chunk_count": chunk_count,
                     "local_path": str(repo_state.local_path)
                 })
         
@@ -269,17 +336,8 @@ class RAGClient:
             except ImportError:
                 pass
         
-        # Find which module(s) this repo belongs to
-        modules_for_repo = []
-        for module_name, config in self.module_configs.items():
-            if not config.enabled:
-                continue
-            for source in config.knowledge_sources:
-                source_repo_id = self.knowledge_manager._get_repo_id(source.repo_url, source.branch)
-                if source_repo_id == repo_id:
-                    modules_for_repo.append((module_name, source))
-        
-        if not modules_for_repo:
+        all_files = self._get_repo_files_for_indexing(repo_id)
+        if not all_files:
             return
         
         # Get repository state
@@ -317,17 +375,6 @@ class RAGClient:
             )
             self._repo_progress[repo_id] = repo_progress
         
-        all_files: List[Path] = []
-        seen_files = set()
-        for module_name, source in modules_for_repo:
-            files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
-            for file_path in files:
-                key = str(file_path)
-                if key in seen_files:
-                    continue
-                seen_files.add(key)
-                all_files.append(file_path)
-
         with self._progress_lock:
             repo_progress = dict(self._repo_progress.get(repo_id, {}))
             repo_progress["file_total"] = len(all_files)
@@ -490,3 +537,28 @@ class RAGClient:
             )
         else:
             logger.warning(f"No chunks processed for repository {repo_id}")
+
+    def _get_repo_files_for_indexing(self, repo_id: str) -> List[Path]:
+        modules_for_repo = []
+        for module_name, config in self.module_configs.items():
+            if not config.enabled:
+                continue
+            for source in config.knowledge_sources:
+                source_repo_id = self.knowledge_manager._get_repo_id(source.repo_url, source.branch)
+                if source_repo_id == repo_id:
+                    modules_for_repo.append((module_name, source))
+
+        if not modules_for_repo:
+            return []
+
+        all_files: List[Path] = []
+        seen_files = set()
+        for module_name, source in modules_for_repo:
+            files = self.knowledge_manager.get_repo_files(repo_id, source.include_paths)
+            for file_path in files:
+                key = str(file_path)
+                if key in seen_files:
+                    continue
+                seen_files.add(key)
+                all_files.append(file_path)
+        return all_files

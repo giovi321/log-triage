@@ -38,19 +38,18 @@
       <span class="status-chip ok">RAG Enabled</span>
       <span class="status-chip">Repositories: {{ rag_status.total_repositories }}</span>
       <span class="status-chip">Total chunks: {{ rag_status.vector_store_stats.total_chunks }}</span>
-      <span class="status-chip">Storage: {{ rag_status.vector_store_stats.persist_directory }}</span>
+      <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
+      <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
+      <span class="status-chip" id="rag-live-init">Init: n/a</span>
     {% elif rag_service_available and not rag_service_ready %}
       <span class="status-chip warn">RAG Initializing</span>
+      <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
+      <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
+      <span class="status-chip" id="rag-live-init">Init: n/a</span>
     {% else %}
       <span class="status-chip warn">RAG Disabled</span>
       <span class="status-chip">Service unavailable</span>
     {% endif %}
-  </div>
-
-  <div class="status-strip" style="margin-top: 0.75rem;">
-    <span class="status-chip" id="rag-live-updating">Live indexing: n/a</span>
-    <span class="status-chip" id="rag-live-rss">RAG memory: n/a</span>
-    <span class="status-chip" id="rag-live-init">Init: n/a</span>
   </div>
   
   {% if rag_service_ready and rag_status.enabled and rag_status.repositories %}
@@ -63,7 +62,6 @@
           <th>Last Commit</th>
           <th>Indexed</th>
           <th style="text-align:right;">Chunks</th>
-          <th style="text-align:right;">Indexing</th>
           <th>Status</th>
           <th>Local Path</th>
         </tr>
@@ -80,7 +78,6 @@
             {% if repo.last_indexed_hash %}{{ repo.last_indexed_hash[:8] }}{% else %}<span class="muted">never</span>{% endif %}
           </td>
           <td style="text-align:right; font-family:monospace; padding-right: 0.75rem;">{{ repo.chunk_count }}</td>
-          <td class="rag-indexing" data-repo-id="{{ repo.repo_id }}" style="text-align:right; font-family:monospace; font-size:0.75rem; padding-right: 0.75rem;">-</td>
           <td>
             {% if repo.needs_reindexing %}
               <span class="status-badge sev-WARNING" title="New commits available, needs reindexing">⚠️</span>
@@ -146,10 +143,15 @@
         const updating = !!idxMeta.updating;
         const done = (typeof idxMeta.repos_done === 'number') ? idxMeta.repos_done : 0;
         const total = (typeof idxMeta.repos_total === 'number') ? idxMeta.repos_total : 0;
+        const filesOverallPct = (typeof idxMeta.overall_pct === 'number') ? idxMeta.overall_pct : null;
 
         let initPct = (typeof initProgress.percentage === 'number') ? initProgress.percentage : null;
-        if (init && init.updating && updating && total > 0) {
-          initPct = (done / total) * 100;
+        if (init && init.updating && updating) {
+          if (filesOverallPct !== null) {
+            initPct = filesOverallPct;
+          } else if (total > 0) {
+            initPct = (done / total) * 100;
+          }
         }
         const initPctText = (typeof initPct === 'number') ? initPct.toFixed(0) : null;
         if (initEl) {
@@ -170,30 +172,6 @@
           updatingEl.textContent = updating ? `Live indexing: running (${done}/${total})` : 'Live indexing: idle';
           updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
         }
-
-        const repos = idx.repositories || {};
-        const cells = document.querySelectorAll('td.rag-indexing');
-        cells.forEach((cell) => {
-          const repoId = cell.getAttribute('data-repo-id');
-          const repo = repoId ? repos[repoId] : null;
-          if (!repo) {
-            cell.textContent = '-';
-            return;
-          }
-          const state = repo.state || 'n/a';
-          const cur = (typeof repo.file_current === 'number') ? repo.file_current : 0;
-          const tot = (typeof repo.file_total === 'number') ? repo.file_total : 0;
-          const mem = (typeof repo.memory_gb === 'number') ? repo.memory_gb : null;
-          const parts = [];
-          parts.push(state);
-          if (tot > 0) {
-            parts.push(`${cur}/${tot}`);
-          }
-          if (mem !== null) {
-            parts.push(`${mem.toFixed(2)}GB`);
-          }
-          cell.textContent = parts.join(' ');
-        });
       } catch (e) {
         return;
       }
