@@ -222,6 +222,19 @@
       .flash-banner.success { border-color:#2e4735; background:#142018; color:#b7e6c5; }
       .flash-banner.error { border-color:#5c2f2f; background:#1c1114; color:#ffcdd2; }
       .flash-banner.hide { opacity:0; transform:translateY(-6px); pointer-events:none; }
+      footer.site-footer {
+        background:#090b12;
+        border-top:1px solid #1b1f29;
+        padding:0.85rem 1.5rem;
+        font-size:0.85rem;
+        color:#8a94a7;
+        display:flex;
+        justify-content:center;
+      }
+      footer.site-footer a {
+        color:#8ab4f8;
+        font-weight:600;
+      }
     </style>
 </head>
 <body>
@@ -267,6 +280,9 @@
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+  <footer class="site-footer">
+    <span>Built with ❤️ · <a href="https://github.com/giovi321/log-triage" target="_blank" rel="noopener">View source on GitHub</a></span>
+  </footer>
   <script>
     const flashBanners = document.querySelectorAll('.flash-banner');
     if (flashBanners.length) {
