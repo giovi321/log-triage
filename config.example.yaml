@@ -91,6 +91,20 @@ llm:
       # Optional: API version for Azure OpenAI
       # api_version: 2023-12-01-preview
     
+    # Anthropic Claude provider
+    claude:
+      api_base: https://api.anthropic.com/v1
+      # Set this in your environment: export ANTHROPIC_API_KEY=your_key
+      api_key_env: ANTHROPIC_API_KEY
+      model: claude-3-5-sonnet-20241022
+      # Explicitly declare the provider type (also auto-detected from api_base)
+      provider_type: anthropic
+      max_excerpt_lines: 500
+      max_output_tokens: 1024
+      request_timeout: 60
+      temperature: 0.2
+      top_p: 1.0
+
     # Local vLLM provider (for running models locally)
     local_vllm:
       api_base: http://127.0.0.1:8000/v1

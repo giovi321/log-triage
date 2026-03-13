@@ -81,6 +81,10 @@ See here the [full documentation](https://giovi321.github.io/log-triage/)
 - Follow mode (continuous tail of a single log file), rotation-aware (`tail -F` style)
 - Optional config change detection for follow-mode modules to auto-reload after saving via the Web UI (`--reload-on-change`)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
+- Multiple LLM provider support:
+  - **OpenAI** and any OpenAI-compatible API (local vLLM, Ollama, Azure OpenAI, etc.)
+  - **Anthropic Claude** (native API: claude-3-5-sonnet, claude-3-opus, etc.)
+  - Provider auto-detection: pointing `api_base` at `api.anthropic.com` selects the Anthropic backend automatically
 - Per-module options for:
   - context lines included ahead of each finding (`llm.context_prefix_lines`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)

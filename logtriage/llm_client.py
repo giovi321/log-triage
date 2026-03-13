@@ -63,6 +63,88 @@ def _chat_completion_url(api_base: str) -> str:
     return f"{normalized_base}/v1/chat/completions"
 
 
+def _anthropic_messages_url(api_base: str) -> str:
+    normalized_base = api_base.rstrip("/")
+    if normalized_base.endswith("/v1"):
+        return f"{normalized_base}/messages"
+    return f"{normalized_base}/v1/messages"
+
+
+def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
+    if not provider.api_key_env:
+        raise RuntimeError(
+            f"Anthropic provider '{provider.name}' requires api_key_env to be set"
+        )
+    api_key = os.environ.get(provider.api_key_env)
+    if not api_key:
+        raise RuntimeError(
+            f"Environment variable {provider.api_key_env} is required to call provider {provider.name}"
+        )
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+
+    messages = payload.get("messages", [])
+    system_content = None
+    filtered_messages = []
+    for m in messages:
+        if m.get("role") == "system":
+            system_content = m.get("content", "")
+        else:
+            filtered_messages.append(m)
+
+    anthropic_payload = {
+        "model": payload["model"],
+        "max_tokens": payload.get("max_tokens", 512),
+        "messages": filtered_messages,
+    }
+    if system_content:
+        anthropic_payload["system"] = system_content
+    if "temperature" in payload:
+        anthropic_payload["temperature"] = payload["temperature"]
+    if "top_p" in payload:
+        anthropic_payload["top_p"] = payload["top_p"]
+
+    url = _anthropic_messages_url(provider.api_base)
+    data = json.dumps(anthropic_payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=provider.request_timeout) as resp:
+            body = resp.read().decode("utf-8")
+            anthropic_response = json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else exc.reason
+        raise RuntimeError(f"LLM provider {provider.name} HTTP {exc.code}: {detail}")
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Failed to reach LLM provider {provider.name}: {exc.reason}")
+
+    text_content = ""
+    for block in anthropic_response.get("content", []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            text_content += block.get("text", "")
+
+    usage = anthropic_response.get("usage", {})
+    return {
+        "model": anthropic_response.get("model", provider.model),
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": text_content,
+                }
+            }
+        ],
+        "usage": {
+            "prompt_tokens": usage.get("input_tokens"),
+            "completion_tokens": usage.get("output_tokens"),
+        },
+    }
+
+
 def _normalize_messages_for_strict_alternation(messages: List[dict]) -> List[dict]:
     system_parts: List[str] = []
     normalized: List[dict] = []
@@ -115,6 +197,12 @@ def _normalize_messages_for_strict_alternation(messages: List[dict]) -> List[dic
             out.append(m)
 
     return out
+
+
+def _call_llm(provider: LLMProviderConfig, payload: dict) -> dict:
+    if provider.provider_type == "anthropic":
+        return _call_anthropic(provider, payload)
+    return _call_chat_completion(provider, payload)
 
 
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
@@ -255,7 +343,7 @@ def analyze_findings_with_llm(
         }
 
         try:
-            response_data = _call_chat_completion(provider, chat_payload)
+            response_data = _call_llm(provider, chat_payload)
         except Exception as exc:
             setattr(f, "llm_error", f"{provider.name}: {exc}")
             add_notification(

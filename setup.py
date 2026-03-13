@@ -28,7 +28,7 @@ setup(
             "jinja2>=3.1",
             "python-multipart>=0.0.5",
             "passlib[bcrypt]>=1.7.4,<1.7.5",
-            "bcrypt<4.2.0",
+            "bcrypt<4.0.0",
             "sqlalchemy>=2.0",
             "itsdangerous>=2.1",
         ],

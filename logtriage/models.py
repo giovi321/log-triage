@@ -114,6 +114,7 @@ class LLMProviderConfig:
     api_base: str
     api_key_env: Optional[str]
     model: str
+    provider_type: str = "openai"
     organization: Optional[str] = None
     api_version: Optional[str] = None
     max_excerpt_lines: int = 20

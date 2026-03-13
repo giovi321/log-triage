@@ -56,12 +56,14 @@ logtriage --config config.yaml --module homeassistant_follow --reload-on-change
 
 Add an LLM provider in the `llm.providers` map and refer to it from a module. Each module can specify its own prompt template and output directory for generated payloads.
 
+### With an OpenAI-compatible provider
+
 ```yaml
 llm:
   default_provider: openai
   providers:
     openai:
-      base_url: 'https://api.openai.com'
+      api_base: 'https://api.openai.com/v1'
       model: 'gpt-4o-mini'
       api_key_env: 'OPENAI_API_KEY'
 
@@ -75,7 +77,37 @@ modules:
       context_prefix_lines: 2
 ```
 
-When `llm.enabled` is true and a provider is available, the CLI writes payload and response files next to the configured directory. You can forward these JSON payloads to your own LLM gateway.
+### With Anthropic Claude
+
+```yaml
+llm:
+  default_provider: claude
+  providers:
+    claude:
+      api_base: 'https://api.anthropic.com/v1'
+      model: 'claude-3-5-sonnet-20241022'
+      api_key_env: 'ANTHROPIC_API_KEY'
+
+modules:
+  - name: homeassistant_follow
+    llm:
+      enabled: true
+      provider: 'claude'
+      prompt_template: './prompts/homeassistant.txt'
+      emit_llm_payloads_dir: './ha_llm_payloads'
+      context_prefix_lines: 2
+```
+
+Set the API key before running:
+
+```bash
+export ANTHROPIC_API_KEY=your_key
+logtriage --config config.yaml --module homeassistant_follow
+```
+
+The `provider_type` is automatically detected from `api_base` — no extra configuration is needed when pointing at `api.anthropic.com`. You can also define multiple providers and let each module choose one via `llm.provider`.
+
+When `llm.enabled` is true and a provider is available, the CLI writes payload and response files to the configured directory. You can forward these JSON payloads to your own LLM gateway.
 
 ## Alerts and storage
 

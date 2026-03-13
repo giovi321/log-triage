@@ -141,7 +141,10 @@ The codebase is organized around three entry points:
   - Renders a plain-text prompt payload for the LLM.
   - Appends RAG context when provided.
 - `logtriage/llm_client.py`
-  - Selects provider config and calls chat-completions style APIs.
+  - Selects provider config and routes to the correct backend via `_call_llm()`.
+  - **`openai` backend** (`_call_chat_completion`): OpenAI chat-completions format (`/v1/chat/completions`), `Authorization: Bearer` header. Covers OpenAI, local vLLM, Ollama, Azure OpenAI, and any compatible API.
+  - **`anthropic` backend** (`_call_anthropic`): Anthropic Messages API (`/v1/messages`), `x-api-key` header, `system` message extracted and sent as a top-level field. Response is normalized to the same internal shape so the rest of the pipeline is provider-agnostic.
+  - `provider_type` is read from `LLMProviderConfig` and auto-detected from `api_base` (anything containing `anthropic.com` defaults to `anthropic`).
   - Handles provider auth via environment variables.
   - Optionally retrieves RAG context and adds citations.
 

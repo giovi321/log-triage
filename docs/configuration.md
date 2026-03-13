@@ -215,19 +215,71 @@ Modules support multiple alert channels:
 
 ## LLM providers
 
-Providers are defined globally and referenced by name from modules.
+Providers are defined globally and referenced by name from modules. Two provider backends are supported: `openai` (default, covers any OpenAI-compatible API) and `anthropic` (native Anthropic Messages API).
+
+### OpenAI-compatible provider
 
 ```yaml
 llm:
   default_provider: openai
   providers:
     openai:
-      base_url: 'https://api.openai.com'
+      api_base: 'https://api.openai.com/v1'
       model: 'gpt-4o-mini'
       api_key_env: 'OPENAI_API_KEY'
 ```
 
-When only one provider is defined, modules inherit it automatically. The CLI reads the API key from the named environment variable.
+Any OpenAI-compatible endpoint works here — local vLLM, Ollama, Azure OpenAI, etc. — by changing `api_base`.
+
+### Anthropic Claude provider
+
+```yaml
+llm:
+  default_provider: claude
+  providers:
+    claude:
+      api_base: 'https://api.anthropic.com/v1'
+      model: 'claude-3-5-sonnet-20241022'
+      api_key_env: 'ANTHROPIC_API_KEY'
+      provider_type: anthropic   # optional: auto-detected from api_base
+```
+
+Set the `ANTHROPIC_API_KEY` environment variable before running:
+
+```bash
+export ANTHROPIC_API_KEY=your_key
+```
+
+The `provider_type` field selects the backend:
+
+| Value | Behaviour |
+|---|---|
+| `openai` (default) | OpenAI chat-completions format (`/v1/chat/completions`), `Authorization: Bearer` header |
+| `anthropic` | Anthropic Messages API (`/v1/messages`), `x-api-key` header, `system` extracted from messages |
+
+`provider_type` is auto-detected when `api_base` contains `anthropic.com`. Set it explicitly when using a proxy or a self-hosted Anthropic-compatible endpoint.
+
+### Using multiple providers
+
+```yaml
+llm:
+  default_provider: claude
+  providers:
+    openai:
+      api_base: 'https://api.openai.com/v1'
+      model: 'gpt-4o-mini'
+      api_key_env: 'OPENAI_API_KEY'
+    claude:
+      api_base: 'https://api.anthropic.com/v1'
+      model: 'claude-3-5-sonnet-20241022'
+      api_key_env: 'ANTHROPIC_API_KEY'
+    local_vllm:
+      api_base: 'http://127.0.0.1:8000/v1'
+      model: 'TheBloke/Mistral-7B-Instruct-v0.1-GPTQ'
+      api_key_env: null
+```
+
+Each module can then select a provider by name via `llm.provider`. When only one provider is defined, modules inherit it automatically.
 
 ## Database
 
