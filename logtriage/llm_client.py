@@ -1,7 +1,10 @@
 import json
 import os
+import threading
+import time
 import urllib.error
 import urllib.request
+from collections import deque
 from pathlib import Path
 from typing import List, Optional
 
@@ -14,6 +17,58 @@ from .models import (
     LLMResponse,
     ModuleLLMConfig,
 )
+
+# ---------------------------------------------------------------------------
+# Per-provider token budget tracking
+# ---------------------------------------------------------------------------
+# Each entry in _token_log[provider_name] is a (timestamp, token_count) tuple.
+# Only entries within the relevant window (1 h / 24 h) are kept.
+
+_token_log: dict = {}          # provider_name -> deque of (float ts, int tokens)
+_token_lock = threading.Lock()
+_HOUR = 3600.0
+_DAY  = 86400.0
+
+
+def _provider_log(name: str) -> deque:
+    if name not in _token_log:
+        _token_log[name] = deque()
+    return _token_log[name]
+
+
+def _tokens_used_in_window(name: str, window: float) -> int:
+    cutoff = time.time() - window
+    log = _provider_log(name)
+    return sum(count for ts, count in log if ts >= cutoff)
+
+
+def _record_tokens(name: str, tokens: int) -> None:
+    with _token_lock:
+        log = _provider_log(name)
+        log.append((time.time(), tokens))
+        # Evict entries older than one day (largest window we track)
+        cutoff = time.time() - _DAY
+        while log and log[0][0] < cutoff:
+            log.popleft()
+
+
+def check_token_budget(provider: LLMProviderConfig, estimated_tokens: int = 0) -> None:
+    """Raise RuntimeError if adding *estimated_tokens* would exceed the provider budget."""
+    with _token_lock:
+        if provider.max_tokens_per_hour is not None:
+            used = _tokens_used_in_window(provider.name, _HOUR)
+            if used + estimated_tokens > provider.max_tokens_per_hour:
+                raise RuntimeError(
+                    f"Token budget exceeded for provider '{provider.name}': "
+                    f"used {used} of {provider.max_tokens_per_hour} tokens in the last hour."
+                )
+        if provider.max_tokens_per_day is not None:
+            used = _tokens_used_in_window(provider.name, _DAY)
+            if used + estimated_tokens > provider.max_tokens_per_day:
+                raise RuntimeError(
+                    f"Token budget exceeded for provider '{provider.name}': "
+                    f"used {used} of {provider.max_tokens_per_day} tokens in the last 24 hours."
+                )
 
 # Import RAG client (optional import to avoid circular dependencies)
 try:
@@ -200,9 +255,26 @@ def _normalize_messages_for_strict_alternation(messages: List[dict]) -> List[dic
 
 
 def _call_llm(provider: LLMProviderConfig, payload: dict) -> dict:
+    # Estimate prompt tokens as a pre-call guard (chars / 4 is a common heuristic)
+    messages = payload.get("messages") or []
+    estimated = sum(len(str(m.get("content", ""))) for m in messages) // 4
+    estimated += payload.get("max_tokens", 512)
+    check_token_budget(provider, estimated)
+
     if provider.provider_type == "anthropic":
-        return _call_anthropic(provider, payload)
-    return _call_chat_completion(provider, payload)
+        result = _call_anthropic(provider, payload)
+    else:
+        result = _call_chat_completion(provider, payload)
+
+    usage = result.get("usage") or {}
+    actual = (usage.get("prompt_tokens") or 0) + (usage.get("completion_tokens") or 0)
+    if actual > 0:
+        _record_tokens(provider.name, actual)
+    else:
+        # Fall back to estimate if the provider didn't return usage data
+        _record_tokens(provider.name, estimated)
+
+    return result
 
 
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:

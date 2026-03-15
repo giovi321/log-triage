@@ -27,6 +27,8 @@ class WebUISettings:
     csrf_enabled: bool
     allowed_ips: List[str]
     admin_users: List[WebUser]
+    trusted_proxies: List[str]
+    session_max_age_hours: int
 
 
 def load_full_config(config_path: Path) -> Dict[str, Any]:
@@ -57,10 +59,17 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
         csrf_enabled=bool(web.get("csrf_enabled", True)),
         allowed_ips=[str(ip) for ip in (web.get("allowed_ips") or [])],
         admin_users=admins,
+        trusted_proxies=[str(ip) for ip in (web.get("trusted_proxies") or [])],
+        session_max_age_hours=int(web.get("session_max_age_hours", 24)),
     )
 
 
-def get_client_ip(request: Request) -> str:
-    # Basic IP extraction; you can refine this depending on your proxy setup.
+def get_client_ip(request: Request, trusted_proxies: Optional[List[str]] = None) -> str:
     client_host = request.client.host if request.client else "unknown"
+    if trusted_proxies and client_host in trusted_proxies:
+        # Only trust X-Forwarded-For when the direct peer is a known proxy
+        forwarded_for = request.headers.get("X-Forwarded-For", "").strip()
+        if forwarded_for:
+            # The leftmost IP is the original client
+            return forwarded_for.split(",")[0].strip()
     return client_host

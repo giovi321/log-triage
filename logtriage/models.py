@@ -122,6 +122,8 @@ class LLMProviderConfig:
     temperature: float = 0.0
     top_p: float = 1.0
     max_output_tokens: int = 512
+    max_tokens_per_hour: Optional[int] = None
+    max_tokens_per_day: Optional[int] = None
 
 
 @dataclasses.dataclass

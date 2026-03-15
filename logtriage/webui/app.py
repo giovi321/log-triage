@@ -4,10 +4,11 @@ import datetime
 import json
 import logging
 import os
+import re
 import secrets
 import sys
+import threading
 import time
-import re
 import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -37,7 +38,7 @@ except ImportError as e:
 from ..models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig, ModuleLLMConfig
 from ..config import build_llm_config, build_modules, build_pipelines, load_config, build_rag_config
 from ..engine import analyze_path
-from ..llm_client import analyze_findings_with_llm
+from ..llm_client import analyze_findings_with_llm, _call_llm
 from ..llm_payload import write_llm_payloads, should_send_to_llm
 from ..utils import select_pipeline
 from ..stream import stream_file
@@ -402,6 +403,9 @@ def _build_all_regex_hints() -> Dict[str, List[Dict[str, str]]]:
     return {step: _regex_step_hints(step) for step, _ in REGEX_WIZARD_STEPS}
 
 
+_REGEX_TIMEOUT_SECONDS = 5.0
+
+
 def _evaluate_regex_against_lines(
     regex_value: str, sample_lines: List[str], first_line_number: int = 0
 ) -> tuple[list[int], Optional[str]]:
@@ -410,11 +414,30 @@ def _evaluate_regex_against_lines(
     if not regex_value:
         return matches, error_msg
 
-    try:
-        pattern = re.compile(regex_value)
-        matches = [idx + first_line_number for idx, line in enumerate(sample_lines) if pattern.search(line)]
-    except re.error as e:
-        error_msg = f"Regex error: {e}"
+    result: Dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            pattern = re.compile(regex_value)
+            result["matches"] = [
+                idx + first_line_number
+                for idx, line in enumerate(sample_lines)
+                if pattern.search(line)
+            ]
+        except re.error as e:
+            result["error"] = f"Regex error: {e}"
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=_REGEX_TIMEOUT_SECONDS)
+
+    if t.is_alive():
+        return [], "Regex timed out — pattern may cause catastrophic backtracking."
+
+    if "error" in result:
+        error_msg = result["error"]
+    else:
+        matches = result.get("matches", [])
 
     return matches, error_msg
 
@@ -602,7 +625,7 @@ def _regex_context(
 async def ip_allowlist_middleware(request: Request, call_next):
     s = settings
     if s.allowed_ips:
-        ip = get_client_ip(request)
+        ip = get_client_ip(request, trusted_proxies=s.trusted_proxies)
         if ip not in s.allowed_ips:
             return HTMLResponse("Access denied", status_code=status.HTTP_403_FORBIDDEN)
     response = await call_next(request)
@@ -1641,7 +1664,7 @@ async def llm_query(
     }
 
     try:
-        response_data = _call_chat_completion(provider_cfg, chat_payload)
+        response_data = _call_llm(provider_cfg, chat_payload)
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 

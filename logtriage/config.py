@@ -185,6 +185,8 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             provider_type = "anthropic"
         else:
             provider_type = "openai"
+        raw_tph = pdata.get("max_tokens_per_hour")
+        raw_tpd = pdata.get("max_tokens_per_day")
         providers[name] = LLMProviderConfig(
             name=name,
             api_base=api_base,
@@ -198,6 +200,8 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             temperature=float(pdata.get("temperature", base_temperature)),
             top_p=float(pdata.get("top_p", base_top_p)),
             max_output_tokens=int(pdata.get("max_output_tokens", base_max_output_tokens)),
+            max_tokens_per_hour=int(raw_tph) if raw_tph is not None else None,
+            max_tokens_per_day=int(raw_tpd) if raw_tpd is not None else None,
         )
 
     if default_provider and default_provider not in providers:
