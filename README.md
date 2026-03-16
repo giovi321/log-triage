@@ -31,9 +31,24 @@ In addition to raw LLM prompting, `log-triage` can run in **RAG (Retrieval-Augme
    python3 -m venv .venv
    source .venv/bin/activate
    pip install --upgrade pip
-   # Install core plus optional Web UI + MQTT extras
+   # Interactive installer — prompts for extras and CPU vs GPU PyTorch
+   python scripts/install.py
+   ```
+   The installer asks which optional extras you want (`webui`, `alerts`, `rag`) and,
+   if RAG is selected, whether to use a **CPU-only** (~200 MB) or **GPU/CUDA** (~2+ GB)
+   build of PyTorch.  Choose CPU unless you are running GPU inference on this machine.
+
+   <details>
+   <summary>Manual install (skip the prompt)</summary>
+
+   ```bash
+   # CPU-only RAG build (recommended for most machines)
+   pip install ".[webui,alerts,rag]" --extra-index-url https://download.pytorch.org/whl/cpu
+
+   # GPU/CUDA RAG build
    pip install ".[webui,alerts,rag]"
    ```
+   </details>
 2. **Configure:** Copy `config.yaml` and edit pipelines/modules to point at your log files.
 3. **Run a module:**
    ```bash
