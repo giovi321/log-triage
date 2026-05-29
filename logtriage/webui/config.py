@@ -29,6 +29,13 @@ class WebUISettings:
     admin_users: List[WebUser]
     trusted_proxies: List[str]
     session_max_age_hours: int
+    # Prometheus /metrics endpoint (still subject to allowed_ips). Default on.
+    metrics_enabled: bool = True
+    # Authentik (or any reverse proxy) forward-auth: trust an identity header,
+    # but ONLY when the direct peer is one of trusted_proxies.
+    forward_auth_enabled: bool = False
+    forward_auth_header: str = "X-authentik-username"
+    forward_auth_logout_url: Optional[str] = None
 
 
 def load_full_config(config_path: Path) -> Dict[str, Any]:
@@ -48,6 +55,9 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
         if username and pw_hash:
             admins.append(WebUser(username=username, password_hash=pw_hash))
 
+    metrics = web.get("metrics", {}) or {}
+    fwd = web.get("forward_auth", {}) or {}
+
     return WebUISettings(
         enabled=bool(web.get("enabled", False)),
         host=str(web.get("host", "127.0.0.1")),
@@ -61,6 +71,10 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
         admin_users=admins,
         trusted_proxies=[str(ip) for ip in (web.get("trusted_proxies") or [])],
         session_max_age_hours=int(web.get("session_max_age_hours", 24)),
+        metrics_enabled=bool(metrics.get("enabled", True)),
+        forward_auth_enabled=bool(fwd.get("enabled", False)),
+        forward_auth_header=str(fwd.get("username_header", "X-authentik-username")),
+        forward_auth_logout_url=(str(fwd["logout_url"]) if fwd.get("logout_url") else None),
     )
 
 

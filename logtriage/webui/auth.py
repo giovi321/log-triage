@@ -71,16 +71,36 @@ def validate_session_token(token: str, secret_key: str, max_age: int = _DEFAULT_
     return username
 
 
+def resolve_proxy_user(request: Request, settings: WebUISettings) -> Optional[str]:
+    """Identity from a reverse-proxy forward-auth header (e.g. Authentik).
+
+    Trusted ONLY when the direct TCP peer is one of ``trusted_proxies`` — this
+    prevents a client from spoofing the header to bypass authentication. When
+    ``trusted_proxies`` is empty, forward-auth is effectively disabled.
+    """
+    if not getattr(settings, "forward_auth_enabled", False):
+        return None
+    client_host = request.client.host if request.client else None
+    trusted = getattr(settings, "trusted_proxies", None) or []
+    if not client_host or client_host not in trusted:
+        return None
+    header = getattr(settings, "forward_auth_header", "X-authentik-username")
+    username = (request.headers.get(header) or "").strip()
+    return username or None
+
+
 def get_current_user(
     request: Request,
     settings: WebUISettings,
 ) -> Optional[str]:
     token = request.session.get("session_token")
-    if not token:
-        return None
-    max_age = int(getattr(settings, "session_max_age_hours", 24)) * 3600
-    username = validate_session_token(token, settings.secret_key, max_age=max_age)
-    return username
+    if token:
+        max_age = int(getattr(settings, "session_max_age_hours", 24)) * 3600
+        username = validate_session_token(token, settings.secret_key, max_age=max_age)
+        if username:
+            return username
+    # Fall back to reverse-proxy forward-auth (Authentik proxy/outpost, etc.)
+    return resolve_proxy_user(request, settings)
 
 
 def require_login(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import logging
@@ -21,7 +22,7 @@ except ImportError:
 # Import FastAPI and related dependencies
 try:
     from fastapi import FastAPI, Request, Response, HTTPException, status, Form
-    from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+    from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
     from fastapi.templating import Jinja2Templates
     from fastapi.staticfiles import StaticFiles
     try:
@@ -57,6 +58,8 @@ except ImportError:
     create_rag_client = None
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
 from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
+from .events import EventHub, sse_format, db_snapshot
+from ..worker import EnrichmentWorker
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +112,14 @@ from .db import (
     update_finding_llm_error,
     update_finding_severity,
     store_finding,
+    get_issues,
+    get_issue_by_id,
+    update_issue_status,
+    issue_status_counts,
+    get_issue_sparkline,
+    get_findings_for_issue,
+    ISSUE_STATUSES,
+    ISSUE_ACTIVE_STATUSES,
 )
 from .regex_utils import (
     _compile_regex_with_feedback,
@@ -551,6 +562,412 @@ def _build_modules_from_config() -> List[ModuleConfig]:
 _refresh_rag_client()
 
 
+# ---------------------------------------------------------------------------
+# Live updates (SSE) + background enrichment worker
+# ---------------------------------------------------------------------------
+event_hub = EventHub()
+enrichment_worker: Optional[EnrichmentWorker] = None
+
+
+def _worker_deps():
+    """Provide (modules_by_name, llm_defaults, rag_client) to the worker, or None."""
+    if not getattr(llm_defaults, "enabled", False):
+        return None
+    try:
+        modules = {m.name: m for m in _build_modules_from_config()}
+    except Exception:
+        return None
+    return (modules, llm_defaults, rag_client)
+
+
+def _maybe_start_worker() -> None:
+    global enrichment_worker
+    wcfg = (raw_config.get("worker") or {}) if isinstance(raw_config, dict) else {}
+    if not wcfg.get("enabled", True) or not wcfg.get("run_in_webui", True):
+        return
+    if not getattr(llm_defaults, "enabled", False):
+        logger.info("Enrichment worker not started (LLM disabled)")
+        return
+    if enrichment_worker is not None:
+        return
+    enrichment_worker = EnrichmentWorker(
+        _worker_deps,
+        interval=float(wcfg.get("interval_seconds", 60)),
+        batch=int(wcfg.get("batch", 25)),
+        logger_=logger,
+    )
+    enrichment_worker.start()
+
+
+def _fetch_rag_progress():
+    if rag_client is None or not hasattr(rag_client, "_make_request"):
+        return None
+    try:
+        return rag_client._make_request("GET", "/progress", max_retries=0)
+    except Exception:
+        return None
+
+
+def _build_live_snapshot() -> Dict[str, Any]:
+    """Snapshot of changing state for the SSE stream (runs in a thread executor)."""
+    snap = db_snapshot()
+    monitor = get_rag_monitor_status()
+    snap["rag"] = {
+        "available": bool(monitor.get("rag_available")),
+        "ready": bool(monitor.get("rag_ready")),
+        "progress": _fetch_rag_progress() if monitor.get("rag_available") else None,
+    }
+    wstatus = enrichment_worker.status if enrichment_worker is not None else {"running": False, "total_analyzed": 0}
+    snap["worker"] = {
+        "running": bool(wstatus.get("running")),
+        "total_analyzed": wstatus.get("total_analyzed", 0),
+    }
+    return snap
+
+
+async def _events_poll_loop():
+    """Poll the DB/RAG for changes and broadcast a snapshot when it changes."""
+    loop = asyncio.get_event_loop()
+    last_key = None
+    while True:
+        # Nobody watching → don't poll the DB/RAG at all.
+        if event_hub.subscriber_count() == 0:
+            try:
+                await asyncio.sleep(2.0)
+            except asyncio.CancelledError:
+                break
+            continue
+        try:
+            snap = await loop.run_in_executor(None, _build_live_snapshot)
+            key = json.dumps(snap, sort_keys=True, default=str)
+            if key != last_key:
+                snap["type"] = "snapshot"
+                event_hub.publish(snap)
+                last_key = key
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            pass
+        try:
+            await asyncio.sleep(2.0)
+        except asyncio.CancelledError:
+            break
+
+
+@app.on_event("startup")
+async def _on_startup():
+    try:
+        app.state._events_task = asyncio.get_event_loop().create_task(_events_poll_loop())
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Could not start SSE poller: %s", exc)
+    try:
+        _maybe_start_worker()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("Could not start enrichment worker: %s", exc)
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    task = getattr(app.state, "_events_task", None)
+    if task is not None:
+        task.cancel()
+    global enrichment_worker
+    if enrichment_worker is not None:
+        enrichment_worker.stop()
+
+
+@app.get("/events", name="events")
+async def events_stream(request: Request):
+    """Server-Sent Events stream of live snapshots (issues, findings, RAG, worker)."""
+    if not get_current_user(request, settings):
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
+
+    queue = event_hub.subscribe()
+
+    async def gen():
+        loop = asyncio.get_event_loop()
+        try:
+            snap = await loop.run_in_executor(None, _build_live_snapshot)
+            snap["type"] = "snapshot"
+            yield sse_format(snap)
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield sse_format(ev)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            event_hub.unsubscribe(queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
+
+
+@app.get("/metrics", name="metrics")
+async def metrics_endpoint(request: Request):
+    """Prometheus metrics. Unauthenticated (for scraping) but still behind the
+    allowed_ips middleware; disable via webui.metrics.enabled: false."""
+    if not getattr(settings, "metrics_enabled", True):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    from .metrics import render_metrics
+
+    wstatus = enrichment_worker.status if enrichment_worker is not None else {}
+    text = render_metrics(worker_status=wstatus)
+    return Response(content=text, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Triage queue (de-duplicated issues with cached LLM summaries)
+# ---------------------------------------------------------------------------
+
+@app.get("/issues", name="issues")
+async def issues_list(
+    request: Request,
+    module: Optional[str] = None,
+    status_filter: str = "active",
+    severity: Optional[str] = None,
+    q: Optional[str] = None,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    if status_filter == "active":
+        statuses = list(ISSUE_ACTIVE_STATUSES)
+    elif status_filter in ("all", "", None):
+        statuses = None
+    else:
+        statuses = [status_filter]
+
+    severities = [severity] if severity else None
+    now = datetime.datetime.now(datetime.timezone.utc)
+    issues = get_issues(
+        module_name=module or None,
+        statuses=statuses,
+        severities=severities,
+        search=(q or None),
+        limit=150,
+        now=now,
+    )
+    sparklines = {iss.id: get_issue_sparkline(iss.id, buckets=24, bucket_seconds=3600, now=now) for iss in issues}
+    counts = issue_status_counts(module or None)
+    modules = sorted(_build_modules_from_config(), key=lambda m: m.name.lower())
+
+    return templates.TemplateResponse(
+        "issues.html",
+        {
+            "request": request,
+            "username": username,
+            "issues": issues,
+            "sparklines": sparklines,
+            "counts": counts,
+            "modules": modules,
+            "current_module": module or "",
+            "status_filter": status_filter or "active",
+            "severity_filter": severity or "",
+            "search": q or "",
+            "severity_choices": SEVERITY_CHOICES,
+            "status_choices": list(ISSUE_STATUSES),
+            "db_status": db_status,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@app.get("/issues/{issue_id}", name="issue_detail")
+async def issue_detail(request: Request, issue_id: int, message: Optional[str] = None, error: Optional[str] = None):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    issue = get_issue_by_id(issue_id)
+    if issue is None:
+        return RedirectResponse(
+            url=app.url_path_for("issues") + "?error=Issue+not+found",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    spark_24h = get_issue_sparkline(issue_id, buckets=24, bucket_seconds=3600, now=now)
+    spark_14d = get_issue_sparkline(issue_id, buckets=14, bucket_seconds=86400, now=now)
+    occurrences = get_findings_for_issue(issue_id, limit=50)
+
+    provider_name = _select_provider_name(None)
+    sample_first = next((ln for ln in (issue.sample_excerpt or "").splitlines() if ln.strip()), "")
+    suggested_ignore = _suggest_regex_from_line(sample_first) if sample_first else ""
+
+    return templates.TemplateResponse(
+        "issue_detail.html",
+        {
+            "request": request,
+            "username": username,
+            "issue": issue,
+            "spark_24h": spark_24h,
+            "spark_14d": spark_14d,
+            "occurrences": occurrences,
+            "status_choices": list(ISSUE_STATUSES),
+            "db_status": db_status,
+            "can_analyze": bool(getattr(llm_defaults, "enabled", False) and provider_name),
+            "suggested_ignore": suggested_ignore,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@app.post("/issues/{issue_id}/status", name="issue_set_status")
+async def issue_set_status(request: Request, issue_id: int, new_status: str = Form(...), redirect_to: str = Form("detail")):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    ok = False
+    try:
+        ok = update_issue_status(issue_id, new_status)
+    except Exception as exc:
+        add_notification("error", "Issue status update failed", str(exc))
+
+    if redirect_to == "list":
+        url = app.url_path_for("issues") + ("?message=Status+updated" if ok else "?error=Update+failed")
+    else:
+        url = app.url_path_for("issue_detail", issue_id=issue_id) + ("?message=Status+updated" if ok else "?error=Update+failed")
+    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/issues/{issue_id}/analyze", name="issue_analyze")
+async def issue_analyze(request: Request, issue_id: int):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    issue = get_issue_by_id(issue_id)
+    if issue is None:
+        return RedirectResponse(url=app.url_path_for("issues") + "?error=Issue+not+found", status_code=status.HTTP_303_SEE_OTHER)
+
+    detail_url = app.url_path_for("issue_detail", issue_id=issue_id)
+
+    # Resolve a provider: the issue's module preference, else the global default.
+    modules = {m.name: m for m in _build_modules_from_config()}
+    module = modules.get(issue.module_name)
+    provider_name = None
+    if module is not None and getattr(module, "llm", None) is not None:
+        provider_name = module.llm.provider_name
+    provider_name = provider_name or _select_provider_name(None)
+    provider_cfg = llm_defaults.providers.get(provider_name) if provider_name else None
+    if provider_cfg is None:
+        return RedirectResponse(url=detail_url + "?error=No+LLM+provider+configured", status_code=status.HTTP_303_SEE_OTHER)
+
+    from ..enrichment import analyze_issue
+
+    temp_module_llm = ModuleLLMConfig(
+        enabled=True,
+        provider_name=provider_name,
+        min_severity=Severity.WARNING,
+        max_excerpt_lines=provider_cfg.max_excerpt_lines,
+    )
+    try:
+        wrote = analyze_issue(
+            issue, llm_defaults, temp_module_llm,
+            rag_client=rag_client, module_name=issue.module_name, force=True,
+        )
+        msg = "Analysis updated" if wrote else "No analysis produced"
+        return RedirectResponse(url=detail_url + f"?message={msg.replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        add_notification("error", "Issue analysis failed", str(exc))
+        return RedirectResponse(url=detail_url + "?error=Analysis+failed", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _add_ignore_regex_to_pipeline(pipeline_name: Optional[str], regex_value: str) -> Optional[str]:
+    """Append an ignore regex to a pipeline's classifier, write config, reload.
+
+    Returns an error message string, or None on success.
+    """
+    global raw_config, settings, llm_defaults
+
+    if not pipeline_name:
+        return "Issue has no pipeline; cannot add an ignore rule."
+    lint = _lint_regex_input(regex_value)
+    if lint:
+        return " ".join(lint)
+    try:
+        cfg_dict = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        return f"Failed to read config: {exc}"
+
+    entry = next((p for p in (cfg_dict.get("pipelines") or []) if p.get("name") == pipeline_name), None)
+    if entry is None:
+        return "Pipeline not found in config; cannot add an ignore rule."
+
+    classifier = entry.setdefault("classifier", {})
+    ignore_list = classifier.get("ignore_regexes")
+    if not isinstance(ignore_list, list):
+        ignore_list = []
+        classifier["ignore_regexes"] = ignore_list
+    if regex_value not in ignore_list:
+        ignore_list.append(regex_value)
+
+    try:
+        new_text = yaml.safe_dump(cfg_dict, sort_keys=False)
+        tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+        backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        if CONFIG_PATH.exists():
+            CONFIG_PATH.replace(backup_path)
+        tmp_path.replace(CONFIG_PATH)
+    except Exception as exc:
+        return f"Failed to write config: {exc}"
+
+    raw_config = load_config(CONFIG_PATH)
+    settings = parse_webui_settings(raw_config)
+    _refresh_llm_defaults()
+    return None
+
+
+@app.post("/issues/{issue_id}/ignore", name="issue_ignore")
+async def issue_ignore(request: Request, issue_id: int, regex_value: str = Form("")):
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    issue = get_issue_by_id(issue_id)
+    if issue is None:
+        return RedirectResponse(url=app.url_path_for("issues") + "?error=Issue+not+found", status_code=status.HTTP_303_SEE_OTHER)
+    detail_url = app.url_path_for("issue_detail", issue_id=issue_id)
+
+    if not db_status.get("connected"):
+        return RedirectResponse(url=detail_url + "?error=Database+not+connected", status_code=status.HTTP_303_SEE_OTHER)
+
+    regex_value = (regex_value or "").strip()
+    if not regex_value:
+        sample_first = next((ln for ln in (issue.sample_excerpt or "").splitlines() if ln.strip()), "")
+        regex_value = _suggest_regex_from_line(sample_first) if sample_first else ""
+    if not regex_value:
+        return RedirectResponse(url=detail_url + "?error=No+sample+to+build+an+ignore+rule", status_code=status.HTTP_303_SEE_OTHER)
+
+    err = _add_ignore_regex_to_pipeline(issue.pipeline_name, regex_value)
+    if err:
+        return RedirectResponse(url=detail_url + "?error=" + urllib.parse.quote(err), status_code=status.HTTP_303_SEE_OTHER)
+
+    try:
+        update_issue_status(issue_id, "false_positive")
+        delete_findings_matching_regex(regex_value, pipeline_name=issue.pipeline_name)
+    except Exception as exc:
+        add_notification("warning", "Ignore rule saved", f"but cleanup failed: {exc}")
+
+    return RedirectResponse(
+        url=app.url_path_for("issues") + "?message=Ignore+rule+added%2C+issue+suppressed",
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+
+
 def _render_config_editor(
     request: Request,
     username: str,
@@ -562,12 +979,21 @@ def _render_config_editor(
 ):
     # Reload hints to be safe
     current_hints = _load_context_hints()
+    # Parse the YAML so the structured form editor can initialise from clean JSON.
+    parsed_obj: Any = None
+    if yaml is not None:
+        try:
+            parsed_obj = yaml.safe_load(config_text)
+        except Exception:
+            parsed_obj = None
+    config_json = json.dumps(parsed_obj if isinstance(parsed_obj, dict) else {})
     return templates.TemplateResponse(
         "config_edit.html",
         {
             "request": request,
             "username": username,
             "config_text": config_text,
+            "config_json": config_json,
             "error": error,
             "message": message,
             "context_hints": current_hints,
