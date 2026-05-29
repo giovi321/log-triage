@@ -85,7 +85,7 @@ llm:
   providers:
     claude:
       api_base: 'https://api.anthropic.com/v1'
-      model: 'claude-3-5-sonnet-20241022'
+      model: 'claude-sonnet-4-6'
       api_key_env: 'ANTHROPIC_API_KEY'
 
 modules:
@@ -118,3 +118,13 @@ Modules can send alerts or persist findings for the Web UI:
 - **Database storage:** set the `database` block to use SQLite or Postgres so the Web UI can query historical findings.
 
 See [Configuration](configuration.md) for the full schema.
+
+## Triage and AI summaries
+
+With a `database` configured, recurring findings are grouped into **issues**. Open the Web UI's **Triage** queue to review them by priority, each with a cached AI summary. Enrichment runs in the background by default (configure under `worker:`), or on demand from an issue's detail page. To group findings from an older database once, run:
+
+```bash
+logtriage --config config.yaml --backfill-issues
+```
+
+See [Web UI](web-ui.md#triage-queue-issues) for the triage workflow.

@@ -9,9 +9,10 @@
 - **Ignore noisy lines.** Drop known noise via `ignore_regexes` before counting errors and warnings.
 - **Pluggable classifiers.** Swap between built-in regex or rsnapshot heuristics, or register your own (see [Classifiers](classifiers.md)).
 - **Severity-aware.** Findings are labeled `WARNING`, `ERROR`, or `CRITICAL`, and can be escalated when anomalies are detected.
-- **LLM-ready payloads.** Generate concise payloads with prompt templates, without coupling to a specific provider.
+- **De-duplication into issues.** Recurring findings collapse by signature into ranked **issues** with occurrence counts and first/last-seen — triage each distinct problem once, not every line.
+- **LLM analysis, cached per issue.** Analyze each signature once (RAG-grounded, with Anthropic prompt caching) and reuse the summary everywhere; a background worker keeps them fresh.
 - **RAG-enhanced analysis.** Automatically retrieve relevant documentation from knowledge bases to provide more accurate, context-aware AI responses with citations.
-- **Web dashboard.** Explore findings, edit configuration, and tune regexes in a dark-mode UI.
+- **Mission-control web UI.** A prioritized Triage queue, structured settings editor, live updates over SSE, and a Prometheus `/metrics` endpoint.
 - **Alerts and storage.** Send webhook or MQTT alerts, and persist findings in SQLite or Postgres for the Web UI.
 
 ## What you need
@@ -54,13 +55,14 @@ pip install ".[webui,alerts]"
 
 ## Security disclaimer concerning the Web UI
 
-`log-triage` is intended for trusted, internal environments and should not be exposed directly to the public internet. The Web UI currently has several security gaps that make it unsuitable for untrusted networks:
+`log-triage` is intended for trusted, internal environments and should not be exposed directly to the public internet. It now ships with several controls, but important residual risks remain:
 
-- **No CSRF protections:** Cross-site requests can change configuration if an administrator is logged in.
-- **Weak session handling:** Sessions rely on a static, HMAC-only cookie with no rotation or expiry; the default `secret_key` of `CHANGE_ME` makes forgery trivial in default deployments.
-- **Insecure cookie attributes:** Login and session cookies are not limited to HTTPS or restrictive SameSite policies, increasing the risk of theft on shared networks.
-- **Fragile IP allowlisting:** Allow lists compare `request.client.host` strings directly and ignore proxy headers or CIDR ranges, so bypasses are likely behind proxies.
-- **Unvalidated editors:** Configuration file editor accepts arbitrary content beyond basic YAML parsing, enabling malicious injections that redirect log ingestion to attacker-controlled files or endpoints.
+- **CSRF protection** is enforced on form posts via a per-session token (`webui.csrf_enabled`, on by default). JSON API calls are intentionally exempt.
+- **Sessions** are HMAC-signed and now expire (`webui.session_max_age_hours`), but the scheme has no server-side revocation, and the default `secret_key` of `CHANGE_ME` makes forgery trivial — **always set a strong `secret_key`**.
+- **Cookie attributes** (Secure/HttpOnly/SameSite) are not explicitly enforced in code; terminate TLS and set policies at a reverse proxy.
+- **IP allowlisting** compares `request.client.host` (exact match, no CIDR); behind a proxy use `trusted_proxies` and enforce access at the proxy.
+- **Forward-auth** (e.g. Authentik proxy provider) is supported and recommended for putting the UI behind SSO — see [Configuration](configuration.md#web-ui-metrics-and-forward-authentication).
+- **Config write access is root-equivalent:** the editor can repoint log ingestion, webhooks, LLM endpoints, and RAG repos. Restrict who can reach it.
 
-Run the UI only on private networks, behind strong network controls, and with a unique, secret `secret_key` until these issues are addressed.
+Run the UI only on private networks, behind strong network controls (TLS + SSO/forward-auth), with a unique `secret_key`. See the [security assessment](security.md) for the full picture.
 

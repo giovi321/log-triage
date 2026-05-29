@@ -5,28 +5,42 @@ The CLI reads the same YAML configuration as the Web UI and provides batch and f
 ## Commands
 
 ```bash
-logtriage --config ./config.yaml run --module <module-name>
-logtriage --config ./config.yaml run-all
-logtriage --config ./config.yaml list-modules
+# Run a single module (batch or follow, per its config)
+logtriage --config ./config.yaml --module <module-name>
+
+# Run all enabled follow-mode modules (omit --module)
+logtriage --config ./config.yaml
+
+# Auto-reload when config.yaml changes (e.g. saved from the Web UI)
+logtriage --config ./config.yaml --reload-on-change
+
+# Build de-duplicated issues for findings created before issues existed, then exit
+logtriage --config ./config.yaml --backfill-issues
+
+# Analyze issues whose cached LLM summary is missing or stale, then exit
+logtriage --config ./config.yaml --analyze-issues
 ```
 
-- `--config`: path to the YAML configuration (defaults to `./config.yaml`).
-- `run --module`: execute a single module in `batch` or `follow` mode depending on its config.
-- `run-all`: execute every enabled module.
-- `list-modules`: print module names, modes, and whether LLM payloads are enabled.
+- `--config` / `-c`: path to the YAML configuration (**required**).
+- `--module` / `-m`: run a single named module (even if disabled). Omit to run all enabled **follow** modules.
+- `--reload-on-change`: reload configuration when the file's mtime changes, so follow-mode modules pick up edits without a restart.
+- `--backfill-issues`: one-time, idempotent migration that assigns fingerprints and groups existing findings into issues. The CLI also runs this automatically on startup (cheap once done).
+- `--analyze-issues`: run a single enrichment pass over issues needing analysis, then exit. For continuous enrichment use the [`logtriage-worker`](#enrichment-worker) service or the in-Web-UI worker.
 
-When running in follow mode, use `--reload-on-change` to pick up edits from the Web UI config editor automatically.
+Run `logtriage --help` for the full flag list.
+
+## Enrichment worker
+
+`logtriage-worker` continuously analyzes issues whose cached summary is missing or stale (one LLM call per unique signature). By default the **Web UI runs this in-process**, so you only need the standalone process if you set `worker.run_in_webui: false` or run without the Web UI.
+
+```bash
+logtriage-worker --config ./config.yaml --interval 60   # loop every 60s
+logtriage-worker --config ./config.yaml --once          # single pass, then exit
+```
 
 ## Output formats
 
-Modules can emit findings as plaintext or JSON.
-
-```bash
-logtriage run --module homeassistant_follow --output-format text
-logtriage run --module homeassistant_follow --output-format json
-```
-
-Use `min_print_severity` in the module configuration to suppress lower-importance findings (for example, only `ERROR` and `CRITICAL`).
+Modules emit findings as plaintext or JSON, set per module via `output_format: text | json` in the configuration (there is no CLI override). Use `min_print_severity` in the module configuration to suppress lower-importance findings (for example, only `ERROR` and `CRITICAL`).
 
 ## Batch vs follow
 

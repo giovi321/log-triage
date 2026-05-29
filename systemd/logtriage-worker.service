@@ -1,0 +1,21 @@
+[Unit]
+Description=Log Triage enrichment worker (per-issue LLM analysis)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/logtriage
+Environment=LOGTRIAGE_CONFIG=/etc/logtriage/config.yaml
+# Analyzes issues whose cached LLM summary is missing or stale, on an interval.
+# Only needed if you run the worker standalone; by default the Web UI runs it
+# in-process (set webui's worker.run_in_webui: false to use this unit instead).
+ExecStart=/opt/logtriage/.venv/bin/logtriage-worker --config /etc/logtriage/config.yaml --interval 60
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

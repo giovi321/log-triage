@@ -102,7 +102,9 @@ llm:
       api_base: https://api.anthropic.com/v1
       # Set this in your environment: export ANTHROPIC_API_KEY=your_key
       api_key_env: ANTHROPIC_API_KEY
-      model: claude-3-5-sonnet-20241022
+      # Current Claude models: claude-sonnet-4-6 (balanced),
+      # claude-opus-4-8 (most capable), claude-haiku-4-5 (fast/cheap)
+      model: claude-sonnet-4-6
       # Explicitly declare the provider type (also auto-detected from api_base)
       provider_type: anthropic
       max_excerpt_lines: 500
@@ -586,6 +588,23 @@ database:
   retention_days: 30
 
 # =============================================================================
+# ENRICHMENT WORKER CONFIGURATION
+# =============================================================================
+# The worker analyzes de-duplicated issues with the LLM once per signature and
+# caches the summary, so the UI can show grounded explanations without paying
+# per-finding LLM cost. By default it runs as a thread inside the Web UI.
+worker:
+  # Enable background enrichment (requires llm.enabled).
+  enabled: true
+  # Run the worker in-process inside logtriage-webui (true), or run it as a
+  # separate `logtriage-worker` process instead (set this to false then).
+  run_in_webui: true
+  # Seconds between enrichment cycles.
+  interval_seconds: 60
+  # Maximum number of issues analyzed per cycle (caps burst LLM usage).
+  batch: 25
+
+# =============================================================================
 # WEB UI CONFIGURATION
 # =============================================================================
 # Configure the web interface for viewing and managing findings.
@@ -610,7 +629,21 @@ webui:
 
   # Session lifetime in hours (default: 24). Sessions older than this are rejected.
   session_max_age_hours: 24
-  
+
+  # Prometheus metrics endpoint at /metrics (still subject to allowed_ips).
+  metrics:
+    enabled: true
+
+  # Reverse-proxy forward authentication (e.g. Authentik proxy provider/outpost).
+  # When enabled, the username is trusted from `username_header` — but ONLY when
+  # the request's direct peer is one of `trusted_proxies` below (otherwise the
+  # header could be spoofed). Leave disabled unless log-triage sits behind such
+  # a proxy. Full OIDC code-flow is not implemented; use the proxy provider.
+  forward_auth:
+    enabled: false
+    username_header: X-authentik-username
+    # logout_url: https://auth.example.com/application/o/logtriage/end-session/
+
   # Access control
   allowed_ips:  # Restrict access to specific IP addresses (empty = allow all)
     - 192.168.1.1

@@ -19,12 +19,13 @@ theme:
     - toc.integrate
 
 extra:
-  version: v0.3.2
+  version: v0.4.0
 
 markdown_extensions:
   - admonition
   - codehilite
   - def_list
+  - tables
   - toc:
       permalink: true
 
@@ -36,6 +37,7 @@ nav:
   - Classifiers: classifiers.md
   - Web UI: web-ui.md
   - Architecture: architecture.md
+  - Deployment: deployment.md
   - RAG:
     - Overview: RAG.md
     - Quick start: RAG-QuickStart.md

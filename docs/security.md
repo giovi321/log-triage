@@ -54,14 +54,15 @@ Relevant code:
 Observed behavior:
 
 - **Admin auth** is username/password with bcrypt verification.
-- **Session token** is a simple HMAC: `username|signature` (`create_session_token`).
+- **Session token** is an HMAC over `username|issued_at` (`create_session_token`), validated with a configurable max age (`webui.session_max_age_hours`, default 24h).
 - **Server-side session storage** uses `SessionMiddleware` with a `secret_key` from config.
 - `WebUISettings.secret_key` defaults to **`CHANGE_ME`**.
+- **Optional forward-auth**: when `webui.forward_auth.enabled`, the identity is taken from a header (e.g. `X-authentik-username`) **only** if the direct peer is in `trusted_proxies` (`resolve_proxy_user`).
 
 Risks:
 
 - **Weak/forgable sessions if `secret_key` is not changed**.
-- **No explicit session expiry/rotation** in the custom session token.
+- **No server-side session revocation** — tokens are valid until they expire by age.
 - **Cookie attributes** (Secure/HttpOnly/SameSite) are not explicitly enforced in code; behavior depends on Starlette defaults and deployment.
 
 Recommendations:
@@ -79,18 +80,17 @@ Relevant code:
 
 Observed behavior:
 
-- The docs and codebase indicate that the Web UI currently lacks robust CSRF protections for state-changing requests.
+- A CSRF middleware (`webui.csrf_enabled`, on by default) issues a per-session token and **validates it on form posts** (`application/x-www-form-urlencoded` and `multipart/form-data`) using a constant-time comparison.
+- JSON API requests are **intentionally exempt** from CSRF checks (they are not auto-sent cross-site with credentials in the same way as forms).
 
 Risks:
 
-- An attacker can attempt to trigger config changes or state updates if an admin is logged in and visits a malicious site.
+- The exemption means any future browser-triggered JSON state change would not be CSRF-protected; current state-changing actions use form posts.
 
 Recommendations:
 
-- Do not expose the Web UI to untrusted origins.
-- Put a reverse proxy in front that enforces:
-  - authentication (SSO) and
-  - anti-CSRF (or strict origin checks).
+- Keep `csrf_enabled: true`.
+- Do not expose the Web UI to untrusted origins; put a reverse proxy in front enforcing SSO and strict origin checks.
 
 ### Configuration editor and regex editor
 
@@ -128,6 +128,39 @@ Risk:
 Recommendation:
 
 - If you deploy behind a proxy, enforce access control at the proxy layer.
+
+### Reverse-proxy forward authentication
+
+Relevant code:
+
+- `logtriage/webui/auth.py:resolve_proxy_user`
+
+Observed behavior:
+
+- When `webui.forward_auth.enabled` is set, the username is read from `forward_auth.username_header` (default `X-authentik-username`) **only when the request's direct peer is one of `trusted_proxies`**. Otherwise the header is ignored.
+
+Risks:
+
+- If `trusted_proxies` is set too broadly (or to an address an attacker can originate from), the identity header can be spoofed. Keep `trusted_proxies` limited to the actual proxy/outpost address.
+
+Recommendations:
+
+- Terminate forward-auth at an Authentik proxy provider/outpost (or equivalent) and point `trusted_proxies` only at it.
+- Ensure the proxy strips inbound `X-authentik-*` headers from clients so only the proxy can set them.
+
+### Metrics endpoint
+
+Relevant code:
+
+- `logtriage/webui/metrics.py`, `/metrics` route in `app.py`.
+
+Observed behavior:
+
+- `/metrics` returns Prometheus text (issue counts, findings totals, worker activity) **without session auth** (so Prometheus can scrape it), but it is still subject to the `allowed_ips` middleware and can be disabled with `webui.metrics.enabled: false`.
+
+Recommendations:
+
+- Restrict scrape access via `allowed_ips` or the reverse proxy; disable it if unused. The exposed values are aggregate counts, not log contents.
 
 ### LLM provider calls (data exfiltration)
 

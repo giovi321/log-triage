@@ -34,6 +34,18 @@ The dashboard is the landing page once you log in:
 
 Use these cards to prioritize which module to investigate first.
 
+The dashboard also updates **live over Server-Sent Events** (RAG indexing progress, counts) — no page refresh or client-side polling.
+
+## Triage queue (issues)
+
+The **Triage** page is the primary workflow when a database is configured. Recurring findings are collapsed into **issues** by a normalized signature (timestamps, IDs, IPs and numbers are stripped), so you review each distinct problem once instead of scrolling thousands of near-identical lines.
+
+- **Prioritized list:** issues are ranked by `severity × recency × rate × novelty`. Each row shows the severity, signature, **occurrence count**, a 24-hour **sparkline**, first/last-seen, status, and the **cached AI summary**.
+- **Status tiles & filters:** filter by status (Active / Open / Acknowledged / Resolved / Muted / False-positive / All), module, severity, or a free-text search.
+- **Issue detail:** opens the full AI analysis with documentation **citations**, 14-day and 24-hour occurrence timelines, the representative excerpt, and the recent occurrences table.
+- **Workflow actions:** Acknowledge, Resolve, Mute, Mark false-positive, or Reopen. A resolved issue automatically reopens if it recurs.
+- **On-demand analysis:** **Analyze now / Re-analyze** runs the LLM for that issue immediately; otherwise the [enrichment worker](cli.md#enrichment-worker) keeps summaries fresh in the background. Analysis is cached per signature, so it runs once and is reused everywhere.
+
 ## Working with findings
 
 Use severity updates to reflect the current state of each finding. Marking a finding as a false positive also adds the sample to `classifier.ignore_regexes` in the configuration and reloads it, preventing future matches from producing the same finding.
@@ -59,18 +71,23 @@ This unified view ensures you can see findings in their full context and select 
 
 Use these tools to evolve your configuration without leaving the browser:
 
-1. **Open the config editor** from a module card or the navigation sidebar. Edit `pipelines`, `modules`, LLM settings, or alerts inline with schema hints, then save to write `config.yaml` atomically.
-2. **Jump to the regex lab** from the same module. Paste sample log lines, try new ignore/warning/error patterns, and save them back to the selected pipeline when they behave as expected.
+1. **Open the config editor** from the navigation. It has two tabs:
+   - **Forms** — structured editors for every section (General/Database/Logging, LLM + providers, RAG, Pipelines, Modules, Web UI), with add/remove rows for list items (providers, pipelines, regex lists, modules, knowledge sources, admin users, allowed IPs). Best for everyday changes.
+   - **Advanced** — the raw-YAML editor (CodeMirror) with find/replace and context hints, as the fallback and safety net.
+   Either way, **Save** validates the YAML and writes `config.yaml` atomically with a `.bak` backup. (Saving from the Forms tab reformats the YAML and does not preserve comments; use Advanced to keep them.)
+2. **Jump to the regex lab** from the navigation. Paste sample log lines, try new ignore/warning/error patterns, and save them back to the selected pipeline when they behave as expected.
 3. **Reload running modules** if you are tailing with the CLI by starting it with `--reload-on-change`, so changes take effect immediately.
 
 ## Features
 
-- **Authentication:** username/password with bcrypt hashing.
-- **Modules overview:** see enabled modules, last severity, and 24h error/warning counts.
+- **Authentication:** username/password with bcrypt hashing; optional **reverse-proxy forward-auth** (e.g. Authentik) via a trusted identity header — see [Configuration](configuration.md#web-ui-metrics-and-forward-authentication).
+- **Triage queue:** prioritized, de-duplicated issues with sparklines, cached AI summaries, and acknowledge/resolve/mute/false-positive actions.
+- **Modules overview:** enabled modules, last severity, 24h error/warning counts, and RAG status — updating live over SSE.
 - **Logs explorer:** browse findings in context, update severity, or mark false positives.
-- **Config editor:** edit `config.yaml` with backups and atomic writes, then reload the running configuration.
+- **Config editor:** structured **forms** plus a raw-YAML **Advanced** tab, with backups and atomic writes.
 - **Regex lab:** experiment with regexes and save them to classifiers.
+- **Metrics:** Prometheus exposition at `/metrics` (issue counts, findings, worker activity), subject to the IP allowlist; toggle with `webui.metrics.enabled`.
 
 ## Database support
 
-Set the `database.url` to SQLite or Postgres to persist findings between restarts. Without a database configured, the UI shows data for the current session only.
+Set the `database.url` to SQLite or Postgres to persist findings between restarts and enable the **issues / Triage** workflow. Without a database configured, the UI shows data for the current session only and the Triage queue is unavailable.

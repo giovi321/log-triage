@@ -1,3 +1,9 @@
 logtriage.db
 *.pyc
 config.yaml
+
+# dev preview scaffolding (frontend QA harness)
+.venv*/
+_preview/
+_preview_render.py
+__pycache__/

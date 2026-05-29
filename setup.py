@@ -50,12 +50,14 @@ setup(
             "logtriage=logtriage.cli:main",
             "logtriage-webui=logtriage.webui.__main__:main",
             "logtriage-rag=logtriage.rag.service:main",
+            "logtriage-worker=logtriage.worker:main",
         ],
     },
     package_data={
         "logtriage": [
             "webui/templates/*.html",
             "webui/assets/*",
+            "webui/assets/fonts/*",
             "webui/context_hints.json",
         ]
     },

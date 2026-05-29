@@ -2,11 +2,12 @@
 
 This page describes how `log-triage` works end-to-end and what each major file/module is responsible for.
 
-The codebase is organized around three entry points:
+The codebase is organized around four entry points:
 
 - `logtriage` (CLI)
 - `logtriage-webui` (Web UI)
 - `logtriage-rag` (RAG service)
+- `logtriage-worker` (background enrichment worker)
 
 ## High-level data flow
 
@@ -17,9 +18,16 @@ The codebase is organized around three entry points:
 3. **Analyze a file or directory** (`logtriage/engine.py`)
 4. **Group log lines** (`logtriage/grouping/*`)
 5. **Classify grouped chunks** (`logtriage/classifiers/*`) to produce `Finding` objects
-6. **Optionally call an LLM** (`logtriage/llm_client.py`) using a payload rendered by `logtriage/llm_payload.py`
-7. **Optionally store findings** (database helpers in `logtriage/webui/db.py`)
+6. **Store findings + de-duplicate into issues** (`logtriage/webui/db.py`): `store_finding` computes a signature (`logtriage/fingerprint.py`) and upserts the matching `IssueRecord` (occurrence count, first/last seen, max severity)
+7. **Enrich issues with an LLM, once per signature** (`logtriage/enrichment.py` → `logtriage/llm_client.py`), caching the summary on the issue; driven on a schedule by `logtriage/worker.py`
 8. **Optionally send alerts** (`logtriage/alerts.py` / `logtriage/notifications.py`)
+
+### De-duplication, enrichment, and live updates
+
+- **Fingerprinting** (`logtriage/fingerprint.py`) normalizes a finding's representative line (stripping timestamps, UUIDs, IPs, numbers, …) and hashes it with the pipeline + severity into a stable signature.
+- **Issues** (`IssueRecord` in `logtriage/webui/db.py`) aggregate findings sharing a signature, with occurrence counts, a first/last-seen window, severity escalation, workflow status, and a cached LLM analysis.
+- **Enrichment** (`logtriage/enrichment.py`) analyzes each issue once per signature (skipping if already analyzed) and caches the result; the **worker** (`logtriage/worker.py`) runs this on an interval, in-process in the Web UI or as the standalone `logtriage-worker`.
+- **Live updates** (`logtriage/webui/events.py`) push a snapshot (issue counts, latest finding id, RAG progress, worker status) to browsers over SSE at `/events`, replacing client polling. `logtriage/webui/metrics.py` serves the same state as Prometheus text at `/metrics`.
 
 ### Follow/tail analysis (CLI)
 
@@ -61,6 +69,7 @@ The codebase is organized around three entry points:
     - `logtriage=logtriage.cli:main`
     - `logtriage-webui=logtriage.webui.__main__:main`
     - `logtriage-rag=logtriage.rag.service:main`
+    - `logtriage-worker=logtriage.worker:main`
 - `logtriage/__init__.py`
   - Exposes `main` and `__version__`.
 - `logtriage/__main__.py`
@@ -103,6 +112,16 @@ The codebase is organized around three entry points:
   - Utility helpers:
     - enumerate log files (`iter_log_files`)
     - pick a pipeline for a file (`select_pipeline`)
+
+### De-duplication and enrichment
+
+- `logtriage/fingerprint.py`
+  - Normalizes a finding's representative line and computes a stable signature + 16-char fingerprint (`compute`, `normalize`, `signature_for_finding`).
+- `logtriage/enrichment.py`
+  - `analyze_issue`: build a payload from an issue (+ optional RAG), call the LLM once, cache the summary on the issue keyed by fingerprint; skip if already analyzed.
+  - `analyze_pending_issues`: batch over issues needing analysis (used by the worker and `--analyze-issues`).
+- `logtriage/worker.py`
+  - `EnrichmentWorker`: interval-driven daemon thread that calls `analyze_pending_issues`; also the `logtriage-worker` standalone entry point.
 
 ### Streaming / follow mode
 
@@ -167,12 +186,16 @@ The codebase is organized around three entry points:
     - session middleware setup
     - optional background RAG monitor
 - `logtriage/webui/auth.py`
-  - Password verification and session-token helpers.
+  - Password verification, session-token helpers, and reverse-proxy forward-auth (`resolve_proxy_user`, trusting an identity header only from `trusted_proxies`).
 - `logtriage/webui/config.py`
-  - Web UI-specific settings parsing (`webui.*` section of config).
+  - Web UI-specific settings parsing (`webui.*`), including `metrics` and `forward_auth`.
 - `logtriage/webui/db.py`
-  - SQLAlchemy models + persistence helpers for findings and LLM results.
-  - Provides retention cleanup and statistics queries.
+  - SQLAlchemy models + persistence helpers. `FindingRecord` (per occurrence, with `fingerprint`/`issue_id`) and `IssueRecord` (de-duplicated issues with counts, severity, status, and cached LLM analysis).
+  - `store_finding` upserts the issue per finding; plus issue queries (`get_issues`, `issue_priority`, `get_issue_sparkline`), `backfill_issues`, retention cleanup, and statistics.
+- `logtriage/webui/events.py`
+  - SSE `EventHub` and live-snapshot helpers (powering `/events`).
+- `logtriage/webui/metrics.py`
+  - Prometheus exposition text for `/metrics`.
 - `logtriage/webui/ingestion_status.py`
   - Derives module “stale/active” status for the dashboard.
 - `logtriage/webui/regex_utils.py`

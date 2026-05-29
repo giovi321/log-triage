@@ -239,7 +239,7 @@ llm:
   providers:
     claude:
       api_base: 'https://api.anthropic.com/v1'
-      model: 'claude-3-5-sonnet-20241022'
+      model: 'claude-sonnet-4-6'
       api_key_env: 'ANTHROPIC_API_KEY'
       provider_type: anthropic   # optional: auto-detected from api_base
 ```
@@ -271,7 +271,7 @@ llm:
       api_key_env: 'OPENAI_API_KEY'
     claude:
       api_base: 'https://api.anthropic.com/v1'
-      model: 'claude-3-5-sonnet-20241022'
+      model: 'claude-sonnet-4-6'
       api_key_env: 'ANTHROPIC_API_KEY'
     local_vllm:
       api_base: 'http://127.0.0.1:8000/v1'
@@ -292,6 +292,45 @@ database:
 ```
 
 SQLite and Postgres URLs are both supported. When omitted, the Web UI stores data in memory and only reflects the current session.
+
+A database also enables **issues** — recurring findings collapsed by a normalized signature. The CLI builds them automatically on startup; to migrate an existing database once, run `logtriage --config ./config.yaml --backfill-issues`.
+
+## Enrichment worker
+
+The worker analyzes each issue with the LLM **once per signature** and caches the summary, so browsing thousands of occurrences costs no extra LLM calls. By default it runs as a thread inside `logtriage-webui`.
+
+```yaml
+worker:
+  enabled: true          # requires llm.enabled
+  run_in_webui: true     # false → run the standalone `logtriage-worker` process instead
+  interval_seconds: 60   # time between enrichment passes
+  batch: 25              # max issues analyzed per pass (caps burst LLM usage)
+```
+
+## Web UI: metrics and forward authentication
+
+These live under the `webui` block (alongside `host`, `port`, `secret_key`, `admin_users`, `allowed_ips`, `trusted_proxies`, `session_max_age_hours`, `csrf_enabled`).
+
+```yaml
+webui:
+  # Prometheus exposition at /metrics (still subject to allowed_ips).
+  metrics:
+    enabled: true
+
+  # Reverse-proxy forward-auth (e.g. Authentik proxy provider / outpost).
+  # The username is trusted from `username_header` ONLY when the request's
+  # direct peer is one of `trusted_proxies` — otherwise the header is ignored
+  # (so it cannot be spoofed). Leave disabled unless behind such a proxy.
+  forward_auth:
+    enabled: false
+    username_header: X-authentik-username
+    # logout_url: https://auth.example.com/application/o/logtriage/end-session/
+
+  trusted_proxies:
+    - 127.0.0.1
+```
+
+> Full OIDC *code-flow* is not implemented; for Authentik, use a **proxy provider/outpost** in front of log-triage and enable `forward_auth`.
 
 ## RAG (Retrieval-Augmented Generation)
 

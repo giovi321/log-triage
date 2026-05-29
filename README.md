@@ -13,6 +13,7 @@ In addition to raw LLM prompting, `log-triage` can run in **RAG (Retrieval-Augme
 - **Pipelines:** Reusable recipes that define how to group log lines, which regexes to ignore or count, and which prompt template to use for LLM payloads.
 - **Modules:** Runtime bindings that attach a pipeline to a file path and decide whether to scan once (batch) or tail continuously (follow) with rotation awareness.
 - **Findings:** Structured outputs for each grouped chunk, including severity (WARNING/ERROR/CRITICAL), counts, and optional LLM payloads.
+- **Issues:** Recurring findings collapsed by a *signature* (the log line with timestamps/IDs/IPs/numbers normalized away). Each issue tracks an occurrence count, first/last-seen window, the highest severity seen, a workflow status, and a **cached LLM summary** generated once per signature. This is what the **Triage** queue ranks and shows.
 - **Addressed & false positives:** Workflow flags in the dashboard; marking a false positive also writes an ignore regex back to the pipeline to prevent repeats.
 
 ### How it works
@@ -21,9 +22,9 @@ In addition to raw LLM prompting, `log-triage` can run in **RAG (Retrieval-Augme
 1. **Collect:** Point a module at a log file (or directory) to read entries once or continuously with rotation handling.
 2. **Group:** Apply the pipeline's grouping strategy (whole-file or marker-based) to carve the stream into logical chunks.
 3. **Classify:** Count warnings and errors with regex rules, ignore known-noise patterns, and assign a severity.
-4. **Enrich:** Generate an LLM payload per finding using your prompt template and context lines.
-5. **Ground with RAG (optional):** Retrieve relevant documentation snippets from your configured knowledge sources and append them to the prompt to improve accuracy and add citations.
-6. **Deliver:** Print findings, send alerts (webhook/MQTT), store them for the Web UI, and use the dashboard to reclassify, mark false positives, or update severity.
+4. **Deduplicate:** Fold recurring findings into a single **issue** keyed by a normalized signature, with an occurrence count and a first/last-seen window.
+5. **Enrich:** Analyze each issue with the LLM **once per signature** (grounded with RAG when configured) and cache the summary — so a problem that occurs 10,000 times costs one LLM call, and the explanation is consistent everywhere.
+6. **Deliver:** Triage from a prioritized queue (severity × recency × rate × novelty), send alerts (webhook/MQTT), expose Prometheus `/metrics`, and acknowledge/resolve/mute issues from the dashboard.
 
 ### Getting started
 1. **Install the package:**
@@ -50,16 +51,21 @@ In addition to raw LLM prompting, `log-triage` can run in **RAG (Retrieval-Augme
    ```
    </details>
 2. **Configure:** Copy `config.yaml` and edit pipelines/modules to point at your log files.
-3. **Run a module:**
+3. **Run a module** (omit `--module` to run all enabled follow-mode modules):
    ```bash
-   logtriage --config ./config.yaml run --module <module-name>
+   logtriage --config ./config.yaml --module <module-name>
+   # add --reload-on-change to auto-reload when the config is saved from the Web UI
    ```
 4. **Open the dashboard (optional):**
    ```bash
    export LOGTRIAGE_CONFIG=./config.yaml
    logtriage-webui
    ```
-   Visit `http://127.0.0.1:8090` to review findings, adjust severity, or mark false positives.
+   Visit `http://127.0.0.1:8090` to triage **issues** (deduplicated findings with AI summaries), review modules, edit the config, or tune regexes.
+   If you already have findings from a previous version, build issues for them once with:
+   ```bash
+   logtriage --config ./config.yaml --backfill-issues
+   ```
 5. **Start RAG service (optional, for improved performance):**
    ```bash
    logtriage-rag --config ./config.yaml
@@ -77,7 +83,7 @@ See here the [full documentation](https://giovi321.github.io/log-triage/)
   - https://giovi321.github.io/log-triage/RAG-QuickStart/
   - https://giovi321.github.io/log-triage/RAG-Service/
 
-> **Security note:** The Web UI is not designed to be exposed to the public internet due to missing CSRF protections, weak session cookies, and other controls. Run it only on trusted networks and see the documentation for the full disclaimer.
+> **Security note:** The Web UI is intended for trusted, internal networks. It now ships with CSRF protection on form posts, session expiry, an IP allowlist, and optional reverse-proxy forward-auth (e.g. Authentik) — but it is still **not** hardened for direct public-internet exposure. Run it behind TLS + network controls and set a strong `webui.secret_key`. See the [security documentation](https://giovi321.github.io/log-triage/security/) for the full assessment.
 
 ## Features
 
@@ -98,18 +104,22 @@ See here the [full documentation](https://giovi321.github.io/log-triage/)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Multiple LLM provider support:
   - **OpenAI** and any OpenAI-compatible API (local vLLM, Ollama, Azure OpenAI, etc.)
-  - **Anthropic Claude** (native API: claude-3-5-sonnet, claude-3-opus, etc.)
+  - **Anthropic Claude** (native API: claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5, etc.)
   - Provider auto-detection: pointing `api_base` at `api.anthropic.com` selects the Anthropic backend automatically
 - Per-module options for:
   - context lines included ahead of each finding (`llm.context_prefix_lines`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)
 - Optional SQL database integration for storing per-finding records (SQLite or Postgres)
-- Web UI (FastAPI) to:
-  - log in with username/password (bcrypt)
-  - view modules and per-module stats (last severity, 24h error/warning counts, etc.)
-  - inspect and edit `config.yaml` (atomic writes, with backup)
+- **Signature-based de-duplication** that collapses recurring findings into **issues** with occurrence counts, first/last-seen, severity escalation, and priority scoring
+- **Per-issue LLM analysis with caching** (analyze once per signature; Anthropic **prompt caching** for the documentation context) — drastically cheaper than per-finding enrichment
+- **Background enrichment worker** (in the Web UI by default, or standalone `logtriage-worker`) that keeps issue summaries fresh
+- **Live updates over Server-Sent Events** (no client polling) and a Prometheus **`/metrics`** endpoint
+- Web UI (FastAPI), a mission-control dark interface, to:
+  - log in with username/password (bcrypt), or **Authentik / reverse-proxy forward-auth** (trusted-header)
+  - **Triage queue**: prioritized issues with sparklines and cached AI summaries; per-issue detail with timeline, citations, and acknowledge/resolve/mute/false-positive actions
+  - view modules and per-module stats (last severity, 24h error/warning counts, RAG status)
+  - edit `config.yaml` via **structured forms** (with a raw-YAML "Advanced" tab), atomic writes with backup
   - experiment with regexes (regex lab) and save them to classifiers
-  - run on a dark-mode layout
 
 ## License
 This project is licensed under the GNU GPL v3.0 license. See [LICENSE](LICENSE) for details.
