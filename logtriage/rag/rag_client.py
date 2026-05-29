@@ -427,7 +427,8 @@ class RAGClient:
         
         total_chunks_processed = 0
         total_files_processed = 0
-        
+        batches_since_save = 0
+
         memory_start = get_memory_usage()
         logger.info(f"Starting ultra-aggressive reindex for {repo_id} (memory: {memory_start:.2f}GB)")
 
@@ -519,8 +520,12 @@ class RAGClient:
                     if len(chunk_batch) >= index_batch_size:
                         embeddings = self.embedding_service.embed_texts(chunk_texts)
                         if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
-                            self.vector_store.add_chunks(chunk_batch, embeddings)
+                            self.vector_store.add_chunks(chunk_batch, embeddings, persist=False)
                             total_chunks_processed += len(chunk_batch)
+                            batches_since_save += 1
+                            if batches_since_save >= 25:
+                                self.vector_store.save()
+                                batches_since_save = 0
 
                         with self._progress_lock:
                             repo_progress = dict(self._repo_progress.get(repo_id, {}))
@@ -538,8 +543,9 @@ class RAGClient:
                 if chunk_batch:
                     embeddings = self.embedding_service.embed_texts(chunk_texts)
                     if embeddings.size > 0 and len(embeddings) == len(chunk_batch):
-                        self.vector_store.add_chunks(chunk_batch, embeddings)
+                        self.vector_store.add_chunks(chunk_batch, embeddings, persist=False)
                         total_chunks_processed += len(chunk_batch)
+                        batches_since_save += 1
 
                     with self._progress_lock:
                         repo_progress = dict(self._repo_progress.get(repo_id, {}))
@@ -594,7 +600,9 @@ class RAGClient:
                     gc.collect()
                 continue
         
-        # Final cleanup and mark as indexed
+        # Persist the index, THEN mark as indexed (only fully-written repos are
+        # marked; an interrupted repo stays unmarked and is rebuilt next run).
+        self.vector_store.save()
         force_cleanup()
         self.knowledge_manager.mark_indexed(repo_id)
         

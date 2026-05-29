@@ -88,8 +88,15 @@ class VectorStore:
             logger.error(f"Failed to initialize SQLite: {e}")
             raise
     
-    def add_chunks(self, chunks: List[DocumentChunk], embeddings: np.ndarray):
-        """Add document chunks with their embeddings to FAISS and SQLite with streaming approach."""
+    def add_chunks(self, chunks: List[DocumentChunk], embeddings: np.ndarray, persist: bool = True):
+        """Add document chunks with their embeddings to FAISS and SQLite.
+
+        When ``persist`` is False the FAISS index is NOT written to disk on this
+        call — the caller is expected to call :meth:`save` periodically. This
+        avoids rewriting the entire (growing) index file on every batch, which
+        is O(n^2) disk I/O during a large index build. SQLite metadata is still
+        committed per batch.
+        """
         if not chunks or embeddings.size == 0:
             logger.debug("No chunks or embeddings to add")
             return
@@ -134,9 +141,10 @@ class VectorStore:
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, rows)
                 self.conn.commit()
-                
-                faiss.write_index(self._index, str(self.faiss_index_path))
-                
+
+                if persist:
+                    faiss.write_index(self._index, str(self.faiss_index_path))
+
                 del emb
                 del rows
             
@@ -149,8 +157,18 @@ class VectorStore:
         except Exception as e:
             logger.error(f"Failed to add chunks to FAISS store: {e}", exc_info=True)
             raise
-    
-    def query(self, query_embedding: np.ndarray, repo_ids: Optional[List[str]] = None, 
+
+    def save(self) -> None:
+        """Persist the FAISS index to disk (SQLite is already committed per batch)."""
+        try:
+            import faiss
+            with self._lock:
+                if self._index is not None:
+                    faiss.write_index(self._index, str(self.faiss_index_path))
+        except Exception as e:
+            logger.error(f"Failed to persist FAISS index: {e}", exc_info=True)
+
+    def query(self, query_embedding: np.ndarray, repo_ids: Optional[List[str]] = None,
               n_results: int = 5) -> Tuple[List[DocumentChunk], List[float]]:
         """Query for similar documents using FAISS with streaming approach."""
         try:
