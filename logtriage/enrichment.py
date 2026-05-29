@@ -110,14 +110,10 @@ def analyze_issue(
 
     max_tokens = _select_max_tokens(module_llm, provider, llm_defaults)
 
-    if "vllm" in provider.api_base.lower():
-        messages = [{"role": "user", "content": f"{system_text}\n\n{user_text}"}]
-        cache_system = False
-    else:
-        messages = [
-            {"role": "system", "content": system_text},
-            {"role": "user", "content": user_text},
-        ]
+    messages = [
+        {"role": "system", "content": system_text},
+        {"role": "user", "content": user_text},
+    ]
 
     chat_payload = {
         "model": provider.model,

@@ -229,7 +229,7 @@ llm:
       api_key_env: 'OPENAI_API_KEY'
 ```
 
-Any OpenAI-compatible endpoint works here — local vLLM, Ollama, Azure OpenAI, etc. — by changing `api_base`.
+Any OpenAI-compatible endpoint works here — Azure OpenAI, LM Studio, LiteLLM, etc. — by changing `api_base`. For **Ollama**, prefer the dedicated `ollama` provider below (it uses Ollama's native API). Use a current model such as `gpt-4o-mini`; note that OpenAI reasoning models (o-series / gpt-5) require different parameters (`max_completion_tokens`, no `temperature`) and are not the default.
 
 ### Anthropic Claude provider
 
@@ -254,10 +254,27 @@ The `provider_type` field selects the backend:
 
 | Value | Behaviour |
 |---|---|
-| `openai` (default) | OpenAI chat-completions format (`/v1/chat/completions`), `Authorization: Bearer` header |
-| `anthropic` | Anthropic Messages API (`/v1/messages`), `x-api-key` header, `system` extracted from messages |
+| `openai` (default) | OpenAI chat-completions format (`/v1/chat/completions`), `Authorization: Bearer` header. Also covers any OpenAI-compatible API |
+| `anthropic` | Anthropic Messages API (`/v1/messages`), `x-api-key` header, `system` extracted from messages, prompt-caching of the doc context |
+| `ollama` | Ollama native API (`/api/chat`), no API key by default |
 
-`provider_type` is auto-detected when `api_base` contains `anthropic.com`. Set it explicitly when using a proxy or a self-hosted Anthropic-compatible endpoint.
+`provider_type` is auto-detected from `api_base`: `anthropic.com` → `anthropic`, a `:11434` host (or `ollama` in the URL) → `ollama`, otherwise `openai`. Set it explicitly when using a proxy or a non-standard endpoint.
+
+### Ollama provider
+
+```yaml
+llm:
+  default_provider: ollama
+  providers:
+    ollama:
+      api_base: 'http://127.0.0.1:11434'   # Ollama root; /api/chat is used
+      api_key_env: null                     # not needed by default
+      model: 'llama3.1'
+      provider_type: ollama                 # auto-detected from :11434
+      request_timeout: 120                  # local generation can be slow
+```
+
+Pull the model first with `ollama pull llama3.1`. Sampling (`temperature`, `top_p`) and `max_output_tokens` map to Ollama's `options` (`num_predict`).
 
 ### Using multiple providers
 
@@ -273,10 +290,11 @@ llm:
       api_base: 'https://api.anthropic.com/v1'
       model: 'claude-sonnet-4-6'
       api_key_env: 'ANTHROPIC_API_KEY'
-    local_vllm:
-      api_base: 'http://127.0.0.1:8000/v1'
-      model: 'TheBloke/Mistral-7B-Instruct-v0.1-GPTQ'
+    ollama:
+      api_base: 'http://127.0.0.1:11434'
+      model: 'llama3.1'
       api_key_env: null
+      provider_type: ollama
 ```
 
 Each module can then select a provider by name via `llm.provider`. When only one provider is defined, modules inherit it automatically.

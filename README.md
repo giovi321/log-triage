@@ -103,9 +103,10 @@ See here the [full documentation](https://giovi321.github.io/log-triage/)
 - Optional config change detection for follow-mode modules to auto-reload after saving via the Web UI (`--reload-on-change`)
 - Optional LLM payload generation with conservative gating and per-pipeline prompt templates
 - Multiple LLM provider support:
-  - **OpenAI** and any OpenAI-compatible API (local vLLM, Ollama, Azure OpenAI, etc.)
-  - **Anthropic Claude** (native API: claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5, etc.)
-  - Provider auto-detection: pointing `api_base` at `api.anthropic.com` selects the Anthropic backend automatically
+  - **OpenAI** and any OpenAI-compatible API (Azure OpenAI, LM Studio, LiteLLM, etc.)
+  - **Anthropic Claude** (native Messages API: claude-sonnet-4-6, claude-opus-4-8, claude-haiku-4-5, etc., with prompt caching)
+  - **Ollama** (native `/api/chat`, for local models — no API key needed)
+  - Provider auto-detection from `api_base`: `anthropic.com` → Claude, a `:11434` host → Ollama, otherwise OpenAI-compatible
 - Per-module options for:
   - context lines included ahead of each finding (`llm.context_prefix_lines`)
   - alert hooks (`alerts.mqtt`, `alerts.webhook`)

@@ -161,9 +161,10 @@ The codebase is organized around four entry points:
   - Appends RAG context when provided.
 - `logtriage/llm_client.py`
   - Selects provider config and routes to the correct backend via `_call_llm()`.
-  - **`openai` backend** (`_call_chat_completion`): OpenAI chat-completions format (`/v1/chat/completions`), `Authorization: Bearer` header. Covers OpenAI, local vLLM, Ollama, Azure OpenAI, and any compatible API.
-  - **`anthropic` backend** (`_call_anthropic`): Anthropic Messages API (`/v1/messages`), `x-api-key` header, `system` message extracted and sent as a top-level field. Response is normalized to the same internal shape so the rest of the pipeline is provider-agnostic.
-  - `provider_type` is read from `LLMProviderConfig` and auto-detected from `api_base` (anything containing `anthropic.com` defaults to `anthropic`).
+  - **`openai` backend** (`_call_chat_completion`): OpenAI chat-completions format (`/v1/chat/completions`), `Authorization: Bearer` header. Covers OpenAI and any OpenAI-compatible API (Azure OpenAI, LM Studio, LiteLLM, …).
+  - **`anthropic` backend** (`_call_anthropic`): Anthropic Messages API (`/v1/messages`), `x-api-key` header, `system` extracted as a top-level field with optional prompt-caching of the doc context.
+  - **`ollama` backend** (`_call_ollama`): Ollama native API (`/api/chat`), no API key by default; sampling maps to Ollama `options`.
+  - All backends normalize responses to the same internal shape so the rest of the pipeline is provider-agnostic. `provider_type` is read from `LLMProviderConfig` and auto-detected from `api_base` (`anthropic.com` → `anthropic`, a `:11434`/`ollama` host → `ollama`, else `openai`).
   - Handles provider auth via environment variables.
   - Optionally retrieves RAG context and adds citations.
 

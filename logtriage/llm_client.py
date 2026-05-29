@@ -125,6 +125,20 @@ def _anthropic_messages_url(api_base: str) -> str:
     return f"{normalized_base}/v1/messages"
 
 
+def _ollama_chat_url(api_base: str) -> str:
+    """Native Ollama chat endpoint.
+
+    Accepts either the Ollama root (``http://host:11434``) or its
+    OpenAI-compatible base (``…/v1``) and targets the native ``/api/chat``.
+    """
+    normalized = api_base.rstrip("/")
+    if normalized.endswith("/v1"):
+        normalized = normalized[: -len("/v1")].rstrip("/")
+    if normalized.endswith("/api"):
+        normalized = normalized[: -len("/api")].rstrip("/")
+    return f"{normalized}/api/chat"
+
+
 def _anthropic_system_field(system_content: str, cache: bool):
     """Build the Anthropic ``system`` field.
 
@@ -216,6 +230,69 @@ def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
     }
 
 
+def _call_ollama(provider: LLMProviderConfig, payload: dict) -> dict:
+    """Call a local Ollama server via its native ``/api/chat`` endpoint.
+
+    Ollama needs no API key by default (one is sent only if ``api_key_env`` is
+    configured, e.g. for an authenticating proxy). System/user/assistant roles
+    are supported natively. The response is normalized to the same internal
+    shape as the other backends so the rest of the pipeline stays
+    provider-agnostic.
+    """
+    headers = {"Content-Type": "application/json"}
+    if provider.api_key_env:
+        api_key = os.environ.get(provider.api_key_env)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+    options: dict = {}
+    if "temperature" in payload:
+        options["temperature"] = payload["temperature"]
+    if "top_p" in payload:
+        options["top_p"] = payload["top_p"]
+    if payload.get("max_tokens"):
+        options["num_predict"] = payload["max_tokens"]
+
+    ollama_payload = {
+        "model": payload["model"],
+        "messages": payload.get("messages", []),
+        "stream": False,
+    }
+    if options:
+        ollama_payload["options"] = options
+
+    url = _ollama_chat_url(provider.api_base)
+    data = json.dumps(ollama_payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+
+    try:
+        with urllib.request.urlopen(req, timeout=provider.request_timeout) as resp:
+            body = resp.read().decode("utf-8")
+            result = json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else exc.reason
+        raise RuntimeError(f"LLM provider {provider.name} HTTP {exc.code}: {detail}")
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Failed to reach Ollama provider {provider.name}: {exc.reason}")
+
+    message = result.get("message") or {}
+    return {
+        "model": result.get("model", provider.model),
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": message.get("content", ""),
+                }
+            }
+        ],
+        "usage": {
+            "prompt_tokens": result.get("prompt_eval_count"),
+            "completion_tokens": result.get("eval_count"),
+        },
+    }
+
+
 def _normalize_messages_for_strict_alternation(messages: List[dict]) -> List[dict]:
     system_parts: List[str] = []
     normalized: List[dict] = []
@@ -279,6 +356,8 @@ def _call_llm(provider: LLMProviderConfig, payload: dict) -> dict:
 
     if provider.provider_type == "anthropic":
         result = _call_anthropic(provider, payload)
+    elif provider.provider_type == "ollama":
+        result = _call_ollama(provider, payload)
     else:
         result = _call_chat_completion(provider, payload)
 
@@ -401,26 +480,16 @@ def analyze_findings_with_llm(
             f"in brackets.{' Include citations in your response.' if citations else ''}"
         )
 
-        # For VLLM providers, avoid system messages as some models don't support them properly
-        # Instead, include the system instruction as part of the user message
-        if "vllm" in provider.api_base.lower():
-            messages = [
-                {
-                    "role": "user",
-                    "content": f"{system_message}\n\n{payload_text}",
-                }
-            ]
-        else:
-            messages = [
-                {
-                    "role": "system",
-                    "content": system_message,
-                },
-                {
-                    "role": "user", 
-                    "content": payload_text,
-                }
-            ]
+        messages = [
+            {
+                "role": "system",
+                "content": system_message,
+            },
+            {
+                "role": "user",
+                "content": payload_text,
+            },
+        ]
 
         chat_payload = {
             "model": provider.model,

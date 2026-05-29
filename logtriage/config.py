@@ -183,6 +183,8 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             provider_type = str(raw_provider_type).lower()
         elif "anthropic.com" in api_base:
             provider_type = "anthropic"
+        elif ":11434" in api_base or "ollama" in api_base.lower():
+            provider_type = "ollama"
         else:
             provider_type = "openai"
         raw_tph = pdata.get("max_tokens_per_hour")

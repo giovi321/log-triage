@@ -139,7 +139,7 @@
             <div class="form-grid">
               <label class="fld"><span class="fld-label">Name (key)</span><input type="text" class="input-mono" x-model="providers[i].name"></label>
               <label class="fld"><span class="fld-label">Provider type</span>
-                <select x-model="providers[i].provider_type"><option value="openai">openai</option><option value="anthropic">anthropic</option></select></label>
+                <select x-model="providers[i].provider_type"><option value="openai">openai</option><option value="anthropic">anthropic</option><option value="ollama">ollama</option></select></label>
               <label class="fld full"><span class="fld-label">API base</span><input type="text" class="input-mono" x-model="providers[i].api_base" placeholder="https://api.openai.com/v1"></label>
               <label class="fld"><span class="fld-label">API key env var</span><input type="text" class="input-mono" x-model="providers[i].api_key_env" placeholder="OPENAI_API_KEY"></label>
               <label class="fld"><span class="fld-label">Model</span><input type="text" class="input-mono" x-model="providers[i].model"></label>

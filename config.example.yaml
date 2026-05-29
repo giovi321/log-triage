@@ -28,7 +28,7 @@ llm:
   
   # Default provider to use when modules don't specify one
   # Must match one of the provider names defined below
-  default_provider: local_vllm
+  default_provider: ollama
   
   # Global context settings (can be overridden per module)
   # Number of lines to include before and after a finding when sending to LLM
@@ -68,8 +68,10 @@ llm:
       # Set this in your environment: export OPENAI_API_KEY=your_key
       api_key_env: OPENAI_API_KEY
       
-      # Model to use for analysis
-      model: gpt-5-mini
+      # Model to use for analysis (current, widely-available default).
+      # Note: reasoning models (o-series / gpt-5) use different parameters
+      # (max_completion_tokens, no temperature) and are not the default here.
+      model: gpt-4o-mini
       
       # Maximum number of log lines to send to the LLM per finding
       # Larger values provide more context but cost more tokens
@@ -115,14 +117,17 @@ llm:
       # max_tokens_per_hour: 20000
       # max_tokens_per_day: 100000
 
-    # Local vLLM provider (for running models locally)
-    local_vllm:
-      api_base: http://127.0.0.1:8000/v1
-      api_key_env: null  # No API key needed for local models
-      model: TheBloke/Mistral-7B-Instruct-v0.1-GPTQ
+    # Ollama provider (local models via Ollama's native /api/chat)
+    ollama:
+      # Ollama server root; provider_type is auto-detected from a :11434 base
+      api_base: http://127.0.0.1:11434
+      api_key_env: null  # No API key needed by default
+      model: llama3.1
+      provider_type: ollama
       max_excerpt_lines: 400
       max_output_tokens: 2048
-      request_timeout: 60
+      # Local generation can be slow on first load — give it room
+      request_timeout: 120
       temperature: 0.1
       top_p: 1.0
 
@@ -359,7 +364,7 @@ modules:
       min_severity: WARNING
       
       # Which provider to use (overrides global default)
-      provider: local_vllm
+      provider: ollama
       
       # Custom prompt template for this module
       prompt_template: ./prompts/rsnapshot.txt
@@ -437,7 +442,7 @@ modules:
     llm:
       enabled: true
       min_severity: WARNING
-      provider: local_vllm
+      provider: ollama
       prompt_template: ./prompts/homeassistant.txt
       emit_llm_payloads_dir: ./ha_llm_payloads
       context_prefix_lines: 2
@@ -483,7 +488,7 @@ modules:
     
     llm:
       enabled: false
-      provider: local_vllm
+      provider: ollama
       prompt_template: ./prompts/nextcloud.txt
       emit_llm_payloads_dir: ./nextcloud_llm_payloads
       context_prefix_lines: 2
@@ -512,7 +517,7 @@ modules:
     
     llm:
       enabled: false
-      provider: local_vllm
+      provider: ollama
       prompt_template: ./prompts/apache2.txt
       emit_llm_payloads_dir: ./apache_llm_payloads
       context_prefix_lines: 2
@@ -534,7 +539,7 @@ modules:
     llm:
       enabled: true
       min_severity: WARNING
-      provider: local_vllm
+      provider: ollama
       prompt_template: ./prompts/apache2.txt
       emit_llm_payloads_dir: ./apache_llm_payloads
       context_prefix_lines: 2
@@ -555,7 +560,7 @@ modules:
     
     llm:
       enabled: false
-      provider: local_vllm
+      provider: ollama
       prompt_template: ./prompts/authentik.txt
       emit_llm_payloads_dir: ./authentik_llm_payloads
       context_prefix_lines: 2
