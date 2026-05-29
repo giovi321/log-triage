@@ -223,9 +223,9 @@
   .hero-head { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--s-4); flex-wrap:wrap; }
   .hero-title { font-size:1.7rem; margin:2px 0 0; }
   .hero-state { display:flex; align-items:center; gap:var(--s-2); padding:8px 14px; border-radius:var(--r-pill); border:1px solid var(--line-strong); background:var(--bg-inset); font-family:var(--font-mono); font-size:0.82rem; }
-  .hero-state-ok { border-color:rgba(52,211,153,0.4); color:#9bedc6; }
-  .hero-state-warn { border-color:rgba(245,166,35,0.4); color:#f4cd7f; }
-  .hero-state-error { border-color:rgba(255,93,98,0.45); color:#ffafb1; }
+  .hero-state-ok { border-color:color-mix(in srgb, var(--sev-ok) 42%, transparent); color:var(--sev-ok); }
+  .hero-state-warn { border-color:color-mix(in srgb, var(--sev-warning) 42%, transparent); color:var(--sev-warning); }
+  .hero-state-error { border-color:color-mix(in srgb, var(--sev-error) 45%, transparent); color:var(--sev-error); }
 </style>
 {% endblock %}
 
