@@ -1,14 +1,21 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <title>{% block title %}log-triage{% endblock %} · log-triage</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark only">
-    <meta name="theme-color" content="#06080d">
+    <meta name="color-scheme" content="light dark">
     <link rel="icon" href="{{ url_for('assets', path='logo.svg') }}">
-    <!-- Paint the canvas dark immediately, before the stylesheet resolves -->
-    <style>:root{color-scheme:dark}html,body{background:#06080d;color:#e7edf6}</style>
+    <!-- Apply the saved theme before first paint (default: light) to avoid a flash -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('logtriage-theme');
+          if (t !== 'dark' && t !== 'light') t = 'light';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+      })();
+    </script>
     <link rel="stylesheet" href="{{ url_for('assets', path='app.css') }}">
     <script defer src="{{ url_for('assets', path='alpine.min.js') }}"></script>
     {% block head %}{% endblock %}
@@ -44,6 +51,9 @@
       {% else %}
         <a href="{{ url_for('login_form') }}" class="active">Sign in</a>
       {% endif %}
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle light/dark theme" title="Toggle light / dark">
+        <span class="theme-toggle-icon" aria-hidden="true">☾</span>
+      </button>
     </nav>
   </header>
 
@@ -68,6 +78,22 @@
   </footer>
 
   <script>
+    // Theme toggle (light default; persisted in localStorage)
+    (function () {
+      const btn = document.getElementById('theme-toggle');
+      if (!btn) return;
+      const icon = btn.querySelector('.theme-toggle-icon');
+      const current = () => document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      const apply = (t) => {
+        document.documentElement.setAttribute('data-theme', t);
+        try { localStorage.setItem('logtriage-theme', t); } catch (e) {}
+        if (icon) icon.textContent = (t === 'dark') ? '☀' : '☾';   // show the destination
+        btn.setAttribute('aria-pressed', t === 'dark' ? 'true' : 'false');
+      };
+      apply(current());
+      btn.addEventListener('click', () => apply(current() === 'dark' ? 'light' : 'dark'));
+    })();
+
     // Auto-dismiss flash banners
     (function () {
       const banners = document.querySelectorAll('.flash-banner');

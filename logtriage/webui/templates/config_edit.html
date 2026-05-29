@@ -440,7 +440,8 @@
   const textarea = document.getElementById('config-text');
   const editor = CodeMirror.fromTextArea(textarea, {
     mode: 'text/x-yaml', lineNumbers: true, lineWrapping: false,
-    tabSize: 2, indentUnit: 2, theme: 'material-darker',
+    tabSize: 2, indentUnit: 2,
+    theme: (document.documentElement.getAttribute('data-theme') === 'dark') ? 'material-darker' : 'default',
   });
   window.__cm = editor;
   editor.getInputField().setAttribute('spellcheck', 'false');

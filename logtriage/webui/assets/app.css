@@ -49,71 +49,116 @@
 
 /* ---- Design tokens -------------------------------------------------------- */
 :root {
-  color-scheme: dark;
-
-  /* Canvas — layered depths */
-  --bg-void:      #06080d;
-  --bg-base:      #0a0d14;
-  --bg-surface:   #10141d;
-  --bg-surface-2: #161b27;
-  --bg-inset:     #080b11;
-  --bg-hover:     #1a2030;
-
-  /* Lines */
-  --line:         #1d2433;
-  --line-soft:    #161c28;
-  --line-strong:  #2b3445;
-
-  /* Text */
-  --text:         #e7edf6;
-  --text-dim:     #a3b1c8;
-  --text-faint:   #66738c;
-  --text-inverse: #07090e;
-
-  /* Brand — signal azure (interactive accent) */
-  --brand:        #5fa8ff;
-  --brand-bright: #8ec3ff;
-  --brand-dim:    #2f6fc4;
-  --brand-glow:   rgba(95, 168, 255, 0.30);
-  --brand-ink:    #04101f;
-
-  /* Severity / signal scale (well-separated hues) */
-  --sev-critical: #c77dff;
-  --sev-error:    #ff5d62;
-  --sev-warning:  #f5a623;
-  --sev-ok:       #34d399;
-  --sev-info:     #38d4e6;
-  --sev-stale:    #7585a0;
-
-  --sev-critical-bg: rgba(199, 125, 255, 0.13);
-  --sev-error-bg:    rgba(255, 93, 98, 0.13);
-  --sev-warning-bg:  rgba(245, 166, 35, 0.13);
-  --sev-ok-bg:       rgba(52, 211, 153, 0.13);
-  --sev-info-bg:     rgba(56, 212, 230, 0.13);
-  --sev-stale-bg:    rgba(117, 133, 160, 0.13);
-
-  /* Typography */
+  /* ---- Theme-independent tokens ---- */
   --font-display: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
   --font-body:    "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono:    "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-
-  /* Radii */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-xl: 20px;
-  --r-pill: 999px;
-
-  /* Spacing scale */
+  --r-sm: 6px;  --r-md: 10px; --r-lg: 14px; --r-xl: 20px; --r-pill: 999px;
   --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
   --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
-
-  /* Elevation */
-  --shadow-1: 0 1px 2px rgba(0,0,0,0.4);
-  --shadow-2: 0 8px 24px rgba(0,0,0,0.35);
-  --shadow-3: 0 22px 60px rgba(0,0,0,0.45);
-
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* =====================================================================
+     LIGHT theme (default) — comfortable, low-glare: off-white canvas,
+     dark-slate (not pure-black) text, muted accents.
+     ===================================================================== */
+  color-scheme: light;
+
+  --bg-void:      #eef1f6;
+  --bg-base:      #f3f5f9;
+  --bg-surface:   #ffffff;
+  --bg-surface-2: #eef2f8;
+  --bg-inset:     #f6f8fc;
+  --bg-hover:     #e9eef6;
+
+  --line:         #dde3ec;
+  --line-soft:    #e9edf3;
+  --line-strong:  #c7cfdc;
+
+  --text:         #283040;   /* dark slate, not #000 */
+  --text-dim:     #515d74;
+  --text-faint:   #8590a3;
+  --text-inverse: #ffffff;
+
+  --brand:        #2f6fc4;
+  --brand-bright: #1d56a6;   /* darker so accent *text* stays readable on light */
+  --brand-dim:    #6f9fd8;
+  --brand-glow:   rgba(47, 111, 196, 0.22);
+  --brand-ink:    #ffffff;
+
+  --sev-critical: #8a3ccf;
+  --sev-error:    #c62f34;
+  --sev-warning:  #9a6800;
+  --sev-ok:       #1d8a5a;
+  --sev-info:     #0e7c93;
+  --sev-stale:    #5c6679;
+
+  --sev-critical-bg: rgba(138, 60, 207, 0.12);
+  --sev-error-bg:    rgba(198, 47, 52, 0.12);
+  --sev-warning-bg:  rgba(154, 104, 0, 0.12);
+  --sev-ok-bg:       rgba(29, 138, 90, 0.12);
+  --sev-info-bg:     rgba(14, 124, 147, 0.12);
+  --sev-stale-bg:    rgba(92, 102, 121, 0.12);
+
+  --shadow-1: 0 1px 2px rgba(20, 30, 55, 0.06);
+  --shadow-2: 0 6px 20px rgba(20, 30, 55, 0.08);
+  --shadow-3: 0 18px 44px rgba(20, 30, 55, 0.14);
+
+  --atmo-glow-1: rgba(47, 111, 196, 0.06);
+  --atmo-glow-2: rgba(29, 138, 90, 0.05);
+  --grid-line:   rgba(40, 60, 100, 0.05);
+}
+
+/* =======================================================================
+   DARK theme — softened from the original: lighter slate canvas and
+   dimmer (not glaring white) text to ease the bright-on-black strain.
+   ======================================================================= */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-void:      #0e131c;
+  --bg-base:      #131a26;
+  --bg-surface:   #1a212f;
+  --bg-surface-2: #212b3b;
+  --bg-inset:     #121927;
+  --bg-hover:     #263247;
+
+  --line:         #2a3447;
+  --line-soft:    #202836;
+  --line-strong:  #3a465d;
+
+  --text:         #d2d9e6;   /* dimmer than the old #e7edf6 */
+  --text-dim:     #98a4b8;
+  --text-faint:   #6a7589;
+  --text-inverse: #0a0d13;
+
+  --brand:        #5fa8ff;
+  --brand-bright: #93c5ff;
+  --brand-dim:    #3a6dbb;
+  --brand-glow:   rgba(95, 168, 255, 0.26);
+  --brand-ink:    #06101f;
+
+  --sev-critical: #c98cff;
+  --sev-error:    #ff6b70;
+  --sev-warning:  #f0ad4a;
+  --sev-ok:       #43d39c;
+  --sev-info:     #45cfe0;
+  --sev-stale:    #7a8699;
+
+  --sev-critical-bg: rgba(201, 140, 255, 0.14);
+  --sev-error-bg:    rgba(255, 107, 112, 0.14);
+  --sev-warning-bg:  rgba(240, 173, 74, 0.14);
+  --sev-ok-bg:       rgba(67, 211, 156, 0.14);
+  --sev-info-bg:     rgba(69, 207, 224, 0.14);
+  --sev-stale-bg:    rgba(122, 134, 153, 0.14);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.38);
+  --shadow-3: 0 22px 60px rgba(0, 0, 0, 0.45);
+
+  --atmo-glow-1: rgba(95, 168, 255, 0.08);
+  --atmo-glow-2: rgba(67, 211, 156, 0.05);
+  --grid-line:   rgba(120, 140, 180, 0.05);
 }
 
 /* ---- Reset / base --------------------------------------------------------- */
@@ -144,8 +189,8 @@ body::before {
   inset: 0;
   z-index: -2;
   background:
-    radial-gradient(1100px 600px at 82% -8%, rgba(95,168,255,0.10), transparent 60%),
-    radial-gradient(900px 520px at 8% 108%, rgba(52,211,153,0.06), transparent 60%),
+    radial-gradient(1100px 600px at 82% -8%, var(--atmo-glow-1), transparent 60%),
+    radial-gradient(900px 520px at 8% 108%, var(--atmo-glow-2), transparent 60%),
     var(--bg-void);
 }
 body::after {
@@ -154,8 +199,8 @@ body::after {
   inset: 0;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(120,140,180,0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(120,140,180,0.045) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 85%);
   -webkit-mask-image: radial-gradient(circle at 50% 30%, #000 0%, transparent 85%);
@@ -176,13 +221,13 @@ h2 { font-size: 1.18rem; }
 h3 { font-size: 1.02rem; }
 code, kbd, pre, .mono { font-family: var(--font-mono); }
 
-::selection { background: var(--brand-glow); color: #fff; }
+::selection { background: var(--brand-glow); color: var(--text); }
 
 /* Scrollbars */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--r-pill); border: 2px solid transparent; background-clip: padding-box; }
-*::-webkit-scrollbar-thumb:hover { background: #3a465c; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-faint); background-clip: padding-box; }
 
 /* ---- App shell ------------------------------------------------------------ */
 header.topbar {
@@ -255,6 +300,15 @@ header.topbar {
   box-shadow: 0 0 10px var(--brand-glow);
   border-radius: var(--r-pill);
 }
+
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0; margin-left: var(--s-1);
+  background: transparent; border: 1px solid var(--line-strong);
+  border-radius: var(--r-md); color: var(--text-dim); box-shadow: none;
+  font-size: 1rem; line-height: 1;
+}
+.theme-toggle:hover { background: var(--bg-surface); color: var(--text); filter: none; box-shadow: none; }
 
 main.container {
   width: 100%;
@@ -599,13 +653,13 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .CodeMirror-scroll { max-height: 640px; }
 .CodeMirror-gutters { background: var(--bg-inset) !important; border-right: 1px solid var(--line) !important; }
 .CodeMirror-linenumber { color: var(--text-faint) !important; }
-.cm-s-default .cm-keyword { color: #8ec3ff; }
+.cm-s-default .cm-keyword { color: var(--brand-bright); }
 .cm-s-default .cm-atom { color: var(--sev-critical); }
 .cm-s-default .cm-number { color: var(--sev-warning); }
 .cm-s-default .cm-string { color: var(--sev-ok); }
 .cm-s-default .cm-comment { color: var(--text-faint); font-style: italic; }
 .cm-s-default .cm-def { color: var(--brand); }
-.cm-s-default .cm-property { color: #ffcb6b; }
+.cm-s-default .cm-property { color: var(--sev-warning); }
 
 /* match highlight (regex lab / log search) */
 .match-highlight { background: rgba(245,166,35,0.22); color: var(--sev-warning); padding: 0 2px; border-radius: 3px; }

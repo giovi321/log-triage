@@ -270,6 +270,7 @@
           if (rssEl) { rssEl.textContent = 'Memory · n/a'; }
           return;
         }
+        const init = progress.initialization || {};
         const idx = progress.indexing_progress || {};
         const idxMeta = idx.indexing || {};
         const idxRepos = idx.repositories || {};
@@ -283,8 +284,23 @@
           else rssEl.textContent = 'Memory · n/a';
         }
         if (updatingEl) {
-          updatingEl.textContent = updating ? `Indexing · running (${done}/${total})` : 'Indexing · idle';
-          updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
+          if (init.error) {
+            // Surface the real failure instead of a perpetual "initializing".
+            updatingEl.textContent = 'RAG init error · ' + String(init.error).slice(0, 140);
+            updatingEl.className = 'status-chip error';
+            updatingEl.title = String(init.error);
+          } else if (init.started && !init.completed) {
+            // First-run/initialization phase (cloning repos, downloading model, indexing).
+            const phase = init.current_phase ? (' · ' + init.current_phase) : '';
+            const pct = (init.progress && typeof init.progress.percentage === 'number') ? ` ${Math.round(init.progress.percentage)}%` : '';
+            updatingEl.textContent = 'Initializing' + phase + pct;
+            updatingEl.className = 'status-chip warn';
+            updatingEl.title = (init.progress && init.progress.step_description) ? init.progress.step_description : '';
+          } else {
+            updatingEl.textContent = updating ? `Indexing · running (${done}/${total})` : 'Indexing · idle';
+            updatingEl.className = updating ? 'status-chip warn' : 'status-chip';
+            updatingEl.title = '';
+          }
         }
         document.querySelectorAll('button.rag-reindex-btn').forEach((btn) => {
           const needs = btn.getAttribute('data-needs-reindex');
