@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}{{ issue.title[:40] }}{% endblock %}
+
+{% macro sparkbars(values, cls='', maxpx=22) %}
+  {% set m = (values | max) if values else 0 %}
+  <span class="sparkline {{ cls }}">
+    {% for v in values %}
+      {% if not v %}<span class="spark-bar zero"></span>
+      {% else %}<span class="spark-bar {{ 'hot' if (m and v >= m * 0.66) else '' }}" style="height:{{ (3 + (v / m * maxpx)) | round | int }}px;"></span>{% endif %}
+    {% endfor %}
+  </span>
+{% endmacro %}
+
+{% set csrf = request.session.get('csrf_token', '') %}
+
+{% block content %}
+<div class="row" style="margin-bottom:var(--s-3);">
+  <a href="{{ url_for('issues') }}" class="mono" style="font-size:0.85rem;">← Triage queue</a>
+</div>
+
+<div class="card" data-reveal>
+  <div class="row between wrap" style="align-items:flex-start;">
+    <div style="min-width:0;">
+      <div class="section-eyebrow">ISSUE · {{ issue.module_name }}</div>
+      <h2 style="margin:0 0 var(--s-2); word-break:break-word;">{{ issue.title }}</h2>
+      <div class="row wrap" style="gap:var(--s-2);">
+        <span class="status-badge sev-{{ issue.severity }}">{{ issue.severity }}</span>
+        <span class="tag">{{ issue.status }}</span>
+        <span class="tag" title="priority score">priority {{ issue.priority_score | round | int }}</span>
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <div class="metric-value" style="font-size:2.4rem;">{{ issue.occurrence_count }}</div>
+      <div class="metric-label">occurrences</div>
+    </div>
+  </div>
+
+  <div class="grid wide-two-col" style="margin-top:var(--s-5);">
+    <div>
+      <dl class="kv">
+        <dt>Module</dt><dd>{{ issue.module_name }}</dd>
+        <dt>Pipeline</dt><dd>{{ issue.pipeline_name or '—' }}</dd>
+        <dt>Rule</dt><dd class="mono" style="font-size:0.82rem;">{{ issue.rule_id or '—' }}</dd>
+        <dt>Signature</dt><dd class="mono" style="font-size:0.82rem; word-break:break-word;">{{ issue.signature }}</dd>
+        <dt>Fingerprint</dt><dd class="mono" style="font-size:0.82rem;">{{ issue.fingerprint }}</dd>
+        <dt>First seen</dt><dd>{{ issue.first_seen | localtime }}</dd>
+        <dt>Last seen</dt><dd>{{ issue.last_seen | localtime }}</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <div class="section-eyebrow">OCCURRENCES · 14 DAYS</div>
+      {{ sparkbars(spark_14d, cls='lg', maxpx=56) }}
+      <div class="section-eyebrow" style="margin-top:var(--s-4);">LAST 24 HOURS</div>
+      {{ sparkbars(spark_24h, cls='lg', maxpx=56) }}
+    </div>
+  </div>
+</div>
+
+<!-- Workflow actions -->
+<div class="card" data-reveal style="--i:1">
+  <div class="section-eyebrow">ACTIONS</div>
+  <div class="row wrap" style="gap:var(--s-2);">
+    {% set actions = [('acknowledged','Acknowledge','secondary'), ('resolved','Resolve',''), ('muted','Mute','secondary'), ('false_positive','Mark false positive','danger'), ('open','Reopen','ghost')] %}
+    {% for value, label, cls in actions %}
+      <form method="post" action="{{ url_for('issue_set_status', issue_id=issue.id) }}" style="margin:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="new_status" value="{{ value }}">
+        <input type="hidden" name="redirect_to" value="detail">
+        <button type="submit" class="{{ cls }}" {% if issue.status == value %}disabled{% endif %}>{{ label }}</button>
+      </form>
+    {% endfor %}
+  </div>
+  {% if not db_status.connected %}
+    <p class="muted" style="margin-bottom:0;">Database not connected — actions unavailable.</p>
+  {% endif %}
+
+  <form method="post" action="{{ url_for('issue_ignore', issue_id=issue.id) }}" style="margin-top:var(--s-4); display:flex; gap:var(--s-2); align-items:flex-end; flex-wrap:wrap;">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <label class="fld" style="flex:1; min-width:300px;">
+      <span class="fld-label">Add ignore rule (suppresses future matches in the pipeline)</span>
+      <input type="text" class="input-mono" name="regex_value" value="{{ suggested_ignore }}" placeholder="regex to add to classifier.ignore_regexes">
+    </label>
+    <button type="submit" class="danger" {% if not db_status.connected %}disabled{% endif %}>Add ignore rule &amp; suppress</button>
+  </form>
+  <p class="fld-hint" style="margin-top:6px;">Writes the regex to this issue's pipeline (<code class="mono">{{ issue.pipeline_name or '—' }}</code>), marks the issue as a false positive, and removes matching findings. A <code class="mono">.bak</code> backup is written.</p>
+</div>
+
+<!-- LLM analysis -->
+<div class="card" data-reveal style="--i:2">
+  <div class="row between wrap">
+    <div class="section-eyebrow">AI ANALYSIS</div>
+    <form method="post" action="{{ url_for('issue_analyze', issue_id=issue.id) }}" style="margin:0;">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit" class="secondary btn-sm" {% if not can_analyze %}disabled title="No LLM provider configured"{% endif %}>
+        {% if issue.has_llm_analysis %}Re-analyze{% else %}Analyze now{% endif %}
+      </button>
+    </form>
+  </div>
+  {% if issue.has_llm_analysis %}
+    <div class="analysis-box" style="margin-top:var(--s-3);">{{ issue.llm_content }}</div>
+    {% if issue.citations %}
+      <div style="margin-top:var(--s-3);">
+        <div class="section-eyebrow">SOURCES</div>
+        {% for c in issue.citations %}<div class="citation">{{ c }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    <p class="faint" style="font-size:0.76rem; margin-top:var(--s-3);">
+      {{ issue.llm_provider }} · {{ issue.llm_model }}
+      {% if issue.llm_updated_at %} · {{ issue.llm_updated_at | localtime }}{% endif %}
+      {% if issue.llm_prompt_tokens %} · {{ issue.llm_prompt_tokens }}+{{ issue.llm_completion_tokens or 0 }} tokens{% endif %}
+    </p>
+  {% elif issue.llm_error %}
+    <p class="status-chip error" style="margin-top:var(--s-3);">Last analysis failed: {{ issue.llm_error }}</p>
+  {% else %}
+    <p class="muted" style="margin-top:var(--s-3);">Not analyzed yet. {% if can_analyze %}Click <b>Analyze now</b> to generate a grounded summary.{% else %}Configure an LLM provider to enable analysis.{% endif %}</p>
+  {% endif %}
+</div>
+
+<!-- Representative excerpt -->
+<div class="card" data-reveal style="--i:3">
+  <div class="section-eyebrow">REPRESENTATIVE EXCERPT</div>
+  <pre class="panel mono" style="font-size:0.82rem; overflow:auto; white-space:pre-wrap; margin:0;">{{ issue.sample_excerpt or '(none)' }}</pre>
+</div>
+
+<!-- Occurrences -->
+<div class="card" data-reveal style="--i:4">
+  <div class="section-eyebrow">RECENT OCCURRENCES</div>
+  {% if occurrences %}
+  <div style="overflow-x:auto;">
+    <table class="data">
+      <thead><tr><th>Time</th><th>Severity</th><th style="text-align:right;">Line</th><th>Message</th></tr></thead>
+      <tbody>
+        {% for f in occurrences %}
+        <tr>
+          <td class="mono" style="font-size:0.78rem; white-space:nowrap;">{{ f.created_at | localtime }}</td>
+          <td><span class="status-badge sev-{{ f.severity }}">{{ f.severity }}</span></td>
+          <td class="mono tnum" style="text-align:right;">{{ f.line_start }}</td>
+          <td class="mono" style="font-size:0.8rem;">{{ f.message }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="muted">No stored occurrences for this issue.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,20 +1,42 @@
 {% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
 {% block content %}
 <div class="page-center">
-  <div class="card" style="max-width: 460px; width: 100%;">
-    <p class="helper-text">Sign in with a web UI admin user from <code>config.yaml</code>.</p>
-    <form method="post" action="{{ url_for('login_form') }}" style="display:grid; gap:0.75rem;">
+  <div class="card login-card" data-reveal>
+    <div class="login-mark">
+      <span class="sig-dot"></span>
+      <span class="section-eyebrow">SECURE ACCESS · MISSION CONTROL</span>
+    </div>
+    <h2 class="login-title">Sign in to log<b>·</b>triage</h2>
+    <p class="helper-text">Authenticate with a Web UI admin user defined in <code class="mono">config.yaml</code>.</p>
+    <form method="post" action="{{ url_for('login_form') }}" class="login-form">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-      <label style="display:block;">
-        <span class="muted" style="display:block; margin-bottom:0.25rem;">Username</span>
-        <input type="text" name="username" required>
+      <label class="field">
+        <span class="field-label">Username</span>
+        <input type="text" name="username" autocomplete="username" required autofocus>
       </label>
-      <label style="display:block;">
-        <span class="muted" style="display:block; margin-bottom:0.25rem;">Password</span>
-        <input type="password" name="password" required>
+      <label class="field">
+        <span class="field-label">Password</span>
+        <input type="password" name="password" autocomplete="current-password" required>
       </label>
-      <button type="submit" style="width: 100%;">Login</button>
+      <button type="submit" class="login-submit">Authenticate →</button>
     </form>
   </div>
 </div>
+
+<style>
+  .login-card { max-width: 420px; width: 100%; padding: var(--s-6); }
+  .login-card::before {
+    content: ""; position: absolute; inset: 0; border-radius: var(--r-lg); pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), inset 0 0 0 1px rgba(95,168,255,0.06);
+  }
+  .login-mark { display: flex; align-items: center; gap: var(--s-2); margin-bottom: var(--s-4); }
+  .login-mark .section-eyebrow { margin: 0; }
+  .login-title { font-size: 1.45rem; margin-bottom: var(--s-2); }
+  .login-title b { color: var(--brand); }
+  .login-form { display: grid; gap: var(--s-4); margin-top: var(--s-5); }
+  .field { display: grid; gap: 6px; }
+  .field-label { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); }
+  .login-submit { width: 100%; padding: 12px; font-size: 0.95rem; margin-top: var(--s-2); }
+</style>
 {% endblock %}

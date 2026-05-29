@@ -1,63 +1,42 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-  .wizard-progress { display:flex; flex-wrap:wrap; gap:0.75rem; margin-top:0.5rem; }
-  .wizard-step { display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0.75rem; border:1px solid #232b3b; border-radius:0.65rem; background:#0f1422; min-width:170px; }
-  .wizard-step .bullet { width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; }
-  .wizard-step.complete { border-color:#2c3c5e; background:#111a2b; }
-  .wizard-step.complete .bullet { background:#1f2f4b; color:#cfe1ff; }
-  .wizard-step.active { border-color:#4c6ad4; box-shadow:0 0 0 1px rgba(76,106,212,0.35); }
-  .wizard-step.active .bullet { background:#4c6ad4; color:#fff; }
-  .wizard-step.upcoming { opacity:0.65; }
-  .wizard-step .step-label { font-weight:700; color:#e6ecf7; }
-  .wizard-step .step-status { font-size:0.8rem; color:#93a3c1; }
-  .lab-layout { display:grid; grid-template-columns: minmax(0, 1.1fr) minmax(380px, 1fr); gap:1rem; align-items:start; }
+  .lab-layout { display:grid; grid-template-columns: minmax(0, 1.1fr) minmax(380px, 1fr); gap:var(--s-4); align-items:start; }
   @media (max-width: 900px) { .lab-layout { grid-template-columns: 1fr; } }
-  .regex-line { display:flex; align-items:flex-start; gap:0.3rem; padding:0.12rem 0.25rem; font-family:monospace; font-size:0.92rem; }
-  .regex-line:nth-child(odd) { background:#0d1219; }
-  .regex-line:nth-child(even) { background:#0f151e; }
-  .regex-line:hover { background:#182233; }
-  .regex-line.match-line { background:#1a1f2e; }
-  .regex-line.match-line:nth-child(odd) { background:#1a1f2e; }
-  .regex-line.match-line:nth-child(even) { background:#1c2230; }
-  .regex-line.match-line:hover { background:#1f2538; }
-  .regex-line .line-number { min-width:2.5rem; color:#9fb1d3; flex-shrink:0; }
+  .regex-line { display:flex; align-items:flex-start; gap:0.3rem; padding:3px 6px; font-family:var(--font-mono); font-size:0.86rem; }
+  .regex-line:nth-child(odd) { background:var(--bg-base); }
+  .regex-line:nth-child(even) { background:var(--bg-surface); }
+  .regex-line:hover { background:var(--bg-hover); }
+  .regex-line.match-line { background:rgba(245,166,35,0.06); box-shadow:inset 2px 0 0 var(--sev-warning); }
+  .regex-line.match-line:hover { background:rgba(245,166,35,0.1); }
+  .regex-line.finding-line { box-shadow:inset 2px 0 0 var(--brand); }
+  .regex-line .line-number { min-width:2.6rem; color:var(--text-faint); flex-shrink:0; user-select:none; }
   .regex-line .line-content { flex:1; white-space:pre-wrap; word-break:break-word; }
   .regex-lines { display:flex; flex-direction:column; gap:0; }
-  .match-highlight { background:#3d2a0a; color:#f5c842; padding:0 0.1rem; border-radius:0.15rem; }
-  .editor-shell { border:none; border-radius:0.75rem; padding:0.9rem; background:#0f131e; box-shadow:0 12px 28px rgba(0,0,0,0.35); }
-  .editor-header { display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; }
-  .editor-actions { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; }
-  .save-actions { display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap; }
+  .editor-shell { border:1px solid var(--line); border-radius:var(--r-md); padding:var(--s-4); background:var(--bg-inset); }
+  .editor-header { display:flex; justify-content:space-between; align-items:center; gap:var(--s-3); flex-wrap:wrap; }
+  .editor-actions { display:flex; gap:var(--s-2); align-items:center; flex-wrap:wrap; }
+  .save-actions { display:flex; gap:var(--s-2); align-items:center; flex-wrap:wrap; }
   .save-actions button { min-width:110px; }
-  .badge { background:#1f2f4b; color:#cfe1ff; border-radius:999px; padding:0.1rem 0.5rem; font-size:0.85rem; }
-  .section-header { display:flex; justify-content:space-between; align-items:center; gap:0.65rem; flex-wrap:wrap; }
-  .match-pill { display:flex; align-items:center; gap:0.4rem; font-weight:700; color:#e6ecf7; }
-  .findings-panel { margin-top:1rem; border:1px solid #1a2232; border-radius:0.75rem; padding:0.8rem; background:#0c111a; }
-  .findings-list { display:flex; flex-direction:column; gap:0.5rem; max-height:300px; overflow-y:auto; }
-  .finding-item { display:flex; align-items:flex-start; gap:0.5rem; padding:0.5rem; background:#0f151e; border-radius:0.4rem; font-size:0.9rem; }
-  .finding-item:hover { background:#162032; }
-  .finding-item .finding-severity { flex-shrink:0; }
-  .finding-item .finding-reason { flex:1; white-space:pre-wrap; word-break:break-word; font-family:monospace; font-size:0.85rem; color:#c8d4e8; }
-  .finding-item .finding-meta { font-size:0.8rem; color:#9fb1d3; flex-shrink:0; }
-  .status-badge { display:inline-block; padding:0.15rem 0.4rem; border-radius:0.3rem; font-size:0.75rem; font-weight:600; text-transform:uppercase; }
-  .status-badge.sev-ERROR { background:#7d3434; color:#f8eaea; }
-  .status-badge.sev-WARNING { background:#6b5a2e; color:#f5ecd8; }
-  .status-badge.sev-CRITICAL { background:#5c1f3a; color:#f8e0ea; }
-  .status-badge.sev-INFO { background:#2e4472; color:#d8e8f8; }
-  .regex-line.finding-line { background:#1a1f2a; }
+  .badge { font-family:var(--font-mono); background:rgba(95,168,255,0.12); color:var(--brand-bright); border:1px solid rgba(95,168,255,0.3); border-radius:var(--r-pill); padding:2px 9px; font-size:0.8rem; }
+  .section-header { display:flex; justify-content:space-between; align-items:center; gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-3); }
+  .match-pill { display:flex; align-items:center; gap:0.4rem; font-family:var(--font-mono); font-size:0.85rem; color:var(--text-dim); }
+  .inline-errors { margin:0.4rem 0 0; padding-left:1.1rem; color:#ffc9cb; font-family:var(--font-mono); font-size:0.82rem; }
   .switch { position:relative; display:inline-block; width:40px; height:22px; }
   .switch input { opacity:0; width:0; height:0; }
-  .switch .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#2b3242; transition:0.2s; border-radius:999px; border:1px solid #3a455c; }
-  .switch .slider:before { position:absolute; content:""; height:16px; width:16px; left:3px; top:50%; transform:translateY(-50%); background:#e8ecf2; transition:0.2s; border-radius:999px; }
-  .switch input:checked + .slider { background:#4c6ad4; border-color:#4c6ad4; }
-  .switch input:checked + .slider:before { transform:translate(18px, -50%); }
-  .sort-toggle { display:flex; gap:0.35rem; align-items:center; }
-  .sort-btn.active { background:#1f2a3e; border-color:#2f3b53; color:#cfe1ff; box-shadow: inset 0 0 0 1px rgba(79, 123, 212, 0.4); }
+  .switch .slider { position:absolute; cursor:pointer; inset:0; background:var(--bg-surface-2); transition:0.2s; border-radius:var(--r-pill); border:1px solid var(--line-strong); }
+  .switch .slider:before { position:absolute; content:""; height:16px; width:16px; left:3px; top:50%; transform:translateY(-50%); background:var(--text); transition:0.2s; border-radius:var(--r-pill); }
+  .switch input:checked + .slider { background:var(--brand-dim); border-color:var(--brand); }
+  .switch input:checked + .slider:before { transform:translate(18px, -50%); background:#fff; }
+  .sort-toggle { display:flex; gap:var(--s-1); align-items:center; }
+  .sort-btn.active { background:rgba(95,168,255,0.12); border-color:rgba(95,168,255,0.4); color:var(--brand-bright); }
 </style>
-<div class="card">
-  <form method="get" action="{{ url_for('regex_lab') }}" style="margin-bottom:0.75rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-    <label style="display:block;">Module:
+<div class="card" data-reveal>
+  <div class="section-eyebrow">PATTERN WORKBENCH</div>
+  <h2 style="margin-top:0;">Regex Lab</h2>
+  <p class="helper-text" style="margin-top:0;">Draft and test classifier patterns against live sample lines, then save them straight into a pipeline.</p>
+  <form method="get" action="{{ url_for('regex_lab') }}" style="margin:var(--s-3) 0 0; display:flex; gap:var(--s-3); align-items:center; flex-wrap:wrap;">
+    <label style="display:flex; align-items:center; gap:var(--s-2);">Module:
       <select name="module" onchange="this.form.submit()">
         {% for m in modules %}{% if m.enabled %}
         <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>
@@ -88,7 +67,7 @@
             </label>
             <button type="button" class="secondary" id="filter-matches-btn" onclick="toggleMatchFilter()" style="display:none;">Show matches only</button>
             <div style="display:flex; gap:0.4rem; align-items:center; flex:1; min-width:220px;">
-              <input type="text" id="line-search" placeholder="Search lines..." style="flex:1; min-width:120px; padding:0.3rem 0.5rem; border:1px solid #2b3242; border-radius:0.35rem; background:#0f131b; color:#e8ecf2;" oninput="onLineSearchInput()">
+              <input type="text" id="line-search" placeholder="Search lines..." class="input-mono" style="flex:1; min-width:120px;" oninput="onLineSearchInput()">
               <button type="button" class="secondary" onclick="clearLineSearch()">Clear</button>
             </div>
             <div class="sort-toggle">
@@ -104,7 +83,7 @@
             <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
             <input type="hidden" name="sample_source" value="{{ sample_source }}">
             <input type="hidden" name="sample_selection" value="">
-            <div id="sample-lines" style="max-height:520px; overflow:auto; border-radius:0.5rem; background:#0a0e14; padding:0.35rem;" aria-label="Sample lines">
+            <div id="sample-lines" style="max-height:520px; overflow:auto; border-radius:var(--r-md); background:var(--bg-void); border:1px solid var(--line); padding:0.35rem;" aria-label="Sample lines">
               <div class="regex-lines">
                 {% set finding_lines = {} %}
                 {% for f in recent_findings %}

@@ -1,667 +1,655 @@
 {% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('assets', path='codemirror.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('assets', path='material-darker.min.css') }}">
+{% endblock %}
+
 {% block content %}
 <style>
-  .config-editor-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 6fr) minmax(320px, 1fr);
-    gap: 1.25rem;
-    align-items: start;
-  }
-
-  @media (max-width: 1080px) {
-    .config-editor-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .config-editor .CodeMirror {
-    height: 60vh;
-    min-height: 300px;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    border-radius: 0.75rem;
-    box-shadow: inset 0 0 0 1px #222a38;
-    background: #0b1020;
-    font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 0.98rem;
-  }
-
-  .config-editor .CodeMirror-scroll {
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-
-  .hint-panel {
-    position: sticky;
-    top: 1.5rem;
-    min-height: 100px;
-  }
-
-  #config-text {
-    width: 95%;
-    min-height: 300px;
-  }
-
-  .editor-pane {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .hint-panel .hint-body {
-    white-space: pre-wrap;
-  }
-
-  .editor-surface {
-    position: relative;
-  }
-
-  .search-row {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    flex-wrap: wrap;
-    padding: 0.35rem 0.5rem;
-    margin-bottom: 0.5rem;
-    background: #0f1424;
-    border: 1px solid #1f2a3d;
-    border-radius: 0.55rem;
-  }
-
-  .search-row label {
-    font-size: 0.85rem;
-    color: #cfd7e6;
-    margin-right: 0.25rem;
-  }
-
-  .search-row input {
-    width: 180px;
-  }
-
-  .search-row .search-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    flex-wrap: nowrap;
-  }
-
-  .search-status {
-    color: #9fb1d3;
-    font-size: 0.85rem;
-    margin-left: auto;
-    min-height: 1rem;
-  }
-
-  .search-highlight {
-    background: #2f4d92;
-    color: #fff;
-  }
-
-  .client-error {
-    color: #ffb4b4;
-    background: #2d1a1d;
-    border: 1px solid #42232a;
-    border-radius: 0.5rem;
-    padding: 0.65rem 0.75rem;
-    margin-top: 0.6rem;
-    display: none;
-  }
-
-  .config-editor button[disabled] {
-    opacity: 0.65;
-    cursor: not-allowed;
-    box-shadow: none;
-    background: linear-gradient(120deg, #3a4670, #5f6e9c);
-  }
-
-  .cm-s-material-darker .cm-keyword,
-  .cm-s-material-darker .cm-atom { color: #c792ea; }
-  .cm-s-material-darker .cm-number { color: #f78c6c; }
-  .cm-s-material-darker .cm-string { color: #c3e88d; }
-  .cm-s-material-darker .cm-comment { color: #676e8a; font-style: italic; }
-  .cm-s-material-darker .cm-def { color: #82aaff; }
+  [x-cloak] { display: none !important; }
+  .config-editor-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(320px, 1fr); gap: var(--s-5); align-items: start; }
+  @media (max-width: 1080px) { .config-editor-grid { grid-template-columns: 1fr; } }
+  .config-editor .CodeMirror { height: 58vh; min-height: 300px; width: 100%; max-width: 100%; box-sizing: border-box; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line-strong); font-family: var(--font-mono); font-size: 0.94rem; }
+  .config-editor .CodeMirror-scroll { max-height: 58vh; overflow-y: auto; }
+  .hint-panel { position: sticky; top: 1.5rem; min-height: 100px; }
+  .hint-panel .hint-body { white-space: pre-wrap; }
+  #config-text { width: 95%; min-height: 300px; }
+  .editor-pane { min-width: 0; width: 100%; }
+  .editor-surface { position: relative; }
+  .search-row { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--r-md); }
+  .search-row label { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-right: 0.15rem; }
+  .search-row input { width: 170px; }
+  .search-row .search-actions { display: inline-flex; align-items: center; gap: var(--s-1); flex-wrap: nowrap; }
+  .search-status { color: var(--text-dim); font-size: 0.82rem; margin-left: auto; min-height: 1rem; }
+  .search-highlight { background: var(--brand-dim); color: #fff; }
+  .client-error { color: #ffc9cb; background: rgba(255,93,98,0.08); border: 1px solid rgba(255,93,98,0.4); border-radius: var(--r-md); padding: 0.65rem 0.75rem; margin-top: var(--s-3); display: none; font-family: var(--font-mono); font-size: 0.85rem; }
+  .config-editor button[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; filter: saturate(0.4); }
+  .cm-s-material-darker .cm-keyword, .cm-s-material-darker .cm-atom { color: var(--sev-critical); }
+  .cm-s-material-darker .cm-number { color: var(--sev-warning); }
+  .cm-s-material-darker .cm-string { color: var(--sev-ok); }
+  .cm-s-material-darker .cm-comment { color: var(--text-faint); font-style: italic; }
+  .cm-s-material-darker .cm-def { color: var(--brand); }
   .cm-s-material-darker .cm-property { color: #ffcb6b; }
-  .cm-s-material-darker .cm-meta { color: #89ddff; }
-  .cm-error-line { background: #3a1a1a !important; }
+  .cm-s-material-darker .cm-meta { color: var(--brand-bright); }
+  .cm-error-line { background: rgba(255,93,98,0.16) !important; }
+  .section-subtabs { gap: 2px; margin-bottom: var(--s-4); }
+  .section-subtabs button { font-size: 0.82rem; padding: 7px 11px; }
 </style>
-<div class="card">
-  <p class="helper-text">
-    Changes are validated as YAML and saved atomically. A <code>.bak</code> backup is written before replacing the file.
+
+<div class="card" data-reveal x-data="configEditor()" x-init="init()">
+  <div class="section-eyebrow">CONFIGURATION</div>
+  <h2 style="margin-top:0; margin-bottom:var(--s-2);">Settings</h2>
+  <p class="helper-text" style="margin-top:0;">
+    Edit with structured forms, or drop to raw YAML under <b>Advanced</b>. Saved atomically — a
+    <code class="mono">.bak</code> backup is written before replacing the file.
   </p>
-  <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor">
-    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-    <div class="config-editor-grid">
-      <div class="editor-pane">
-        <div class="editor-surface">
-          <div class="search-row" role="search">
-            <label for="find-text">Find</label>
-            <input id="find-text" type="text" placeholder="Search" autocomplete="off">
-            <div class="search-actions">
-              <button id="find-prev" type="button" class="secondary" aria-label="Find previous match">Prev</button>
-              <button id="find-next" type="button" class="secondary" aria-label="Find next match">Next</button>
-            </div>
-            <label for="replace-text">Replace</label>
-            <input id="replace-text" type="text" placeholder="With" autocomplete="off">
-            <div class="search-actions">
-              <button id="replace-one" type="button" class="secondary" aria-label="Replace the current match">Replace</button>
-              <button id="replace-all" type="button" class="secondary" aria-label="Replace all matches">Replace all</button>
-            </div>
-            <div class="search-status" id="search-status" aria-live="polite"></div>
-          </div>
-          <textarea id="config-text"
-                    name="config_text"
-                    rows="28"
-                    wrap="off"
-                    spellcheck="false"
-                    aria-label="config.yaml editor">{{ config_text }}</textarea>
-        </div>
-        <div id="client-error" class="client-error" role="alert"></div>
-        <div style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-          <button id="save-button" type="submit">Save</button>
-          <button type="submit"
-                  form="config-reload-form"
-                  formmethod="post"
-                  formaction="{{ url_for('reload_config') }}"
-                  aria-label="Reload configuration from disk">
-            Reload from disk
-          </button>
-          <button type="button" class="secondary" id="cancel-button" data-cancel-url="{{ url_for('dashboard') }}">Cancel</button>
-          <a class="muted" href="{{ url_for('regex_lab') }}">Regex lab</a>
+
+  <div class="tabbar">
+    <button type="button" :class="{active: tab==='forms'}" @click="showForms()">Forms</button>
+    <button type="button" :class="{active: tab==='advanced'}" @click="showAdvanced()">Advanced · YAML</button>
+  </div>
+  <p class="yaml-warn" x-show="yamlError" x-text="yamlError" x-cloak></p>
+
+  <!-- ============================ FORMS ============================ -->
+  <div x-show="tab==='forms'" x-cloak>
+    <div class="tabbar section-subtabs">
+      <template x-for="s in sections" :key="s.id">
+        <button type="button" :class="{active: section===s.id}" @click="section=s.id" x-text="s.label"></button>
+      </template>
+    </div>
+
+    <!-- ---- General ---- -->
+    <div x-show="section==='general'">
+      <div class="form-section">
+        <div class="section-eyebrow">DATABASE</div>
+        <div class="form-grid">
+          <label class="fld full"><span class="fld-label">Database URL</span>
+            <input type="text" class="input-mono" x-model="cfg.database.url" placeholder="sqlite:///./logtriage.db">
+            <span class="fld-hint">SQLite, PostgreSQL or MySQL connection string.</span>
+          </label>
+          <label class="fld"><span class="fld-label">Retention (days)</span>
+            <input type="number" min="0" x-model.number="cfg.database.retention_days">
+          </label>
         </div>
       </div>
-      <div class="hint-panel" id="hint-panel">
-        <h3>Context hints</h3>
-        <div class="hint-body" id="hint-body">
-          {{ context_hints.get('root', "Top-level sections mirror the README. Move the cursor to a section to see details.") }}
+      <div class="form-section">
+        <div class="section-eyebrow">DEFAULTS (legacy fallbacks)</div>
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.defaults.llm_enabled"><span class="fld-label" style="text-transform:none;">LLM enabled (fallback)</span></label>
+          <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="cfg.defaults.max_excerpt_lines"></label>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="section-eyebrow">LOGGING</div>
+        <div class="form-grid">
+          <label class="fld"><span class="fld-label">Level</span>
+            <select x-model="cfg.logging.level"><template x-for="lv in levels" :key="lv"><option x-text="lv" :value="lv"></option></template></select>
+          </label>
+          <label class="fld"><span class="fld-label">Log file</span><input type="text" class="input-mono" x-model="cfg.logging.file" placeholder="./logtriage.log"></label>
+          <label class="fld full"><span class="fld-label">Format</span><input type="text" class="input-mono" x-model="cfg.logging.format"></label>
+        </div>
+        <div class="subsection">
+          <div class="sub-title">Per-logger levels</div>
+          <div class="chip-rows">
+            <template x-for="(lg, i) in loggers" :key="i">
+              <div class="chip-row">
+                <input type="text" class="input-mono" style="flex:2" placeholder="logtriage.rag" x-model="loggers[i].name">
+                <select style="flex:1" x-model="loggers[i].level"><template x-for="lv in levels" :key="lv"><option x-text="lv" :value="lv"></option></template></select>
+                <button type="button" class="ghost btn-sm rm" @click="rm(loggers, i)">✕</button>
+              </div>
+            </template>
+            <template x-if="!loggers.length"><div class="empty-hint">No per-logger overrides.</div></template>
+          </div>
+          <button type="button" class="secondary btn-sm add-row" @click="add(loggers, {name:'', level:'INFO'})">+ Add logger</button>
         </div>
       </div>
     </div>
-  </form>
-  <form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true">
-    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-  </form>
+
+    <!-- ---- LLM ---- -->
+    <div x-show="section==='llm'">
+      <div class="form-section">
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.llm.enabled"><span class="fld-label" style="text-transform:none;">LLM enabled</span></label>
+          <label class="fld"><span class="fld-label">Default provider</span>
+            <select x-model="cfg.llm.default_provider">
+              <option value="">(none)</option>
+              <template x-for="p in providers" :key="p.name"><option :value="p.name" x-text="p.name"></option></template>
+            </select>
+          </label>
+          <label class="fld"><span class="fld-label">Context prefix lines</span><input type="number" min="0" x-model.number="cfg.llm.context_prefix_lines"></label>
+          <label class="fld"><span class="fld-label">Context suffix lines</span><input type="number" min="0" x-model.number="cfg.llm.context_suffix_lines"></label>
+          <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="cfg.llm.max_excerpt_lines"></label>
+          <label class="fld"><span class="fld-label">Max output tokens</span><input type="number" min="1" x-model.number="cfg.llm.max_output_tokens"></label>
+          <label class="fld"><span class="fld-label">Request timeout (s)</span><input type="number" min="1" x-model.number="cfg.llm.request_timeout"></label>
+          <label class="fld"><span class="fld-label">Temperature</span><input type="number" step="0.1" min="0" max="2" x-model.number="cfg.llm.temperature"></label>
+          <label class="fld"><span class="fld-label">Top-p</span><input type="number" step="0.05" min="0" max="1" x-model.number="cfg.llm.top_p"></label>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="row between"><div class="section-eyebrow" style="margin:0;">PROVIDERS</div>
+          <button type="button" class="secondary btn-sm" @click="addProvider()">+ Add provider</button></div>
+        <template x-for="(p, i) in providers" :key="i">
+          <div class="repeat-card">
+            <div class="repeat-head">
+              <span class="repeat-title" x-text="p.name || 'provider'"></span>
+              <button type="button" class="danger btn-sm" @click="rm(providers, i)">Remove</button>
+            </div>
+            <div class="form-grid">
+              <label class="fld"><span class="fld-label">Name (key)</span><input type="text" class="input-mono" x-model="providers[i].name"></label>
+              <label class="fld"><span class="fld-label">Provider type</span>
+                <select x-model="providers[i].provider_type"><option value="openai">openai</option><option value="anthropic">anthropic</option></select></label>
+              <label class="fld full"><span class="fld-label">API base</span><input type="text" class="input-mono" x-model="providers[i].api_base" placeholder="https://api.openai.com/v1"></label>
+              <label class="fld"><span class="fld-label">API key env var</span><input type="text" class="input-mono" x-model="providers[i].api_key_env" placeholder="OPENAI_API_KEY"></label>
+              <label class="fld"><span class="fld-label">Model</span><input type="text" class="input-mono" x-model="providers[i].model"></label>
+              <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="providers[i].max_excerpt_lines"></label>
+              <label class="fld"><span class="fld-label">Max output tokens</span><input type="number" min="1" x-model.number="providers[i].max_output_tokens"></label>
+              <label class="fld"><span class="fld-label">Request timeout (s)</span><input type="number" min="1" x-model.number="providers[i].request_timeout"></label>
+              <label class="fld"><span class="fld-label">Temperature</span><input type="number" step="0.1" min="0" max="2" x-model.number="providers[i].temperature"></label>
+              <label class="fld"><span class="fld-label">Top-p</span><input type="number" step="0.05" min="0" max="1" x-model.number="providers[i].top_p"></label>
+              <label class="fld"><span class="fld-label">Max tokens / hour</span><input type="number" min="0" x-model.number="providers[i].max_tokens_per_hour" placeholder="(unlimited)"></label>
+              <label class="fld"><span class="fld-label">Max tokens / day</span><input type="number" min="0" x-model.number="providers[i].max_tokens_per_day" placeholder="(unlimited)"></label>
+            </div>
+          </div>
+        </template>
+        <template x-if="!providers.length"><div class="empty-hint">No providers configured.</div></template>
+      </div>
+    </div>
+
+    <!-- ---- RAG ---- -->
+    <div x-show="section==='rag'">
+      <div class="form-section">
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.rag.enabled"><span class="fld-label" style="text-transform:none;">RAG enabled</span></label>
+          <label class="fld"><span class="fld-label">Device</span><select x-model="cfg.rag.device"><option value="cpu">cpu</option><option value="cuda">cuda</option></select></label>
+          <label class="fld full"><span class="fld-label">Service URL</span><input type="text" class="input-mono" x-model="cfg.rag.service_url" placeholder="http://127.0.0.1:8091"></label>
+          <label class="fld"><span class="fld-label">Cache dir</span><input type="text" class="input-mono" x-model="cfg.rag.cache_dir"></label>
+          <label class="fld"><span class="fld-label">Vector store dir</span><input type="text" class="input-mono" x-model="cfg.rag.vector_store_dir"></label>
+          <label class="fld full"><span class="fld-label">Embedding model</span><input type="text" class="input-mono" x-model="cfg.rag.embedding_model"></label>
+          <label class="fld"><span class="fld-label">Batch size</span><input type="number" min="1" x-model.number="cfg.rag.batch_size"></label>
+          <label class="fld"><span class="fld-label">Top-k</span><input type="number" min="1" x-model.number="cfg.rag.top_k"></label>
+          <label class="fld"><span class="fld-label">Similarity threshold</span><input type="number" step="0.05" min="0" max="1" x-model.number="cfg.rag.similarity_threshold"></label>
+          <label class="fld"><span class="fld-label">Max chunks</span><input type="number" min="1" x-model.number="cfg.rag.max_chunks"></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- Pipelines ---- -->
+    <div x-show="section==='pipelines'">
+      <div class="row between"><div class="section-eyebrow" style="margin:0;">PIPELINES</div>
+        <button type="button" class="secondary btn-sm" @click="addPipeline()">+ Add pipeline</button></div>
+      <template x-for="(p, i) in cfg.pipelines" :key="i">
+        <div class="repeat-card">
+          <div class="repeat-head">
+            <span class="repeat-title" x-text="p.name || 'pipeline'"></span>
+            <button type="button" class="danger btn-sm" @click="rm(cfg.pipelines, i)">Remove</button>
+          </div>
+          <div class="form-grid">
+            <label class="fld"><span class="fld-label">Name</span><input type="text" class="input-mono" x-model="p.name"></label>
+            <label class="fld"><span class="fld-label">Match filename regex</span><input type="text" class="input-mono" x-model="p.match.filename_regex"></label>
+            <label class="fld"><span class="fld-label">Classifier type</span>
+              <select x-model="p.classifier.type"><option value="regex_counter">regex_counter</option><option value="rsnapshot_basic">rsnapshot_basic</option></select></label>
+            <label class="fld"><span class="fld-label">Grouping type</span>
+              <select x-model="p.grouping.type"><option value="whole_file">whole_file</option><option value="marker">marker</option><option value="separator">separator</option></select></label>
+          </div>
+          <div class="subsection">
+            <div class="sub-title">Error regexes</div>
+            <div class="chip-rows">
+              <template x-for="(re, j) in p.classifier.error_regexes" :key="j">
+                <div class="chip-row"><input type="text" x-model="p.classifier.error_regexes[j]"><button type="button" class="ghost btn-sm rm" @click="rm(p.classifier.error_regexes, j)">✕</button></div>
+              </template>
+            </div>
+            <button type="button" class="secondary btn-sm add-row" @click="add(p.classifier.error_regexes, '')">+ Add</button>
+          </div>
+          <div class="subsection">
+            <div class="sub-title">Warning regexes</div>
+            <div class="chip-rows">
+              <template x-for="(re, j) in p.classifier.warning_regexes" :key="j">
+                <div class="chip-row"><input type="text" x-model="p.classifier.warning_regexes[j]"><button type="button" class="ghost btn-sm rm" @click="rm(p.classifier.warning_regexes, j)">✕</button></div>
+              </template>
+            </div>
+            <button type="button" class="secondary btn-sm add-row" @click="add(p.classifier.warning_regexes, '')">+ Add</button>
+          </div>
+          <div class="subsection">
+            <div class="sub-title">Ignore regexes</div>
+            <div class="chip-rows">
+              <template x-for="(re, j) in p.classifier.ignore_regexes" :key="j">
+                <div class="chip-row"><input type="text" x-model="p.classifier.ignore_regexes[j]"><button type="button" class="ghost btn-sm rm" @click="rm(p.classifier.ignore_regexes, j)">✕</button></div>
+              </template>
+            </div>
+            <button type="button" class="secondary btn-sm add-row" @click="add(p.classifier.ignore_regexes, '')">+ Add</button>
+          </div>
+          <div class="subsection" x-show="p.grouping.type !== 'whole_file'">
+            <div class="sub-title">Grouping markers</div>
+            <div class="form-grid">
+              <label class="fld"><span class="fld-label">Separator regex</span><input type="text" class="input-mono" x-model="p.grouping.separator_regex"></label>
+              <label class="fld"><span class="fld-label">Start regex</span><input type="text" class="input-mono" x-model="p.grouping.start_regex"></label>
+              <label class="fld"><span class="fld-label">End regex</span><input type="text" class="input-mono" x-model="p.grouping.end_regex"></label>
+              <label class="fld check"><input type="checkbox" x-model="p.grouping.only_last"><span class="fld-label" style="text-transform:none;">Only last group</span></label>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template x-if="!cfg.pipelines.length"><div class="empty-hint">No pipelines configured.</div></template>
+    </div>
+
+    <!-- ---- Modules ---- -->
+    <div x-show="section==='modules'">
+      <div class="row between"><div class="section-eyebrow" style="margin:0;">MODULES</div>
+        <button type="button" class="secondary btn-sm" @click="addModule()">+ Add module</button></div>
+      <template x-for="(m, i) in cfg.modules" :key="i">
+        <div class="repeat-card">
+          <div class="repeat-head">
+            <span class="repeat-title"><span class="sig-dot" :class="{idle: !m.enabled}" style="width:8px;height:8px;"></span> <span x-text="m.name || 'module'"></span></span>
+            <button type="button" class="danger btn-sm" @click="rm(cfg.modules, i)">Remove</button>
+          </div>
+          <div class="form-grid">
+            <label class="fld"><span class="fld-label">Name</span><input type="text" class="input-mono" x-model="m.name"></label>
+            <label class="fld check"><input type="checkbox" x-model="m.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+            <label class="fld full"><span class="fld-label">Path</span><input type="text" class="input-mono" x-model="m.path"></label>
+            <label class="fld"><span class="fld-label">Mode</span><select x-model="m.mode"><option value="batch">batch</option><option value="follow">follow</option></select></label>
+            <label class="fld"><span class="fld-label">Pipeline</span>
+              <select x-model="m.pipeline"><option value="">(auto by filename)</option><template x-for="p in cfg.pipelines" :key="p.name"><option :value="p.name" x-text="p.name"></option></template></select></label>
+            <label class="fld"><span class="fld-label">Output format</span><select x-model="m.output_format"><option value="text">text</option><option value="json">json</option></select></label>
+            <label class="fld"><span class="fld-label">Min print severity</span><select x-model="m.min_print_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+            <label class="fld"><span class="fld-label">Stale after (min)</span><input type="number" min="0" x-model.number="m.stale_after_minutes"></label>
+          </div>
+
+          <div class="subsection">
+            <div class="sub-title">LLM</div>
+            <div class="form-grid">
+              <label class="fld check"><input type="checkbox" x-model="m.llm.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+              <label class="fld"><span class="fld-label">Provider</span>
+                <select x-model="m.llm.provider"><option value="">(default)</option><template x-for="p in providers" :key="p.name"><option :value="p.name" x-text="p.name"></option></template></select></label>
+              <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.llm.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+              <label class="fld"><span class="fld-label">Prompt template</span><input type="text" class="input-mono" x-model="m.llm.prompt_template"></label>
+              <label class="fld"><span class="fld-label">Context prefix lines</span><input type="number" min="0" x-model.number="m.llm.context_prefix_lines"></label>
+              <label class="fld"><span class="fld-label">Context suffix lines</span><input type="number" min="0" x-model.number="m.llm.context_suffix_lines"></label>
+            </div>
+          </div>
+
+          <div class="subsection">
+            <div class="sub-title">Alerts · webhook</div>
+            <div class="form-grid">
+              <label class="fld check"><input type="checkbox" x-model="m.alerts.webhook.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+              <label class="fld"><span class="fld-label">Method</span><select x-model="m.alerts.webhook.method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></label>
+              <label class="fld full"><span class="fld-label">URL</span><input type="text" class="input-mono" x-model="m.alerts.webhook.url"></label>
+              <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.alerts.webhook.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+            </div>
+          </div>
+
+          <div class="subsection">
+            <div class="sub-title">Alerts · MQTT</div>
+            <div class="form-grid">
+              <label class="fld check"><input type="checkbox" x-model="m.alerts.mqtt.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+              <label class="fld"><span class="fld-label">Host</span><input type="text" class="input-mono" x-model="m.alerts.mqtt.host"></label>
+              <label class="fld"><span class="fld-label">Port</span><input type="number" min="1" x-model.number="m.alerts.mqtt.port"></label>
+              <label class="fld"><span class="fld-label">Topic</span><input type="text" class="input-mono" x-model="m.alerts.mqtt.topic"></label>
+              <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.alerts.mqtt.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+            </div>
+          </div>
+
+          <div class="subsection">
+            <div class="sub-title">Stream (follow mode)</div>
+            <div class="form-grid">
+              <label class="fld check"><input type="checkbox" x-model="m.stream.from_beginning"><span class="fld-label" style="text-transform:none;">From beginning</span></label>
+              <label class="fld"><span class="fld-label">Poll interval (s)</span><input type="number" step="0.1" min="0.1" x-model.number="m.stream.interval"></label>
+            </div>
+          </div>
+
+          <div class="subsection">
+            <div class="row between"><div class="sub-title" style="margin:0;">RAG knowledge sources</div>
+              <label class="fld check" style="margin:0;"><input type="checkbox" x-model="m.rag.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label></div>
+            <template x-for="(ks, k) in m.rag.knowledge_sources" :key="k">
+              <div class="repeat-card" style="margin-top:var(--s-2);">
+                <div class="repeat-head"><span class="repeat-title mono" style="font-size:0.82rem;" x-text="ks.repo_url || 'repo'"></span>
+                  <button type="button" class="ghost btn-sm" @click="rm(m.rag.knowledge_sources, k)">✕</button></div>
+                <div class="form-grid">
+                  <label class="fld full"><span class="fld-label">Repo URL</span><input type="text" class="input-mono" x-model="ks.repo_url"></label>
+                  <label class="fld"><span class="fld-label">Branch</span><input type="text" class="input-mono" x-model="ks.branch"></label>
+                </div>
+                <div class="sub-title" style="margin-top:var(--s-2);">Include paths</div>
+                <div class="chip-rows">
+                  <template x-for="(ip, p2) in ks.include_paths" :key="p2">
+                    <div class="chip-row"><input type="text" x-model="ks.include_paths[p2]"><button type="button" class="ghost btn-sm rm" @click="rm(ks.include_paths, p2)">✕</button></div>
+                  </template>
+                </div>
+                <button type="button" class="secondary btn-sm add-row" @click="add(ks.include_paths, '')">+ Add path</button>
+              </div>
+            </template>
+            <button type="button" class="secondary btn-sm add-row" @click="add(m.rag.knowledge_sources, {repo_url:'', branch:'main', include_paths:['**/*.md']})">+ Add source</button>
+          </div>
+        </div>
+      </template>
+      <template x-if="!cfg.modules.length"><div class="empty-hint">No modules configured.</div></template>
+    </div>
+
+    <!-- ---- Web UI ---- -->
+    <div x-show="section==='webui'">
+      <div class="form-section">
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.enabled"><span class="fld-label" style="text-transform:none;">Web UI enabled</span></label>
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.dark_mode_default"><span class="fld-label" style="text-transform:none;">Dark mode default</span></label>
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.csrf_enabled"><span class="fld-label" style="text-transform:none;">CSRF protection</span></label>
+          <label class="fld"><span class="fld-label">Host</span><input type="text" class="input-mono" x-model="cfg.webui.host"></label>
+          <label class="fld"><span class="fld-label">Port</span><input type="number" min="1" x-model.number="cfg.webui.port"></label>
+          <label class="fld"><span class="fld-label">Base path</span><input type="text" class="input-mono" x-model="cfg.webui.base_path"></label>
+          <label class="fld"><span class="fld-label">Session cookie name</span><input type="text" class="input-mono" x-model="cfg.webui.session_cookie_name"></label>
+          <label class="fld"><span class="fld-label">Session max age (h)</span><input type="number" min="1" x-model.number="cfg.webui.session_max_age_hours"></label>
+          <label class="fld full"><span class="fld-label">Secret key</span><input type="password" class="input-mono" x-model="cfg.webui.secret_key">
+            <span class="fld-hint">Used to sign sessions — use a long random value.</span></label>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="subsection">
+          <div class="sub-title">Allowed IPs (empty = allow all)</div>
+          <div class="chip-rows">
+            <template x-for="(ip, i) in cfg.webui.allowed_ips" :key="i">
+              <div class="chip-row"><input type="text" class="input-mono" x-model="cfg.webui.allowed_ips[i]"><button type="button" class="ghost btn-sm rm" @click="rm(cfg.webui.allowed_ips, i)">✕</button></div>
+            </template>
+          </div>
+          <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.allowed_ips, '')">+ Add IP</button>
+        </div>
+        <div class="subsection">
+          <div class="sub-title">Trusted proxies</div>
+          <div class="chip-rows">
+            <template x-for="(ip, i) in cfg.webui.trusted_proxies" :key="i">
+              <div class="chip-row"><input type="text" class="input-mono" x-model="cfg.webui.trusted_proxies[i]"><button type="button" class="ghost btn-sm rm" @click="rm(cfg.webui.trusted_proxies, i)">✕</button></div>
+            </template>
+          </div>
+          <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.trusted_proxies, '')">+ Add proxy</button>
+        </div>
+        <div class="subsection">
+          <div class="sub-title">Admin users</div>
+          <template x-for="(u, i) in cfg.webui.admin_users" :key="i">
+            <div class="chip-row" style="margin-bottom:6px;">
+              <input type="text" class="input-mono" style="flex:1" placeholder="username" x-model="cfg.webui.admin_users[i].username">
+              <input type="text" class="input-mono" style="flex:2" placeholder="bcrypt password_hash" x-model="cfg.webui.admin_users[i].password_hash">
+              <button type="button" class="ghost btn-sm rm" @click="rm(cfg.webui.admin_users, i)">✕</button>
+            </div>
+          </template>
+          <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.admin_users, {username:'', password_hash:''})">+ Add admin</button>
+          <p class="fld-hint" style="margin-top:6px;">Generate a hash: <code class="mono">python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ ADVANCED (raw YAML) ============================ -->
+  <div x-show="tab==='advanced'" x-cloak>
+    <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor" id="config-form">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+      <div class="config-editor-grid">
+        <div class="editor-pane">
+          <div class="editor-surface">
+            <div class="search-row" role="search">
+              <label for="find-text">Find</label>
+              <input id="find-text" type="text" placeholder="Search" autocomplete="off">
+              <div class="search-actions">
+                <button id="find-prev" type="button" class="secondary btn-sm" aria-label="Find previous match">Prev</button>
+                <button id="find-next" type="button" class="secondary btn-sm" aria-label="Find next match">Next</button>
+              </div>
+              <label for="replace-text">Replace</label>
+              <input id="replace-text" type="text" placeholder="With" autocomplete="off">
+              <div class="search-actions">
+                <button id="replace-one" type="button" class="secondary btn-sm" aria-label="Replace the current match">Replace</button>
+                <button id="replace-all" type="button" class="secondary btn-sm" aria-label="Replace all matches">Replace all</button>
+              </div>
+              <div class="search-status" id="search-status" aria-live="polite"></div>
+            </div>
+            <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" aria-label="config.yaml editor">{{ config_text }}</textarea>
+          </div>
+          <div id="client-error" class="client-error" role="alert"></div>
+        </div>
+        <div class="hint-panel" id="hint-panel">
+          <h3>Context hints</h3>
+          <div class="hint-body" id="hint-body">
+            {{ context_hints.get('root', "Top-level sections mirror the README. Move the cursor to a section to see details.") }}
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- ============================ SAVE BAR ============================ -->
+  <div class="save-bar">
+    <button type="button" @click="save()">Save changes</button>
+    <button type="button" class="secondary" @click="reload()">Reload from disk</button>
+    <button type="button" class="ghost" @click="window.location.href='{{ url_for('dashboard') }}'">Cancel</button>
+    <span class="spacer"></span>
+    <span class="faint" style="font-size:0.78rem;" x-show="tab==='forms'" x-cloak>Saving from Forms rewrites YAML (comments not preserved). Use Advanced to keep comments.</span>
+    <a class="mono" style="font-size:0.82rem;" href="{{ url_for('regex_lab') }}">Open Regex Lab →</a>
+  </div>
 </div>
 
-{# Local assets: put the files into logtriage/webui/assets #}
-<link rel="stylesheet" href="{{ url_for('assets', path='codemirror.min.css') }}">
-<link rel="stylesheet" href="{{ url_for('assets', path='material-darker.min.css') }}">
+<form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true" style="display:none;">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+</form>
+
+<script type="application/json" id="config-json-data">{{ config_json | safe }}</script>
+<script type="application/json" id="context-hints-json">{{ context_hints | tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
 <script src="{{ url_for('assets', path='codemirror.min.js') }}"></script>
 <script src="{{ url_for('assets', path='mode-yaml.min.js') }}"></script>
 <script src="{{ url_for('assets', path='js-yaml.min.js') }}"></script>
-
-<script type="application/json" id="context-hints-json">{{ context_hints | tojson }}</script>
-
 <script>
+  // ---- CodeMirror (Advanced YAML tab) -------------------------------------
   const textarea = document.getElementById('config-text');
   const editor = CodeMirror.fromTextArea(textarea, {
-    mode: 'text/x-yaml',
-    lineNumbers: true,
-    lineWrapping: false,
-    tabSize: 2,
-    indentUnit: 2,
-    theme: 'material-darker',
+    mode: 'text/x-yaml', lineNumbers: true, lineWrapping: false,
+    tabSize: 2, indentUnit: 2, theme: 'material-darker',
   });
-
+  window.__cm = editor;
   editor.getInputField().setAttribute('spellcheck', 'false');
   editor.getInputField().setAttribute('autocorrect', 'off');
-  editor.getWrapperElement().style.marginRight = '0';
   editor.getWrapperElement().style.minHeight = '300px';
 
   const hintBody = document.getElementById('hint-body');
   const errorBox = document.getElementById('client-error');
-  const saveButton = document.getElementById('save-button');
   const findInput = document.getElementById('find-text');
   const replaceInput = document.getElementById('replace-text');
   const searchStatus = document.getElementById('search-status');
-  const findPrevButton = document.getElementById('find-prev');
-  const findNextButton = document.getElementById('find-next');
-  const replaceOneButton = document.getElementById('replace-one');
-  const replaceAllButton = document.getElementById('replace-all');
-  const cancelButton = document.getElementById('cancel-button');
-
-  if (cancelButton) {
-    cancelButton.addEventListener('click', () => {
-      const url = cancelButton.getAttribute('data-cancel-url') || '';
-      if (url) window.location.href = url;
-    });
-  }
-
-  // Context hints from server
   const hintTexts = JSON.parse((document.getElementById('context-hints-json') || {}).textContent || '{}');
-  // Ensure we have a valid object
   const safeHints = hintTexts && typeof hintTexts === 'object' ? hintTexts : {};
-  const hintsLoaded = Object.keys(safeHints).length > 0;
   const defaultHint = safeHints.root || 'Top-level settings for logtriage.';
-  
-  // Debug: log hints status on load
-  console.log('[ConfigEditor] Hints loaded:', hintsLoaded, 'keys:', Object.keys(safeHints).length);
-  console.log('[ConfigEditor] Sample hint keys:', Object.keys(safeHints).slice(0, 10));
-  console.log('[ConfigEditor] All hint keys:', Object.keys(safeHints));
-  console.log('[ConfigEditor] safeHints object:', safeHints);
-  console.log('[ConfigEditor] hintBody element:', hintBody);
   let errorLineHandle = null;
   let lastSearchDirection = 'next';
   let currentSearchMarker = null;
 
-  function debounce(fn, delay = 250) {
-    let timer;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn(...args), delay);
-    };
-  }
-
-  function showClientError(text) {
-    errorBox.textContent = text;
-    errorBox.style.display = text ? 'block' : 'none';
-  }
-
-  function clearErrorHighlight() {
-    if (errorLineHandle !== null) {
-      editor.removeLineClass(errorLineHandle, 'background', 'cm-error-line');
-      errorLineHandle = null;
-    }
-  }
-
-  function setHint(text) {
-    if (hintBody) {
-      hintBody.textContent = text;
-    }
-  }
-
-  function setSearchStatus(text) {
-    if (searchStatus) {
-      searchStatus.textContent = text || '';
-    }
-  }
-
-  function clearSearchHighlight() {
-    if (currentSearchMarker) {
-      currentSearchMarker.clear();
-      currentSearchMarker = null;
-    }
-  }
-
-  function normalizeSegment(raw) {
-    return raw.replace(/[^A-Za-z0-9_-]/g, '');
-  }
+  function debounce(fn, delay = 250) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), delay); }; }
+  function showClientError(text) { errorBox.textContent = text; errorBox.style.display = text ? 'block' : 'none'; }
+  function clearErrorHighlight() { if (errorLineHandle !== null) { editor.removeLineClass(errorLineHandle, 'background', 'cm-error-line'); errorLineHandle = null; } }
+  function setHint(text) { if (hintBody) hintBody.textContent = text; }
+  function setSearchStatus(text) { if (searchStatus) searchStatus.textContent = text || ''; }
+  function clearSearchHighlight() { if (currentSearchMarker) { currentSearchMarker.clear(); currentSearchMarker = null; } }
+  function normalizeSegment(raw) { return raw.replace(/[^A-Za-z0-9_-]/g, ''); }
 
   function pathForCursor(doc, lineNumber) {
     const lines = doc.getValue().split('\n');
     const stack = [];
-    // Only iterate up to (but not including) the current line to get ancestors
     for (let i = 0; i < lineNumber && i < lines.length; i++) {
       const raw = lines[i];
-      const indentMatch = raw.match(/^(\s*)/);
-      const indent = indentMatch ? indentMatch[1].length : 0;
+      const indent = (raw.match(/^(\s*)/) || [, ''])[1].length;
       const trimmed = raw.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
-
       const isListItem = /^-\s*/.test(trimmed);
       const keyPart = isListItem ? trimmed.replace(/^-\s*/, '') : trimmed;
-      // For list items like "- name:", the key starts after "- " (approx +2 chars).
-      // This makes "name" (indent+2) and sibling "classifier" (indent+2) at same level.
       const effectiveIndent = indent + (isListItem ? 2 : 0);
-
       const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
       if (!keyMatch) continue;
       const key = normalizeSegment(keyMatch[1]);
-
-      while (stack.length && stack[stack.length - 1].indent >= effectiveIndent) {
-        stack.pop();
-      }
+      while (stack.length && stack[stack.length - 1].indent >= effectiveIndent) stack.pop();
       stack.push({ key, indent: effectiveIndent });
     }
-    
-    // Now check the current line's indent to pop ancestors that are at same or deeper level
     if (lineNumber < lines.length) {
-      const currentLine = lines[lineNumber];
-      const currentIndentMatch = currentLine.match(/^(\s*)/);
-      const currentIndent = currentIndentMatch ? currentIndentMatch[1].length : 0;
-      const currentTrimmed = currentLine.trim();
-      const currentIsListItem = /^-\s*/.test(currentTrimmed);
-      const currentEffectiveIndent = currentIndent + (currentIsListItem ? 2 : 0);
-      
-      while (stack.length && stack[stack.length - 1].indent >= currentEffectiveIndent) {
-        stack.pop();
-      }
+      const cl = lines[lineNumber];
+      const ci = (cl.match(/^(\s*)/) || [, ''])[1].length;
+      const ct = cl.trim();
+      const cei = ci + (/^-\s*/.test(ct) ? 2 : 0);
+      while (stack.length && stack[stack.length - 1].indent >= cei) stack.pop();
     }
-    
     return stack.map(s => s.key);
   }
-
   function firstWordForLine(line) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return null;
-    const withoutDash = trimmed.replace(/^-\s*/, '');
-    const match = withoutDash.match(/^([A-Za-z0-9_-]+)/);
-    return match ? normalizeSegment(match[1]) : null;
+    const t = line.trim();
+    if (!t || t.startsWith('#')) return null;
+    const m = t.replace(/^-\s*/, '').match(/^([A-Za-z0-9_-]+)/);
+    return m ? normalizeSegment(m[1]) : null;
   }
-
   function hintForLine(line, lineNumber) {
-    const ancestors = pathForCursor(editor, lineNumber);
+    const ancestors = pathForCursor(editor, lineNumber).map(normalizeSegment).filter(Boolean);
     const firstWord = firstWordForLine(line);
-
     const candidates = [];
-    if (firstWord) {
-      const normalizedAncestors = ancestors.map(normalizeSegment).filter(Boolean);
-
-      // Most specific: full path with ancestors and current key
-      for (let i = normalizedAncestors.length; i >= 0; i--) {
-        const joined = [...normalizedAncestors.slice(0, i), normalizeSegment(firstWord)]
-          .filter(Boolean)
-          .join('_');
-        if (joined) {
-          candidates.push(joined);
-        }
-      }
+    if (firstWord) for (let i = ancestors.length; i >= 0; i--) {
+      const joined = [...ancestors.slice(0, i), normalizeSegment(firstWord)].filter(Boolean).join('_');
+      if (joined) candidates.push(joined);
     }
-
-    // Special handling for provider-specific fields (llm.providers.<name>.field)
-    if (firstWord && ancestors.length >= 2) {
-      const normalizedAncestors = ancestors.map(normalizeSegment).filter(Boolean);
-      console.log('[ConfigEditor] Provider check:', {
-        ancestors: ancestors,
-        normalizedAncestors: normalizedAncestors,
-        firstWord: firstWord
-      });
-      // Check if we're under llm.providers.<name>
-      if (normalizedAncestors[0] === 'llm' && normalizedAncestors[1] === 'providers' && normalizedAncestors.length >= 3) {
-        console.log('[ConfigEditor] Inside provider condition - should add patterns');
-        // Create provider-specific patterns
-        const providerPattern = `llm_providers_*_${firstWord}`;
-        candidates.push(providerPattern);
-        console.log('[ConfigEditor] Added provider pattern:', providerPattern);
-        
-        // Also try the specific provider name if available
-        if (normalizedAncestors[2]) {  // Fixed index: should be 2 not 3
-          const specificPattern = `llm_providers_${normalizedAncestors[2]}_${firstWord}`;
-          candidates.push(specificPattern);
-          console.log('[ConfigEditor] Added specific pattern:', specificPattern);
-        }
-      }
+    for (const key of candidates) if (key && safeHints[key]) return safeHints[key];
+    const wildcardKeys = Object.keys(safeHints).filter(k => k.includes('*'));
+    for (const c of candidates) for (const w of wildcardKeys) {
+      if (new RegExp('^' + w.replace(/\*/g, '.+') + '$').test(c)) return safeHints[w];
     }
-
-    // Backwards compatibility with older hint keys like "modules_name"
-    if (firstWord) {
-      for (let i = ancestors.length - 1; i >= 0; i--) {
-        const prefix = normalizeSegment(ancestors[i]);
-        console.log('[ConfigEditor] hintForLine candidates:', candidates);
-        console.log('[ConfigEditor] Available hints with max_output:', Object.keys(safeHints).filter(k => k.includes('max_output')));
-        console.log('[ConfigEditor] Checking if safeHints has candidates:', candidates.map(c => `${c}: ${c in safeHints ? 'EXISTS' : 'MISSING'}`));
-        // Exact matches first
-        for (const key of candidates) {
-          if (key && safeHints[key]) {
-            console.log('[ConfigEditor] Found exact match:', key);
-            return safeHints[key];
-          }
-        }
-
-        // Wildcard matches (e.g., llm_providers_*_api_base)
-        const wildcardKeys = Object.keys(safeHints).filter((key) => key.includes('*'));
-        for (const candidate of candidates) {
-          for (const wildcard of wildcardKeys) {
-            const regex = new RegExp('^' + wildcard.replace(/\*/g, '[^_]+') + '$');
-            if (regex.test(candidate)) {
-              return safeHints[wildcard];
-            }
-          }
-        }
-
-        const joined = `${prefix}_${firstWord}`;
-        if (joined) {
-          candidates.push(joined);
-        }
-      }
-      candidates.push(firstWord);
-    }
-
-    const wildcardKeys = Object.keys(safeHints).filter((key) => key.includes('*'));
-    for (const candidate of candidates) {
-      for (const wildcard of wildcardKeys) {
-        // Use .+ to match segments that might contain underscores (like module names)
-        const regex = new RegExp('^' + wildcard.replace(/\*/g, '.+') + '$');
-        if (regex.test(candidate)) {
-          return safeHints[wildcard];
-        }
-      }
-    }
-
+    if (firstWord && safeHints[firstWord]) return safeHints[firstWord];
     return null;
   }
-
   function validateYaml() {
     const value = editor.getValue();
     clearErrorHighlight();
-    try {
-      jsyaml.load(value);
-      showClientError('');
-      if (saveButton) {
-        saveButton.disabled = false;
-      }
-      return true;
-    } catch (err) {
-      if (err && err.mark && typeof err.mark.line === 'number') {
-        errorLineHandle = editor.addLineClass(err.mark.line, 'background', 'cm-error-line');
-      }
-      showClientError(`YAML error: ${err.message}`);
-      if (saveButton) {
-        saveButton.disabled = true;
-      }
-      return false;
+    try { jsyaml.load(value); showClientError(''); return true; }
+    catch (err) {
+      if (err && err.mark && typeof err.mark.line === 'number') errorLineHandle = editor.addLineClass(err.mark.line, 'background', 'cm-error-line');
+      showClientError(`YAML error: ${err.message}`); return false;
     }
   }
-
   function updateHint() {
     try {
       const pos = editor.getCursor();
-      const lineText = editor.getLine(pos.line) || '';
-      const hint = hintForLine(lineText, pos.line);
-      const ancestors = pathForCursor(editor, pos.line);
-      const firstWord = firstWordForLine(lineText);
-      console.log('[ConfigEditor] updateHint:', { 
-        line: pos.line, 
-        text: lineText.substring(0, 50), 
-        ancestors: ancestors,
-        firstWord: firstWord,
-        hint: hint ? hint.substring(0, 80) : null 
-      });
-      if (hint) {
-        setHint(hint);
-      } else {
-        // No specific hint found.
-        if (!hintsLoaded) {
-          setHint('Loading context hints...');
-        } else if (ancestors.length === 0) {
-           // At root level, show the root/default hint
-           setHint(defaultHint);
-        } else {
-           setHint('No hint available for this section yet.');
-        }
-      }
-    } catch (err) {
-      console.error('Hint update error', err);
-      setHint(defaultHint);
-    }
+      const hint = hintForLine(editor.getLine(pos.line) || '', pos.line);
+      setHint(hint || (pathForCursor(editor, pos.line).length === 0 ? defaultHint : 'No hint for this section yet.'));
+    } catch (e) { setHint(defaultHint); }
   }
-
   function searchInEditor(direction = 'next') {
     const query = (findInput?.value || '').trim();
-    if (!query) {
-      setSearchStatus('Enter text to find');
-      clearSearchHighlight();
-      return null;
-    }
-
-    const doc = editor.getDoc();
-    const fullText = doc.getValue();
-    const selection = doc.getSelection();
-    let startIndex = doc.indexFromPos(doc.getCursor(direction === 'next' ? 'to' : 'from'));
-
-    if (selection && selection === query) {
-      startIndex =
-        direction === 'next'
-          ? doc.indexFromPos(doc.getCursor('to'))
-          : doc.indexFromPos(doc.getCursor('from')) - query.length;
-    }
-
-    startIndex = Math.max(0, startIndex);
-    let matchIndex;
-
-    if (direction === 'prev') {
-      matchIndex = fullText.lastIndexOf(query, startIndex - 1);
-      if (matchIndex === -1) {
-        matchIndex = fullText.lastIndexOf(query);
-      }
-    } else {
-      matchIndex = fullText.indexOf(query, startIndex);
-      if (matchIndex === -1) {
-        matchIndex = fullText.indexOf(query);
-      }
-    }
-
-    if (matchIndex === -1) {
-      setSearchStatus('No matches');
-      clearSearchHighlight();
-      return null;
-    }
-
-    const from = doc.posFromIndex(matchIndex);
-    const to = doc.posFromIndex(matchIndex + query.length);
-    clearSearchHighlight();
-    currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
-    doc.setSelection(from, to);
-    editor.scrollIntoView({ from, to });
-    setSearchStatus('');
-    lastSearchDirection = direction;
+    if (!query) { setSearchStatus('Enter text to find'); clearSearchHighlight(); return null; }
+    const doc = editor.getDoc(); const fullText = doc.getValue();
+    let startIndex = Math.max(0, doc.indexFromPos(doc.getCursor(direction === 'next' ? 'to' : 'from')));
+    let matchIndex = direction === 'prev'
+      ? (fullText.lastIndexOf(query, startIndex - 1) >= 0 ? fullText.lastIndexOf(query, startIndex - 1) : fullText.lastIndexOf(query))
+      : (fullText.indexOf(query, startIndex) >= 0 ? fullText.indexOf(query, startIndex) : fullText.indexOf(query));
+    if (matchIndex === -1) { setSearchStatus('No matches'); clearSearchHighlight(); return null; }
+    const from = doc.posFromIndex(matchIndex), to = doc.posFromIndex(matchIndex + query.length);
+    clearSearchHighlight(); currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
+    doc.setSelection(from, to); editor.scrollIntoView({ from, to }); setSearchStatus(''); lastSearchDirection = direction;
     return { from, to };
   }
-
-  function replaceCurrentMatch() {
-    const query = (findInput?.value || '').trim();
-    if (!query) {
-      setSearchStatus('Enter text to replace');
-      return;
-    }
-
-    const replacement = replaceInput?.value ?? '';
-    const doc = editor.getDoc();
-
-    if (doc.getSelection() === query) {
-      const start = doc.getCursor('from');
-      doc.replaceSelection(replacement, 'around');
-      const end = doc.posFromIndex(doc.indexFromPos(start) + replacement.length);
-      clearSearchHighlight();
-      currentSearchMarker = doc.markText(start, end, { className: 'search-highlight' });
-      doc.setSelection(start, end);
-      editor.scrollIntoView({ from: start, to: end });
-      editor.save();
-      validateYaml();
-      updateHint();
-      setSearchStatus('Replaced selection');
-      return;
-    }
-
-    const match = searchInEditor(lastSearchDirection);
-    if (match) {
-      replaceCurrentMatch();
-    }
-  }
-
   function replaceAllMatches() {
     const query = (findInput?.value || '').trim();
-    if (!query) {
-      setSearchStatus('Enter text to replace');
-      return;
-    }
-
-    const replacement = replaceInput?.value ?? '';
-    const doc = editor.getDoc();
-    const text = doc.getValue();
-    const occurrences = text.split(query).length - 1;
-
-    if (occurrences <= 0) {
-      setSearchStatus('No matches');
-      return;
-    }
-
-    const newText = text.split(query).join(replacement);
-    doc.setValue(newText);
-    editor.save();
-    validateYaml();
-    updateHint();
-
-    if (replacement) {
-      const firstIdx = newText.indexOf(replacement);
-      const from = doc.posFromIndex(Math.max(0, firstIdx));
-      const to = doc.posFromIndex(Math.max(0, firstIdx + replacement.length));
-      clearSearchHighlight();
-      currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
-      doc.setSelection(from, to);
-      editor.scrollIntoView({ from, to });
-    }
-
-    setSearchStatus(`Replaced ${occurrences} occurrence${occurrences === 1 ? '' : 's'}`);
+    if (!query) { setSearchStatus('Enter text to replace'); return; }
+    const doc = editor.getDoc(); const text = doc.getValue();
+    const occ = text.split(query).length - 1;
+    if (occ <= 0) { setSearchStatus('No matches'); return; }
+    doc.setValue(text.split(query).join(replaceInput?.value ?? '')); validateYaml();
+    setSearchStatus(`Replaced ${occ} occurrence${occ === 1 ? '' : 's'}`);
   }
 
   editor.on('cursorActivity', updateHint);
-  editor.on('changes', debounce(() => {
-    editor.save();
-    validateYaml();
-    updateHint();
-  }, 200));
+  editor.on('changes', debounce(() => { editor.save(); validateYaml(); updateHint(); }, 200));
+  document.getElementById('find-next')?.addEventListener('click', () => searchInEditor('next'));
+  document.getElementById('find-prev')?.addEventListener('click', () => searchInEditor('prev'));
+  document.getElementById('replace-all')?.addEventListener('click', replaceAllMatches);
+  document.getElementById('replace-one')?.addEventListener('click', () => { if (editor.getDoc().getSelection() === (findInput?.value || '').trim() && findInput.value) { editor.getDoc().replaceSelection(replaceInput?.value ?? ''); editor.save(); validateYaml(); } else { searchInEditor('next'); } });
+  findInput?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchInEditor('next'); } });
+  document.querySelector('.config-editor')?.addEventListener('submit', (event) => { if (!validateYaml()) { event.preventDefault(); return; } editor.save(); });
+  setHint(defaultHint); validateYaml();
 
-  if (findNextButton) {
-    findNextButton.addEventListener('click', () => searchInEditor('next'));
+  // ---- Structured form editor (Alpine) ------------------------------------
+  function configEditor() {
+    return {
+      tab: 'forms',
+      section: 'general',
+      sections: [
+        { id: 'general', label: 'General' }, { id: 'llm', label: 'LLM' }, { id: 'rag', label: 'RAG' },
+        { id: 'pipelines', label: 'Pipelines' }, { id: 'modules', label: 'Modules' }, { id: 'webui', label: 'Web UI' },
+      ],
+      levels: ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+      severities: ['WARNING', 'ERROR', 'CRITICAL'],
+      cfg: {}, providers: [], loggers: [], yamlError: '',
+
+      init() {
+        let raw = {};
+        try { raw = JSON.parse((document.getElementById('config-json-data') || {}).textContent || '{}') || {}; } catch (e) { raw = {}; }
+        this.cfg = raw;
+        this.normalize();
+      },
+      normalize() {
+        const c = this.cfg;
+        c.defaults = c.defaults || {}; c.database = c.database || {}; c.logging = c.logging || {};
+        c.llm = c.llm || {}; c.llm.providers = c.llm.providers || {};
+        c.rag = c.rag || {}; c.pipelines = c.pipelines || []; c.modules = c.modules || [];
+        c.webui = c.webui || {};
+        c.webui.allowed_ips = c.webui.allowed_ips || [];
+        c.webui.trusted_proxies = c.webui.trusted_proxies || [];
+        c.webui.admin_users = c.webui.admin_users || [];
+        this.providers = Object.entries(c.llm.providers).map(([name, v]) => ({ name, ...(v || {}) }));
+        this.loggers = Object.entries(c.logging.loggers || {}).map(([name, level]) => ({ name, level }));
+        c.pipelines.forEach(p => {
+          p.match = p.match || {}; p.classifier = p.classifier || {}; p.grouping = p.grouping || {};
+          p.classifier.error_regexes = p.classifier.error_regexes || [];
+          p.classifier.warning_regexes = p.classifier.warning_regexes || [];
+          p.classifier.ignore_regexes = p.classifier.ignore_regexes || [];
+        });
+        c.modules.forEach(m => {
+          m.llm = m.llm || {}; m.alerts = m.alerts || {};
+          m.alerts.webhook = m.alerts.webhook || {}; m.alerts.mqtt = m.alerts.mqtt || {};
+          m.stream = m.stream || {}; m.rag = m.rag || {};
+          m.rag.knowledge_sources = m.rag.knowledge_sources || [];
+          m.rag.knowledge_sources.forEach(k => { k.include_paths = k.include_paths || []; });
+        });
+      },
+      buildCfg() {
+        const providersObj = {};
+        this.providers.forEach(p => { const { name, ...rest } = p; if (name) providersObj[name] = this.clean(rest); });
+        this.cfg.llm.providers = providersObj;
+        const loggersObj = {};
+        this.loggers.forEach(l => { if (l.name) loggersObj[l.name] = l.level; });
+        if (Object.keys(loggersObj).length) this.cfg.logging.loggers = loggersObj; else delete this.cfg.logging.loggers;
+        return this.cfg;
+      },
+      clean(o) { // drop empty-string / null / undefined keys so YAML stays tidy
+        const out = {};
+        Object.entries(o).forEach(([k, v]) => { if (v !== '' && v !== null && v !== undefined) out[k] = v; });
+        return out;
+      },
+      toYaml() { return jsyaml.dump(this.buildCfg(), { indent: 2, lineWidth: 120, sortKeys: false, noRefs: true }); },
+
+      showForms() {
+        try { const obj = jsyaml.load(window.__cm.getValue()); this.cfg = obj || {}; this.normalize(); this.yamlError = ''; this.tab = 'forms'; }
+        catch (e) { this.yamlError = 'Fix YAML errors in Advanced before switching to Forms: ' + e.message; }
+      },
+      showAdvanced() { window.__cm.setValue(this.toYaml()); this.tab = 'advanced'; this.$nextTick(() => window.__cm.refresh()); },
+
+      add(arr, item) { arr.push(typeof item === 'object' && item !== null ? JSON.parse(JSON.stringify(item)) : item); },
+      rm(arr, i) { arr.splice(i, 1); },
+      addProvider() { this.providers.push({ name: 'new_provider', provider_type: 'openai', api_base: '', api_key_env: '', model: '' }); },
+      addPipeline() { this.cfg.pipelines.push({ name: 'new_pipeline', match: { filename_regex: '' }, classifier: { type: 'regex_counter', error_regexes: [], warning_regexes: [], ignore_regexes: [] }, grouping: { type: 'whole_file' } }); },
+      addModule() { this.cfg.modules.push({ name: 'new_module', enabled: true, path: '', mode: 'follow', pipeline: '', output_format: 'text', min_print_severity: 'WARNING', llm: { enabled: false }, alerts: { webhook: {}, mqtt: {} }, stream: { from_beginning: false, interval: 1.0 }, rag: { enabled: false, knowledge_sources: [] } }); },
+
+      save() {
+        if (this.tab === 'forms') {
+          try { window.__cm.setValue(this.toYaml()); }
+          catch (e) { this.yamlError = 'Could not serialise config: ' + e.message; return; }
+        }
+        const form = document.getElementById('config-form');
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      },
+      reload() {
+        const f = document.getElementById('config-reload-form');
+        if (f.requestSubmit) f.requestSubmit(); else f.submit();
+      },
+    };
   }
-
-  if (findPrevButton) {
-    findPrevButton.addEventListener('click', () => searchInEditor('prev'));
-  }
-
-  if (replaceOneButton) {
-    replaceOneButton.addEventListener('click', replaceCurrentMatch);
-  }
-
-  if (replaceAllButton) {
-    replaceAllButton.addEventListener('click', replaceAllMatches);
-  }
-
-  if (findInput) {
-    findInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        searchInEditor('next');
-      }
-    });
-  }
-
-  if (replaceInput) {
-    replaceInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        replaceCurrentMatch();
-      }
-    });
-  }
-
-  document
-    .querySelector('.config-editor')
-    .addEventListener('submit', (event) => {
-      const isValid = validateYaml();
-      if (!isValid) {
-        event.preventDefault();
-        return;
-      }
-      editor.save();
-    });
-
-  setSearchStatus('');
-  setHint(defaultHint);
-  validateYaml();
-  // Initial hint update with a small delay to ensure editor is ready
-  setTimeout(updateHint, 100);
-  // Also update on focus
-  editor.on('focus', updateHint);
 </script>
 {% endblock %}

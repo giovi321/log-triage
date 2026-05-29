@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Triage{% endblock %}
+
+{% macro sparkbars(values, cls='', maxpx=22) %}
+  {% set m = (values | max) if values else 0 %}
+  <span class="sparkline {{ cls }}">
+    {% for v in values %}
+      {% if not v %}<span class="spark-bar zero"></span>
+      {% else %}<span class="spark-bar {{ 'hot' if (m and v >= m * 0.66) else '' }}" style="height:{{ (3 + (v / m * maxpx)) | round | int }}px;"></span>{% endif %}
+    {% endfor %}
+  </span>
+{% endmacro %}
+
+{% block content %}
+{% set active_count = (counts.get('open', 0) + counts.get('acknowledged', 0)) %}
+
+<div class="card" data-reveal>
+  <div class="section-eyebrow">TRIAGE QUEUE</div>
+  <h2 style="margin-top:0;">Issues</h2>
+  <p class="helper-text" style="margin-top:0;">De-duplicated problems, ranked by priority (severity × recency × rate × novelty). Each is analyzed by the LLM once and cached.</p>
+  {% if current_module %}
+  <div style="margin-bottom:var(--s-2);">
+    <a class="mono" style="font-size:0.82rem;" href="{{ url_for('ai_logs') }}?module={{ current_module }}">View raw log for {{ current_module }} →</a>
+  </div>
+  {% endif %}
+
+  <div class="stat-tabs">
+    {% set tabs = [('active','Active', active_count), ('open','Open', counts.get('open',0)), ('acknowledged','Acked', counts.get('acknowledged',0)), ('resolved','Resolved', counts.get('resolved',0)), ('muted','Muted', counts.get('muted',0)), ('false_positive','False+', counts.get('false_positive',0)), ('all','All', (counts.values()|sum))] %}
+    {% for key, label, n in tabs %}
+      <a class="stat-tab {% if status_filter == key %}active{% endif %}" href="{{ url_for('issues') }}?status_filter={{ key }}">
+        <span class="stat-num">{{ n }}</span>
+        <span class="stat-label">{{ label }}</span>
+      </a>
+    {% endfor %}
+  </div>
+
+  <form method="get" action="{{ url_for('issues') }}" class="triage-filters">
+    <input type="hidden" name="status_filter" value="{{ status_filter }}">
+    <label class="fld" style="min-width:160px;"><span class="fld-label">Module</span>
+      <select name="module" onchange="this.form.submit()">
+        <option value="">All modules</option>
+        {% for m in modules %}<option value="{{ m.name }}" {% if current_module == m.name %}selected{% endif %}>{{ m.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="fld" style="min-width:130px;"><span class="fld-label">Severity</span>
+      <select name="severity" onchange="this.form.submit()">
+        <option value="">Any</option>
+        {% for s in severity_choices %}<option value="{{ s }}" {% if severity_filter == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="fld" style="flex:1; min-width:180px;"><span class="fld-label">Search</span>
+      <input type="text" class="input-mono" name="q" value="{{ search }}" placeholder="title / signature / rule…">
+    </label>
+    <button type="submit" class="secondary" style="align-self:flex-end;">Filter</button>
+  </form>
+</div>
+
+<div class="card" data-reveal style="--i:1">
+  {% if not db_status.connected %}
+    <p class="muted">Database not connected — issues require a configured database.</p>
+  {% elif not issues %}
+    <p class="muted">No issues match this view. 🎉</p>
+  {% else %}
+    {% for issue in issues %}
+      <div class="issue-row">
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-start;">
+          <span class="status-badge sev-{{ issue.severity }}">{{ issue.severity }}</span>
+          <span class="faint mono" style="font-size:0.68rem;" title="priority score">p{{ issue.priority_score | round | int }}</span>
+        </div>
+        <div style="min-width:0;">
+          <div class="issue-title"><a href="{{ url_for('issue_detail', issue_id=issue.id) }}">{{ issue.title }}</a></div>
+          <div class="issue-sig">{{ issue.module_name }} · {{ issue.signature }}</div>
+          {% if issue.llm_content and issue.llm_analyzed_fingerprint == issue.fingerprint %}
+            <div class="issue-summary">{{ issue.llm_content }}</div>
+          {% else %}
+            <div class="issue-summary faint">Not analyzed yet — open to run analysis.</div>
+          {% endif %}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-start;">
+          <span class="issue-count">{{ issue.occurrence_count }}<span class="faint" style="font-size:0.7rem; font-weight:400;"> seen</span></span>
+          {{ sparkbars(sparklines.get(issue.id, [])) }}
+        </div>
+        <div class="mono" style="font-size:0.78rem;">
+          <div title="last seen">{{ issue.last_seen | localtime }}</div>
+          <div class="faint" style="font-size:0.72rem;" title="first seen">first: {{ issue.first_seen | localtime }}</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+          <span class="tag">{{ issue.status }}</span>
+          <a href="{{ url_for('issue_detail', issue_id=issue.id) }}" class="mono" style="font-size:0.8rem;">Open →</a>
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

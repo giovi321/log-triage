@@ -1,29 +1,41 @@
 {% extends "base.html" %}
+{% block title %}Account{% endblock %}
 {% block content %}
-<div class="grid two-col">
-  <div class="card" style="grid-column: span 2;">
-    <p class="helper-text">Update your bcrypt hash inside <code>webui.admin_users</code>. A backup of <code>config.yaml</code> will be written.</p>
-    <form method="post" action="{{ url_for('change_password') }}" style="display:grid; gap:0.75rem; max-width:520px;">
+<div class="grid wide-two-col">
+  <div class="card" data-reveal style="--i:0">
+    <div class="section-eyebrow">CREDENTIALS</div>
+    <h2 style="margin-top:0;">Change password</h2>
+    <p class="helper-text">Updates your bcrypt hash inside <code class="mono">webui.admin_users</code>. A backup of <code class="mono">config.yaml</code> is written first.</p>
+    <form method="post" action="{{ url_for('change_password') }}" class="account-form">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-      <label>
-        <span class="muted" style="display:block; margin-bottom:0.25rem;">Current password</span>
-        <input type="password" name="current_password" required>
+      <label class="field">
+        <span class="field-label">Current password</span>
+        <input type="password" name="current_password" autocomplete="current-password" required>
       </label>
-      <label>
-        <span class="muted" style="display:block; margin-bottom:0.25rem;">New password</span>
-        <input type="password" name="new_password" minlength="8" required>
+      <label class="field">
+        <span class="field-label">New password</span>
+        <input type="password" name="new_password" minlength="8" autocomplete="new-password" required>
       </label>
-      <label>
-        <span class="muted" style="display:block; margin-bottom:0.25rem;">Confirm new password</span>
-        <input type="password" name="confirm_password" minlength="8" required>
+      <label class="field">
+        <span class="field-label">Confirm new password</span>
+        <input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
       </label>
-      <button type="submit" class="secondary">Save new password</button>
+      <button type="submit">Save new password</button>
     </form>
   </div>
 
-  <div class="card">
-    <h2>Need to add an admin?</h2>
-    <p class="helper-text">Edit <code>webui.admin_users</code> directly in the <a href="{{ url_for('edit_config') }}">config editor</a>. Each entry needs a <code>username</code> and <code>password_hash</code> generated with bcrypt.</p>
+  <div class="card" data-reveal style="--i:1">
+    <div class="section-eyebrow">ADMINISTRATION</div>
+    <h2 style="margin-top:0;">Add an admin</h2>
+    <p class="helper-text">Edit <code class="mono">webui.admin_users</code> in the <a href="{{ url_for('edit_config') }}">config editor</a>. Each entry needs a <code class="mono">username</code> and a bcrypt <code class="mono">password_hash</code>.</p>
+    <pre class="panel mono" style="font-size:0.8rem; overflow:auto; margin-top:var(--s-3);">python -c "import bcrypt; \
+print(bcrypt.hashpw(b'secret', bcrypt.gensalt()).decode())"</pre>
   </div>
 </div>
+
+<style>
+  .account-form { display:grid; gap:var(--s-4); max-width:520px; margin-top:var(--s-4); }
+  .account-form .field { display:grid; gap:6px; }
+  .account-form .field-label { font-family:var(--font-mono); font-size:0.72rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-faint); }
+</style>
 {% endblock %}
