@@ -125,6 +125,20 @@ def _anthropic_messages_url(api_base: str) -> str:
     return f"{normalized_base}/v1/messages"
 
 
+def _anthropic_system_field(system_content: str, cache: bool):
+    """Build the Anthropic ``system`` field.
+
+    When ``cache`` is true, the system prompt is sent as a single cacheable text
+    block (``cache_control: ephemeral``). The system block is where we place the
+    large, stable prefix (instructions + retrieved documentation), so prompt
+    caching cuts latency and input-token cost when the same docs recur across
+    issue analyses. Plain string otherwise.
+    """
+    if not cache or not system_content:
+        return system_content
+    return [{"type": "text", "text": system_content, "cache_control": {"type": "ephemeral"}}]
+
+
 def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
     if not provider.api_key_env:
         raise RuntimeError(
@@ -157,7 +171,9 @@ def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
         "messages": filtered_messages,
     }
     if system_content:
-        anthropic_payload["system"] = system_content
+        anthropic_payload["system"] = _anthropic_system_field(
+            system_content, payload.get("cache_system", False)
+        )
     if "temperature" in payload:
         anthropic_payload["temperature"] = payload["temperature"]
     if "top_p" in payload:

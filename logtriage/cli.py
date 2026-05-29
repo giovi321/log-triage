@@ -16,7 +16,7 @@ from .llm_payload import write_llm_payloads, should_send_to_llm
 from .utils import select_pipeline
 from .stream import stream_file
 from .alerts import send_alerts
-from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index
+from .webui.db import setup_database, cleanup_old_findings, store_finding, get_next_finding_index, backfill_issues
 from .version import __version__
 from .rag.monitor import RAGServiceMonitor
 
@@ -144,6 +144,16 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--reload-on-change",
         action="store_true",
         help="Automatically reload when the config file mtime changes (handy when saving via the Web UI).",
+    )
+    p.add_argument(
+        "--backfill-issues",
+        action="store_true",
+        help="Assign fingerprints and build de-duplicated issues for existing findings, then exit.",
+    )
+    p.add_argument(
+        "--analyze-issues",
+        action="store_true",
+        help="Run LLM analysis for issues whose cached summary is missing or stale, then exit.",
     )
     return p.parse_args(argv)
 
@@ -336,9 +346,48 @@ def main(argv: Optional[List[str]] = None) -> None:
     configure_logging(cfg)
     logger = logging.getLogger(__name__)
     logger.info(f"logtriage starting with config: {cfg_path}")
-    
+
+    # Standalone issue backfill: assign fingerprints/issues to old findings and exit.
+    if args.backfill_issues:
+        db_cfg = (cfg.get("database") or {}) if isinstance(cfg, dict) else {}
+        db_url = db_cfg.get("url")
+        if not db_url:
+            print("No database.url configured; nothing to backfill.", file=sys.stderr)
+            return
+        setup_database(db_url)
+        count = backfill_issues()
+        print(f"Backfilled {count} findings into de-duplicated issues.")
+        return
+
+    # Standalone per-issue LLM enrichment: analyze stale/missing issue summaries and exit.
+    if args.analyze_issues:
+        from .enrichment import analyze_pending_issues
+        db_cfg = (cfg.get("database") or {}) if isinstance(cfg, dict) else {}
+        db_url = db_cfg.get("url")
+        if not db_url:
+            print("No database.url configured; nothing to analyze.", file=sys.stderr)
+            return
+        setup_database(db_url)
+        llm_defaults = build_llm_config(cfg)
+        modules_by_name = {m.name: m for m in build_modules(cfg, llm_defaults)}
+        rag_client_local = None
+        if create_rag_client is not None:
+            try:
+                rag_cfg = build_rag_config(cfg)
+                if rag_cfg and getattr(rag_cfg, "enabled", False):
+                    url = getattr(rag_cfg, "service_url", None) or "http://127.0.0.1:8091"
+                    candidate = create_rag_client(url, fallback=True)
+                    rag_client_local = candidate if candidate.is_healthy() else None
+            except Exception:
+                rag_client_local = None
+        written = analyze_pending_issues(modules_by_name, llm_defaults, rag_client=rag_client_local)
+        print(f"Analyzed {written} issue(s) with the LLM.")
+        return
+
     # Start RAG monitoring
     start_rag_monitor(cfg_path)
+
+    backfilled = False
     
     try:
         reload_event = Event()
@@ -387,6 +436,16 @@ def main(argv: Optional[List[str]] = None) -> None:
             retention_days = int(db_cfg.get("retention_days", 0) or 0)
             if db_url:
                 setup_database(db_url)
+                # One-time, idempotent backfill so pre-existing findings group
+                # into issues. Cheap on subsequent runs (no NULL issue_id rows).
+                if not backfilled:
+                    try:
+                        migrated = backfill_issues()
+                        if migrated:
+                            logger.info(f"Backfilled {migrated} findings into de-duplicated issues")
+                    except Exception as exc:
+                        logger.warning(f"Issue backfill failed: {exc}")
+                    backfilled = True
                 if retention_days > 0:
                     try:
                         cleanup_old_findings(retention_days)
