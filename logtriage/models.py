@@ -189,6 +189,10 @@ class RAGGlobalConfig:
     # Hidden advanced settings with sensible defaults
     embedding_batch_size: int = 32  # Keep for backward compatibility
     vector_store_type: str = "chroma"
+    # Embed in a fresh subprocess per batch (full memory isolation, but reloads
+    # the model every batch → very slow for large repos). Default: in-process,
+    # resident model (load once, encode in batches).
+    use_subprocess: bool = False
 
 
 @dataclasses.dataclass

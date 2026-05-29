@@ -35,7 +35,8 @@ class RAGClient:
         self.embedding_service = EmbeddingService(
             model_name=global_config.embedding_model,
             device=global_config.device,
-            batch_size=global_config.embedding_batch_size
+            batch_size=global_config.embedding_batch_size,
+            use_subprocess=getattr(global_config, "use_subprocess", False),
         )
         self.vector_store = VectorStore(global_config.vector_store_dir)
         self.retrieval_engine = RetrievalEngine(

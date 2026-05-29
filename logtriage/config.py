@@ -411,6 +411,9 @@ def build_rag_config(cfg: Dict[str, Any]) -> Optional[RAGGlobalConfig]:
         # Hidden advanced settings with sensible defaults
         embedding_batch_size=int(rag_cfg.get("embedding", {}).get("batch_size", 32)),
         vector_store_type=rag_cfg.get("vector_store", {}).get("type", "chroma"),
+        use_subprocess=bool(
+            rag_cfg.get("embedding", {}).get("use_subprocess", rag_cfg.get("use_subprocess", False))
+        ),
     )
 
 

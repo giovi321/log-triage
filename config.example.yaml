@@ -171,8 +171,13 @@ rag:
 
   # Advanced settings
   embedding:
-    # Batch size for embedding generation (advanced)
+    # Batch size for embedding generation (advanced). Larger = faster in-process.
     batch_size: 32
+    # Embedding execution mode. Default false = load the model ONCE in-process
+    # and encode in batches (fast). Set true only if you must fully reclaim
+    # memory between batches — it spawns a subprocess and RELOADS the model for
+    # every batch, which makes indexing large repos extremely slow.
+    use_subprocess: false
   vector_store:
     # Vector store implementation type (advanced)
     type: chroma
