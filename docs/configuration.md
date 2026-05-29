@@ -367,7 +367,13 @@ rag:
   top_k: 5
   similarity_threshold: 0.7
   max_chunks: 10
+  # Advanced: embedding execution (defaults shown)
+  embedding:
+    batch_size: 32
+    use_subprocess: false   # false = load model once in-process (fast)
 ```
+
+The embedding model (a SentenceTransformers model) is **loaded once in-process and used to encode in batches** by default — fast. Set `embedding.use_subprocess: true` only if you must fully reclaim memory between batches; it spawns a subprocess and **reloads the model for every batch**, which makes indexing large repos extremely slow. On first use the model is downloaded from the Hugging Face Hub and cached locally, so the RAG service needs network access on that first run (pre-cache it for offline hosts).
 
 ### Module-Level RAG Configuration
 
@@ -399,15 +405,23 @@ modules:
 
 #### RAG Configuration Options
 
-- **cache_dir**: Directory for storing cloned Git repositories
-- **vector_store.persist_directory**: Directory for ChromaDB vector storage
-- **embedding.model_name**: SentenceTransformer model for embeddings
-- **embedding.device**: "cpu" or "cuda" for GPU acceleration
-- **embedding.batch_size**: Batch size for embedding generation
-- **retrieval.top_k**: Maximum number of chunks to retrieve
-- **retrieval.similarity_threshold**: Minimum similarity score (0.0-1.0)
-- **retrieval.max_chunks**: Maximum chunks to consider during search
-- **knowledge_sources**: List of Git repositories containing documentation
-- **include_paths**: Glob patterns for selecting files from repositories
+Global (`rag.*`):
+
+- **enabled**: Turn RAG on/off.
+- **service_url**: URL of the standalone RAG service (default `http://127.0.0.1:8091`).
+- **cache_dir**: Directory for cloned Git repositories.
+- **vector_store_dir**: Directory for the FAISS index + metadata.
+- **embedding_model**: SentenceTransformers model for embeddings.
+- **device**: `cpu` or `cuda`.
+- **top_k**: Maximum number of chunks to retrieve.
+- **similarity_threshold**: Minimum similarity score (0.0–1.0).
+- **max_chunks**: Maximum chunks to consider during search.
+- **embedding.batch_size**: Batch size for embedding generation.
+- **embedding.use_subprocess**: `false` (default) = resident in-process model; `true` = per-batch subprocess (slower).
+
+Per module (`modules[].rag.*`):
+
+- **knowledge_sources**: List of Git repositories containing documentation.
+- **include_paths**: Glob patterns for selecting files from each repository.
 
 For detailed RAG setup instructions, see the [RAG Quick Start Guide](RAG-QuickStart.md) and [RAG documentation](RAG.md).

@@ -307,11 +307,16 @@ Monitor:
    - Check authentication if using private repos
 
 2. **"No embeddings generated"**
-   - Verify embedding model is accessible
-   - Check available memory/disk space
-   - Review model configuration
+   - Verify the embedding model is accessible. On first use it is downloaded from the Hugging Face Hub and cached locally — the RAG service needs network access on that first run (pre-cache it for offline hosts), e.g. `python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"`.
+   - Check available memory/disk space.
+   - If you see `Subprocess failed with return code -15`, the embedding subprocess was killed (e.g. the service was restarted mid-index) — not a model error. See the next item.
 
-3. **"Empty search results"**
+3. **RAG stuck on "initializing" / indexing never finishes**
+   - Embeddings run **in-process with a resident model by default** (fast). If you set `rag.embedding.use_subprocess: true`, the model is reloaded for **every batch**, which makes indexing a large repo extremely slow — it may never finish before a restart. Leave `use_subprocess: false` unless you specifically need per-batch memory isolation.
+   - Let the service complete one full index **uninterrupted** (don't restart it mid-run). Watch `journalctl -u logtriage-rag -f`; the dashboard RAG chip shows the current phase and surfaces any real error.
+   - If a prior interrupted run left partial data, clear the `vector_store_dir` and let it reindex cleanly.
+
+4. **"Empty search results"**
    - Lower similarity threshold
    - Check document content quality
    - Verify query construction

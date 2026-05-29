@@ -115,7 +115,7 @@ See here the [full documentation](https://giovi321.github.io/log-triage/)
 - **Per-issue LLM analysis with caching** (analyze once per signature; Anthropic **prompt caching** for the documentation context) — drastically cheaper than per-finding enrichment
 - **Background enrichment worker** (in the Web UI by default, or standalone `logtriage-worker`) that keeps issue summaries fresh
 - **Live updates over Server-Sent Events** (no client polling) and a Prometheus **`/metrics`** endpoint
-- Web UI (FastAPI), a mission-control dark interface, to:
+- Web UI (FastAPI), a mission-control interface with light & dark themes (light default, one-click toggle), to:
   - log in with username/password (bcrypt), or **Authentik / reverse-proxy forward-auth** (trusted-header)
   - **Triage queue**: prioritized issues with sparklines and cached AI summaries; per-issue detail with timeline, citations, and acknowledge/resolve/mute/false-positive actions
   - view modules and per-module stats (last severity, 24h error/warning counts, RAG status)

@@ -227,9 +227,9 @@ The codebase is organized around four entry points:
 - `logtriage/rag/document_processor.py`
   - Splits documentation files into chunks (by headings/paragraphs) with memory cleanup.
 - `logtriage/rag/embeddings.py`
-  - Wraps embedding generation (SentenceTransformers) and batching.
+  - Embedding generation (SentenceTransformers). **By default the model is loaded once and kept resident (in-process), encoding in batches** — fast. A subprocess-per-batch mode (full memory isolation, but reloads the model every batch and is much slower) is opt-in via `rag.embedding.use_subprocess`.
 - `logtriage/rag/subprocess_embeddings.py`
-  - Alternate embedding approach using subprocess isolation (when used).
+  - The per-batch subprocess worker, used only when `use_subprocess` is enabled.
 - `logtriage/rag/vector_store.py`
   - Persistent FAISS index + SQLite metadata store.
 - `logtriage/rag/retrieval.py`

@@ -247,26 +247,25 @@ The system will automatically detect and use the RAG service if available, with 
 
 ### Automatic Features
 - **Memory monitoring**: Real-time RAM usage tracking
-- **Automatic cleanup**: Garbage collection after each operation
-- **Graceful degradation**: Service stops before OOM occurs
-- **Model unloading**: Embedding models loaded/unloaded as needed
+- **Automatic cleanup**: Garbage collection after operations
+- **Embedding model**: loaded once and kept **resident in-process by default** (fast). Set `rag.embedding.use_subprocess: true` to instead embed in a per-batch subprocess that fully releases memory between batches — much slower for large repos.
 
 ### Configuration Options
 ```yaml
 rag:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"  # smaller models use less RAM
+  top_k: 5             # fewer results = less memory
+  max_chunks: 10       # limit processing
   embedding:
-    batch_size: 8        # Smaller = less memory, slower
-    model_name: "sentence-transformers/all-MiniLM-L6-v2"  # Smaller models use less RAM
-  retrieval:
-    top_k: 5            # Fewer results = less memory
-    max_chunks: 10      # Limit processing
+    batch_size: 32     # smaller = less memory, slower
+    use_subprocess: false
 ```
 
 ### Expected Memory Usage
-- **Baseline**: ~500MB (FAISS + SQLite overhead)
-- **With model**: ~1-1.5GB (embedding model loaded)
-- **During indexing**: ~2GB (temporary spikes)
-- **Steady state**: ~1GB (model unloaded after use)
+- **Baseline**: ~500 MB (FAISS + SQLite overhead)
+- **With model resident** (default): ~1–1.5 GB (embedding model stays loaded)
+- **During indexing**: temporary spikes above that
+- **With `use_subprocess: true`**: stays near baseline between batches, but indexing is far slower
 
 ## Performance Benefits
 

@@ -87,6 +87,7 @@ Use these tools to evolve your configuration without leaving the browser:
 - **Config editor:** structured **forms** plus a raw-YAML **Advanced** tab, with backups and atomic writes.
 - **Regex lab:** experiment with regexes and save them to classifiers.
 - **Metrics:** Prometheus exposition at `/metrics` (issue counts, findings, worker activity), subject to the IP allowlist; toggle with `webui.metrics.enabled`.
+- **Themes:** light by default, with a one-click light/dark toggle in the header (remembered per browser).
 
 ## Database support
 
