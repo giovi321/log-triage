@@ -117,3 +117,42 @@ def test_sparkline_buckets_occurrences(database):
     spark = db.get_issue_sparkline(issue.id, buckets=24, bucket_seconds=3600, now=now + datetime.timedelta(seconds=1))
     assert sum(spark) == 2
     assert len(spark) == 24
+
+
+def test_batch_sparklines_match_per_issue(database):
+    """get_issue_sparklines (one query) must equal per-issue get_issue_sparkline."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db.store_finding("ha", _finding("ERROR aaa", line=1, rule="ERROR", ts=now))
+    db.store_finding("ha", _finding("ERROR aaa", line=2, rule="ERROR", ts=now))
+    db.store_finding("ha", _finding("ERROR bbb", line=3, rule="BERROR", ts=now))
+    at = now + datetime.timedelta(seconds=1)
+    issues = db.get_issues(module_name="ha")
+    ids = [i.id for i in issues]
+
+    batch = db.get_issue_sparklines(ids, buckets=24, bucket_seconds=3600, now=at)
+    assert set(batch) == set(ids)
+    for iid in ids:
+        per = db.get_issue_sparkline(iid, buckets=24, bucket_seconds=3600, now=at)
+        assert batch[iid] == per
+
+    # An id with no occurrences still yields an all-zero series of correct length.
+    empty = db.get_issue_sparklines([999999], buckets=24, bucket_seconds=3600, now=at)
+    assert empty == {999999: [0] * 24}
+    assert db.get_issue_sparklines([], now=at) == {}
+
+
+def test_module_stats_counts_and_latest(database):
+    """SQL-aggregated get_module_stats: counts by severity + latest finding."""
+    base = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=2)
+    db.store_finding("ha", _finding("ERROR one", line=1, rule="ERR1", ts=base))
+    db.store_finding("ha", _finding("WARNING two", sev=Severity.WARNING, line=2, rule="WARN2", ts=base + datetime.timedelta(minutes=1)))
+    db.store_finding("ha", _finding("CRITICAL three", sev=Severity.CRITICAL, line=3, rule="CRIT3", ts=base + datetime.timedelta(minutes=2)))
+    # An old finding outside the 24h window must not be counted.
+    old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=3)
+    db.store_finding("ha", _finding("ERROR ancient", line=4, rule="OLD4", ts=old))
+
+    stats = db.get_module_stats()
+    s = stats["ha"]
+    assert s.errors_24h == 2  # ERROR + CRITICAL, old one excluded
+    assert s.warnings_24h == 1
+    assert s.last_severity == "CRITICAL"  # most recent in-window finding

@@ -122,6 +122,7 @@ from .db import (
     update_issue_status,
     issue_status_counts,
     get_issue_sparkline,
+    get_issue_sparklines,
     get_findings_for_issue,
     ISSUE_STATUSES,
     ISSUE_ACTIVE_STATUSES,
@@ -761,7 +762,9 @@ async def issues_list(
         limit=150,
         now=now,
     )
-    sparklines = {iss.id: get_issue_sparkline(iss.id, buckets=24, bucket_seconds=3600, now=now) for iss in issues}
+    sparklines = get_issue_sparklines(
+        [iss.id for iss in issues], buckets=24, bucket_seconds=3600, now=now
+    )
     counts = issue_status_counts(module or None)
     modules = sorted(_build_modules_from_config(), key=lambda m: m.name.lower())
 

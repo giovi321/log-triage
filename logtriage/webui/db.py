@@ -26,10 +26,12 @@ else:
         Boolean,
         Column,
         DateTime,
+        Index,
         Integer,
         String,
         Text,
         UniqueConstraint,
+        and_,
         create_engine,
         inspect,
         func,
@@ -89,9 +91,45 @@ def _ensure_llm_columns(engine):
                 continue
 
 
+def _ensure_indexes(engine):
+    """Create composite indexes on existing tables.
+
+    ``Base.metadata.create_all`` only emits index DDL when it creates the table
+    itself, so deployments whose tables predate these indexes need an explicit,
+    idempotent ``CREATE INDEX IF NOT EXISTS`` pass. Runs after the column
+    migration so indexed columns (e.g. ``issue_id``) are guaranteed to exist.
+    """
+
+    if Base is None:
+        return
+
+    index_statements = [
+        "CREATE INDEX IF NOT EXISTS ix_findings_module_created ON findings (module_name, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_findings_issue_created ON findings (issue_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_findings_dedup ON findings (module_name, file_path, line_start, line_end)",
+    ]
+    with engine.begin() as conn:
+        for stmt in index_statements:
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                continue
+
+
 if Base is not None:
     class FindingRecord(Base):
         __tablename__ = "findings"
+        __table_args__ = (
+            # Time-windowed per-module stats (get_module_stats).
+            Index("ix_findings_module_created", "module_name", "created_at"),
+            # Per-issue occurrence lookups (sparklines, recent occurrences).
+            Index("ix_findings_issue_created", "issue_id", "created_at"),
+            # The duplicate-occurrence guard in store_finding().
+            Index(
+                "ix_findings_dedup",
+                "module_name", "file_path", "line_start", "line_end",
+            ),
+        )
 
         id = Column(Integer, primary_key=True)
         module_name = Column(String(128), index=True, nullable=False)
@@ -309,6 +347,7 @@ def setup_database(database_url: str):
     engine = create_engine(database_url, future=True)
     Base.metadata.create_all(engine)
     _ensure_llm_columns(engine)
+    _ensure_indexes(engine)
     SessionLocal.configure(bind=engine)
     _engine = engine
     _db_url = database_url
@@ -603,32 +642,71 @@ def get_module_stats(modules: Optional[Iterable["ModuleConfig"]] = None) -> Dict
     now = datetime.datetime.now(datetime.timezone.utc)
     window_start = now - datetime.timedelta(days=1)
 
+    def _stats_for(module_name: str) -> ModuleStats:
+        s = stats.get(module_name)
+        if s is None:
+            s = ModuleStats(
+                module_name=module_name,
+                last_severity=None,
+                last_log_update=None,
+                errors_24h=0,
+                warnings_24h=0,
+            )
+            stats[module_name] = s
+        return s
+
     try:
-        rows = (
-            sess.query(FindingRecord)
+        # 1) Error/warning counts per module, aggregated in SQL.
+        count_rows = (
+            sess.query(
+                FindingRecord.module_name,
+                func.upper(FindingRecord.severity),
+                func.count(FindingRecord.id),
+            )
             .filter(FindingRecord.created_at >= window_start)
-            .order_by(FindingRecord.module_name, FindingRecord.created_at.asc())
+            .group_by(FindingRecord.module_name, func.upper(FindingRecord.severity))
             .all()
         )
-        for row in rows:
-            s = stats.get(row.module_name)
-            if s is None:
-                s = ModuleStats(
-                    module_name=row.module_name,
-                    last_severity=None,
-                    last_log_update=None,
-                    errors_24h=0,
-                    warnings_24h=0,
-                )
-                stats[row.module_name] = s
-            sev = (row.severity or "").upper()
+        for module_name, sev, n in count_rows:
+            s = _stats_for(module_name)
+            n = int(n or 0)
+            sev = (sev or "").upper()
             if sev in ("ERROR", "CRITICAL"):
-                s.errors_24h += 1
+                s.errors_24h += n
             elif sev == "WARNING":
-                s.warnings_24h += 1
-            s.last_severity = row.severity
-            if row.created_at:
-                row_ts = _ensure_tzaware(row.created_at)
+                s.warnings_24h += n
+
+        # 2) Latest finding per module (for last_severity + last_log_update),
+        #    via a max(created_at)-per-module subquery joined back to the row.
+        latest_subq = (
+            sess.query(
+                FindingRecord.module_name.label("m"),
+                func.max(FindingRecord.created_at).label("mx"),
+            )
+            .filter(FindingRecord.created_at >= window_start)
+            .group_by(FindingRecord.module_name)
+            .subquery()
+        )
+        latest_rows = (
+            sess.query(
+                FindingRecord.module_name,
+                FindingRecord.severity,
+                FindingRecord.created_at,
+            )
+            .join(
+                latest_subq,
+                and_(
+                    FindingRecord.module_name == latest_subq.c.m,
+                    FindingRecord.created_at == latest_subq.c.mx,
+                ),
+            )
+            .all()
+        )
+        for module_name, sev, created_at in latest_rows:
+            s = _stats_for(module_name)
+            s.last_severity = sev
+            if created_at:
+                row_ts = _ensure_tzaware(created_at)
                 last_ts = _ensure_tzaware(s.last_log_update) if s.last_log_update else None
                 if last_ts is None or row_ts > last_ts:
                     s.last_log_update = row_ts
@@ -1116,6 +1194,52 @@ def get_issue_sparkline(
         if 0 <= idx < buckets:
             out[idx] += 1
     return out
+
+
+def get_issue_sparklines(
+    issue_ids: Iterable[int],
+    buckets: int = 24,
+    bucket_seconds: int = 3600,
+    now: Optional[datetime.datetime] = None,
+) -> Dict[int, List[int]]:
+    """Sparklines for many issues in ONE query (avoids the per-issue N+1).
+
+    Returns ``{issue_id: [counts oldest→newest]}`` for every requested id (ids
+    with no occurrences in the window get an all-zero list). This is what the
+    triage queue uses: previously it called :func:`get_issue_sparkline` once per
+    visible issue, i.e. up to 150 separate scans of ``findings`` per page load.
+    """
+    ids = [int(i) for i in issue_ids]
+    result: Dict[int, List[int]] = {i: [0] * buckets for i in ids}
+    if not ids:
+        return result
+    sess = get_session()
+    if sess is None:
+        return result
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    start = now - datetime.timedelta(seconds=buckets * bucket_seconds)
+    try:
+        rows = (
+            sess.query(FindingRecord.issue_id, FindingRecord.created_at)
+            .filter(FindingRecord.issue_id.in_(ids))
+            .filter(FindingRecord.created_at >= start)
+            .all()
+        )
+    except Exception:
+        return result
+    finally:
+        sess.close()
+
+    for issue_id, ts in rows:
+        if ts is None or issue_id is None:
+            continue
+        series = result.get(int(issue_id))
+        if series is None:
+            continue
+        idx = int((_ensure_tzaware(ts) - start).total_seconds() // bucket_seconds)
+        if 0 <= idx < buckets:
+            series[idx] += 1
+    return result
 
 
 def backfill_issues(batch_size: int = 500) -> int:
