@@ -166,6 +166,25 @@ def _resolve_api_key(provider: LLMProviderConfig) -> Optional[str]:
     return None
 
 
+def _post_json(url: str, payload: dict, headers: dict, timeout: float, provider_name: str) -> dict:
+    """POST ``payload`` as JSON and return the decoded JSON response.
+
+    Centralizes the urllib request/error/decode boilerplate shared by the
+    provider backends. Raises ``RuntimeError`` (tagged with the provider name)
+    on an HTTP error or an unreachable endpoint.
+    """
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else exc.reason
+        raise RuntimeError(f"LLM provider {provider_name} HTTP {exc.code}: {detail}")
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Failed to reach LLM provider {provider_name}: {exc.reason}")
+
+
 def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
     api_key = _resolve_api_key(provider)
     if not api_key:
@@ -203,18 +222,9 @@ def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
         anthropic_payload["top_p"] = payload["top_p"]
 
     url = _anthropic_messages_url(provider.api_base)
-    data = json.dumps(anthropic_payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-
-    try:
-        with urllib.request.urlopen(req, timeout=provider.request_timeout) as resp:
-            body = resp.read().decode("utf-8")
-            anthropic_response = json.loads(body)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else exc.reason
-        raise RuntimeError(f"LLM provider {provider.name} HTTP {exc.code}: {detail}")
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Failed to reach LLM provider {provider.name}: {exc.reason}")
+    anthropic_response = _post_json(
+        url, anthropic_payload, headers, provider.request_timeout, provider.name
+    )
 
     text_content = ""
     for block in anthropic_response.get("content", []):
@@ -270,18 +280,7 @@ def _call_ollama(provider: LLMProviderConfig, payload: dict) -> dict:
         ollama_payload["options"] = options
 
     url = _ollama_chat_url(provider.api_base)
-    data = json.dumps(ollama_payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-
-    try:
-        with urllib.request.urlopen(req, timeout=provider.request_timeout) as resp:
-            body = resp.read().decode("utf-8")
-            result = json.loads(body)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="ignore") if exc.fp else exc.reason
-        raise RuntimeError(f"LLM provider {provider.name} HTTP {exc.code}: {detail}")
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Failed to reach Ollama provider {provider.name}: {exc.reason}")
+    result = _post_json(url, ollama_payload, headers, provider.request_timeout, provider.name)
 
     message = result.get("message") or {}
     return {
