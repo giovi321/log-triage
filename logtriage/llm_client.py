@@ -153,15 +153,24 @@ def _anthropic_system_field(system_content: str, cache: bool):
     return [{"type": "text", "text": system_content, "cache_control": {"type": "ephemeral"}}]
 
 
+def _resolve_api_key(provider: LLMProviderConfig) -> Optional[str]:
+    """Resolve a provider's API key.
+
+    Prefers the literal ``api_key`` stored in the config; falls back to the
+    environment variable named by ``api_key_env`` when no literal key is set.
+    """
+    if getattr(provider, "api_key", None):
+        return provider.api_key
+    if provider.api_key_env:
+        return os.environ.get(provider.api_key_env)
+    return None
+
+
 def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
-    if not provider.api_key_env:
-        raise RuntimeError(
-            f"Anthropic provider '{provider.name}' requires api_key_env to be set"
-        )
-    api_key = os.environ.get(provider.api_key_env)
+    api_key = _resolve_api_key(provider)
     if not api_key:
         raise RuntimeError(
-            f"Environment variable {provider.api_key_env} is required to call provider {provider.name}"
+            f"Anthropic provider '{provider.name}': API key (api_key or env var {provider.api_key_env}) is required"
         )
 
     headers = {
@@ -240,10 +249,9 @@ def _call_ollama(provider: LLMProviderConfig, payload: dict) -> dict:
     provider-agnostic.
     """
     headers = {"Content-Type": "application/json"}
-    if provider.api_key_env:
-        api_key = os.environ.get(provider.api_key_env)
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+    api_key = _resolve_api_key(provider)
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     options: dict = {}
     if "temperature" in payload:
@@ -374,13 +382,12 @@ def _call_llm(provider: LLMProviderConfig, payload: dict) -> dict:
 
 def _call_chat_completion(provider: LLMProviderConfig, payload: dict) -> dict:
     headers = {"Content-Type": "application/json"}
-    if provider.api_key_env:
-        api_key = os.environ.get(provider.api_key_env)
-        if not api_key:
-            raise RuntimeError(
-                f"Environment variable {provider.api_key_env} is required to call provider {provider.name}"
-            )
-        headers["Authorization"] = f"Bearer {api_key}"
+    api_key = _resolve_api_key(provider)
+    if not api_key:
+        raise RuntimeError(
+            f"OpenAI provider '{provider.name}': API key (api_key or env var {provider.api_key_env}) is required"
+        )
+    headers["Authorization"] = f"Bearer {api_key}"
 
     url = _chat_completion_url(provider.api_base)
     data = json.dumps(payload).encode("utf-8")

@@ -118,13 +118,13 @@
               <template x-for="p in providers" :key="p.name"><option :value="p.name" x-text="p.name"></option></template>
             </select>
           </label>
-          <label class="fld"><span class="fld-label">Context prefix lines</span><input type="number" min="0" x-model.number="cfg.llm.context_prefix_lines"></label>
-          <label class="fld"><span class="fld-label">Context suffix lines</span><input type="number" min="0" x-model.number="cfg.llm.context_suffix_lines"></label>
-          <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="cfg.llm.max_excerpt_lines"></label>
-          <label class="fld"><span class="fld-label">Max output tokens</span><input type="number" min="1" x-model.number="cfg.llm.max_output_tokens"></label>
-          <label class="fld"><span class="fld-label">Request timeout (s)</span><input type="number" min="1" x-model.number="cfg.llm.request_timeout"></label>
-          <label class="fld"><span class="fld-label">Temperature</span><input type="number" step="0.1" min="0" max="2" x-model.number="cfg.llm.temperature"></label>
-          <label class="fld"><span class="fld-label">Top-p</span><input type="number" step="0.05" min="0" max="1" x-model.number="cfg.llm.top_p"></label>
+          <label class="fld"><span class="fld-label">Context prefix lines</span><input type="number" min="0" x-model.number="cfg.llm.context_prefix_lines" placeholder="0"></label>
+          <label class="fld"><span class="fld-label">Context suffix lines</span><input type="number" min="0" x-model.number="cfg.llm.context_suffix_lines" placeholder="0"></label>
+          <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="cfg.llm.max_excerpt_lines" placeholder="20"></label>
+          <label class="fld"><span class="fld-label">Max output tokens</span><input type="number" min="1" x-model.number="cfg.llm.max_output_tokens" placeholder="512"></label>
+          <label class="fld"><span class="fld-label">Request timeout (s)</span><input type="number" min="1" x-model.number="cfg.llm.request_timeout" placeholder="30"></label>
+          <label class="fld"><span class="fld-label">Temperature</span><input type="number" step="0.1" min="0" max="2" x-model.number="cfg.llm.temperature" placeholder="0.0"></label>
+          <label class="fld"><span class="fld-label">Top-p</span><input type="number" step="0.05" min="0" max="1" x-model.number="cfg.llm.top_p" placeholder="1.0"></label>
         </div>
       </div>
       <div class="form-section">
@@ -134,23 +134,39 @@
           <div class="repeat-card">
             <div class="repeat-head">
               <span class="repeat-title" x-text="p.name || 'provider'"></span>
-              <button type="button" class="danger btn-sm" @click="rm(providers, i)">Remove</button>
+              <!-- F3: per-provider Test button + Remove -->
+              <span class="row" style="gap:var(--s-2);">
+                <button type="button" class="secondary btn-sm"
+                        @click="testProvider(i)"
+                        :disabled="(providerTest[i] && providerTest[i].state==='testing')"
+                        x-text="(providerTest[i] && providerTest[i].state==='testing') ? 'Testing…' : 'Test'"></button>
+                <button type="button" class="danger btn-sm" @click="rm(providers, i)">Remove</button>
+              </span>
             </div>
             <div class="form-grid">
               <label class="fld"><span class="fld-label">Name (key)</span><input type="text" class="input-mono" x-model="providers[i].name"></label>
               <label class="fld"><span class="fld-label">Provider type</span>
-                <select x-model="providers[i].provider_type"><option value="openai">openai</option><option value="anthropic">anthropic</option><option value="ollama">ollama</option></select></label>
-              <label class="fld full"><span class="fld-label">API base</span><input type="text" class="input-mono" x-model="providers[i].api_base" placeholder="https://api.openai.com/v1"></label>
-              <label class="fld"><span class="fld-label">API key env var</span><input type="text" class="input-mono" x-model="providers[i].api_key_env" placeholder="OPENAI_API_KEY"></label>
+                <select x-model="providers[i].provider_type" @change="onProviderTypeChange(i)"><option value="openai">openai</option><option value="anthropic">anthropic</option><option value="ollama">ollama</option></select></label>
+              <!-- F2: anthropic endpoint is fixed — hide editable base, show a static line -->
+              <label class="fld full" x-show="providers[i].provider_type !== 'anthropic'"><span class="fld-label">API base</span><input type="text" class="input-mono" x-model="providers[i].api_base" placeholder="https://api.openai.com/v1"></label>
+              <div class="fld full" x-show="providers[i].provider_type === 'anthropic'"><span class="fld-label">Endpoint</span><div class="fixed-endpoint mono">https://api.anthropic.com (fixed)</div></div>
+              <label class="fld"><span class="fld-label">API key</span><input type="password" class="input-mono" x-model="providers[i].api_key" :placeholder="providers[i].provider_type === 'openai' ? 'sk-...' : (providers[i].provider_type === 'anthropic' ? 'sk-ant-...' : (providers[i].provider_type === 'ollama' ? '(usually not required)' : 'API key (optional)'))"></label>
               <label class="fld"><span class="fld-label">Model</span><input type="text" class="input-mono" x-model="providers[i].model"></label>
-              <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="providers[i].max_excerpt_lines"></label>
-              <label class="fld"><span class="fld-label">Max output tokens</span><input type="number" min="1" x-model.number="providers[i].max_output_tokens"></label>
-              <label class="fld"><span class="fld-label">Request timeout (s)</span><input type="number" min="1" x-model.number="providers[i].request_timeout"></label>
-              <label class="fld"><span class="fld-label">Temperature</span><input type="number" step="0.1" min="0" max="2" x-model.number="providers[i].temperature"></label>
-              <label class="fld"><span class="fld-label">Top-p</span><input type="number" step="0.05" min="0" max="1" x-model.number="providers[i].top_p"></label>
+              <label class="fld"><span class="fld-label">Max excerpt lines</span><input type="number" min="1" x-model.number="providers[i].max_excerpt_lines" placeholder="20"></label>
+              <label class="fld"><span class="fld-label">Max output tokens</span><input type="number" min="1" x-model.number="providers[i].max_output_tokens" placeholder="512"></label>
+              <label class="fld"><span class="fld-label">Request timeout (s)</span><input type="number" min="1" x-model.number="providers[i].request_timeout" placeholder="30"></label>
+              <label class="fld"><span class="fld-label">Temperature</span><input type="number" step="0.1" min="0" max="2" x-model.number="providers[i].temperature" placeholder="0.0"></label>
+              <label class="fld"><span class="fld-label">Top-p</span><input type="number" step="0.05" min="0" max="1" x-model.number="providers[i].top_p" placeholder="1.0"></label>
               <label class="fld"><span class="fld-label">Max tokens / hour</span><input type="number" min="0" x-model.number="providers[i].max_tokens_per_hour" placeholder="(unlimited)"></label>
               <label class="fld"><span class="fld-label">Max tokens / day</span><input type="number" min="0" x-model.number="providers[i].max_tokens_per_day" placeholder="(unlimited)"></label>
             </div>
+            <!-- F3: inline test result -->
+            <template x-if="providerTest[i] && providerTest[i].state==='ok'">
+              <div class="test-ok" x-text="providerTest[i].message + (providerTest[i].detail ? (' — ' + providerTest[i].detail) : '')"></div>
+            </template>
+            <template x-if="providerTest[i] && providerTest[i].state==='err'">
+              <div class="test-err" x-text="providerTest[i].message + (providerTest[i].detail ? (' — ' + providerTest[i].detail) : '')"></div>
+            </template>
           </div>
         </template>
         <template x-if="!providers.length"><div class="empty-hint">No providers configured.</div></template>
@@ -164,13 +180,13 @@
           <label class="fld check"><input type="checkbox" x-model="cfg.rag.enabled"><span class="fld-label" style="text-transform:none;">RAG enabled</span></label>
           <label class="fld"><span class="fld-label">Device</span><select x-model="cfg.rag.device"><option value="cpu">cpu</option><option value="cuda">cuda</option></select></label>
           <label class="fld full"><span class="fld-label">Service URL</span><input type="text" class="input-mono" x-model="cfg.rag.service_url" placeholder="http://127.0.0.1:8091"></label>
-          <label class="fld"><span class="fld-label">Cache dir</span><input type="text" class="input-mono" x-model="cfg.rag.cache_dir"></label>
-          <label class="fld"><span class="fld-label">Vector store dir</span><input type="text" class="input-mono" x-model="cfg.rag.vector_store_dir"></label>
-          <label class="fld full"><span class="fld-label">Embedding model</span><input type="text" class="input-mono" x-model="cfg.rag.embedding_model"></label>
-          <label class="fld"><span class="fld-label">Batch size</span><input type="number" min="1" x-model.number="cfg.rag.batch_size"></label>
-          <label class="fld"><span class="fld-label">Top-k</span><input type="number" min="1" x-model.number="cfg.rag.top_k"></label>
-          <label class="fld"><span class="fld-label">Similarity threshold</span><input type="number" step="0.05" min="0" max="1" x-model.number="cfg.rag.similarity_threshold"></label>
-          <label class="fld"><span class="fld-label">Max chunks</span><input type="number" min="1" x-model.number="cfg.rag.max_chunks"></label>
+          <label class="fld"><span class="fld-label">Cache dir</span><input type="text" class="input-mono" x-model="cfg.rag.cache_dir" placeholder="./rag_cache"></label>
+          <label class="fld"><span class="fld-label">Vector store dir</span><input type="text" class="input-mono" x-model="cfg.rag.vector_store_dir" placeholder="./rag_vector_store"></label>
+          <label class="fld full"><span class="fld-label">Embedding model</span><input type="text" class="input-mono" x-model="cfg.rag.embedding_model" placeholder="sentence-transformers/all-MiniLM-L6-v2"></label>
+          <label class="fld"><span class="fld-label">Batch size</span><input type="number" min="1" x-model.number="cfg.rag.batch_size" placeholder="32"></label>
+          <label class="fld"><span class="fld-label">Top-k</span><input type="number" min="1" x-model.number="cfg.rag.top_k" placeholder="5"></label>
+          <label class="fld"><span class="fld-label">Similarity threshold</span><input type="number" step="0.05" min="0" max="1" x-model.number="cfg.rag.similarity_threshold" placeholder="0.7"></label>
+          <label class="fld"><span class="fld-label">Max chunks</span><input type="number" min="1" x-model.number="cfg.rag.max_chunks" placeholder="10"></label>
         </div>
       </div>
     </div>
@@ -182,12 +198,16 @@
       <template x-for="(p, i) in cfg.pipelines" :key="i">
         <div class="repeat-card">
           <div class="repeat-head">
+            <button type="button" class="collapse-toggle" @click="togglePipe(i)" :aria-expanded="(openPipe[i] !== false).toString()" aria-label="Toggle pipeline">
+              <span class="chev" :class="{ open: openPipe[i] !== false }">▶</span>
+            </button>
             <span class="repeat-title" x-text="p.name || 'pipeline'"></span>
             <button type="button" class="danger btn-sm" @click="rm(cfg.pipelines, i)">Remove</button>
           </div>
+          <div x-show="openPipe[i] !== false">
           <div class="form-grid">
             <label class="fld"><span class="fld-label">Name</span><input type="text" class="input-mono" x-model="p.name"></label>
-            <label class="fld"><span class="fld-label">Match filename regex</span><input type="text" class="input-mono" x-model="p.match.filename_regex"></label>
+            <label class="fld"><span class="fld-label">Match filename regex</span><input type="text" class="input-mono" x-model="p.match.filename_regex" placeholder=".*"></label>
             <label class="fld"><span class="fld-label">Classifier type</span>
               <select x-model="p.classifier.type"><option value="regex_counter">regex_counter</option><option value="rsnapshot_basic">rsnapshot_basic</option></select></label>
             <label class="fld"><span class="fld-label">Grouping type</span>
@@ -229,6 +249,7 @@
               <label class="fld check"><input type="checkbox" x-model="p.grouping.only_last"><span class="fld-label" style="text-transform:none;">Only last group</span></label>
             </div>
           </div>
+          </div>
         </div>
       </template>
       <template x-if="!cfg.pipelines.length"><div class="empty-hint">No pipelines configured.</div></template>
@@ -241,84 +262,136 @@
       <template x-for="(m, i) in cfg.modules" :key="i">
         <div class="repeat-card">
           <div class="repeat-head">
+            <button type="button" class="collapse-toggle" @click="toggleMod(i)" :aria-expanded="(openMod[i] !== false).toString()" aria-label="Toggle module">
+              <span class="chev" :class="{ open: openMod[i] !== false }">▶</span>
+            </button>
             <span class="repeat-title"><span class="sig-dot" :class="{idle: !m.enabled}" style="width:8px;height:8px;"></span> <span x-text="m.name || 'module'"></span></span>
             <button type="button" class="danger btn-sm" @click="rm(cfg.modules, i)">Remove</button>
           </div>
-          <div class="form-grid">
-            <label class="fld"><span class="fld-label">Name</span><input type="text" class="input-mono" x-model="m.name"></label>
-            <label class="fld check"><input type="checkbox" x-model="m.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
-            <label class="fld full"><span class="fld-label">Path</span><input type="text" class="input-mono" x-model="m.path"></label>
-            <label class="fld"><span class="fld-label">Mode</span><select x-model="m.mode"><option value="batch">batch</option><option value="follow">follow</option></select></label>
-            <label class="fld"><span class="fld-label">Pipeline</span>
-              <select x-model="m.pipeline"><option value="">(auto by filename)</option><template x-for="p in cfg.pipelines" :key="p.name"><option :value="p.name" x-text="p.name"></option></template></select></label>
-            <label class="fld"><span class="fld-label">Output format</span><select x-model="m.output_format"><option value="text">text</option><option value="json">json</option></select></label>
-            <label class="fld"><span class="fld-label">Min print severity</span><select x-model="m.min_print_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
-            <label class="fld"><span class="fld-label">Stale after (min)</span><input type="number" min="0" x-model.number="m.stale_after_minutes"></label>
-          </div>
 
-          <div class="subsection">
-            <div class="sub-title">LLM</div>
-            <div class="form-grid">
-              <label class="fld check"><input type="checkbox" x-model="m.llm.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
-              <label class="fld"><span class="fld-label">Provider</span>
-                <select x-model="m.llm.provider"><option value="">(default)</option><template x-for="p in providers" :key="p.name"><option :value="p.name" x-text="p.name"></option></template></select></label>
-              <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.llm.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
-              <label class="fld"><span class="fld-label">Prompt template</span><input type="text" class="input-mono" x-model="m.llm.prompt_template"></label>
-              <label class="fld"><span class="fld-label">Context prefix lines</span><input type="number" min="0" x-model.number="m.llm.context_prefix_lines"></label>
-              <label class="fld"><span class="fld-label">Context suffix lines</span><input type="number" min="0" x-model.number="m.llm.context_suffix_lines"></label>
+          <div x-show="openMod[i] !== false">
+            <!-- F8: per-module sub-tabs -->
+            <div class="tabbar section-subtabs in-card">
+              <template x-for="t in moduleTabs" :key="t.id">
+                <button type="button" :class="{active: (modTab[i]||'general') === t.id}" @click="modTab[i] = t.id" x-text="t.label"></button>
+              </template>
             </div>
-          </div>
 
-          <div class="subsection">
-            <div class="sub-title">Alerts · webhook</div>
-            <div class="form-grid">
-              <label class="fld check"><input type="checkbox" x-model="m.alerts.webhook.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
-              <label class="fld"><span class="fld-label">Method</span><select x-model="m.alerts.webhook.method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></label>
-              <label class="fld full"><span class="fld-label">URL</span><input type="text" class="input-mono" x-model="m.alerts.webhook.url"></label>
-              <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.alerts.webhook.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
-            </div>
-          </div>
-
-          <div class="subsection">
-            <div class="sub-title">Alerts · MQTT</div>
-            <div class="form-grid">
-              <label class="fld check"><input type="checkbox" x-model="m.alerts.mqtt.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
-              <label class="fld"><span class="fld-label">Host</span><input type="text" class="input-mono" x-model="m.alerts.mqtt.host"></label>
-              <label class="fld"><span class="fld-label">Port</span><input type="number" min="1" x-model.number="m.alerts.mqtt.port"></label>
-              <label class="fld"><span class="fld-label">Topic</span><input type="text" class="input-mono" x-model="m.alerts.mqtt.topic"></label>
-              <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.alerts.mqtt.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
-            </div>
-          </div>
-
-          <div class="subsection">
-            <div class="sub-title">Stream (follow mode)</div>
-            <div class="form-grid">
-              <label class="fld check"><input type="checkbox" x-model="m.stream.from_beginning"><span class="fld-label" style="text-transform:none;">From beginning</span></label>
-              <label class="fld"><span class="fld-label">Poll interval (s)</span><input type="number" step="0.1" min="0.1" x-model.number="m.stream.interval"></label>
-            </div>
-          </div>
-
-          <div class="subsection">
-            <div class="row between"><div class="sub-title" style="margin:0;">RAG knowledge sources</div>
-              <label class="fld check" style="margin:0;"><input type="checkbox" x-model="m.rag.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label></div>
-            <template x-for="(ks, k) in m.rag.knowledge_sources" :key="k">
-              <div class="repeat-card" style="margin-top:var(--s-2);">
-                <div class="repeat-head"><span class="repeat-title mono" style="font-size:0.82rem;" x-text="ks.repo_url || 'repo'"></span>
-                  <button type="button" class="ghost btn-sm" @click="rm(m.rag.knowledge_sources, k)">✕</button></div>
-                <div class="form-grid">
-                  <label class="fld full"><span class="fld-label">Repo URL</span><input type="text" class="input-mono" x-model="ks.repo_url"></label>
-                  <label class="fld"><span class="fld-label">Branch</span><input type="text" class="input-mono" x-model="ks.branch"></label>
-                </div>
-                <div class="sub-title" style="margin-top:var(--s-2);">Include paths</div>
-                <div class="chip-rows">
-                  <template x-for="(ip, p2) in ks.include_paths" :key="p2">
-                    <div class="chip-row"><input type="text" x-model="ks.include_paths[p2]"><button type="button" class="ghost btn-sm rm" @click="rm(ks.include_paths, p2)">✕</button></div>
-                  </template>
-                </div>
-                <button type="button" class="secondary btn-sm add-row" @click="add(ks.include_paths, '')">+ Add path</button>
+            <!-- General -->
+            <div x-show="(modTab[i]||'general') === 'general'">
+              <div class="form-grid">
+                <label class="fld"><span class="fld-label">Name</span><input type="text" class="input-mono" x-model="m.name"></label>
+                <label class="fld check"><input type="checkbox" x-model="m.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+                <label class="fld full"><span class="fld-label">Path</span><input type="text" class="input-mono" x-model="m.path"></label>
+                <label class="fld"><span class="fld-label">Mode</span><select x-model="m.mode"><option value="batch">batch</option><option value="follow">follow</option></select></label>
+                <label class="fld"><span class="fld-label">Pipeline</span>
+                  <select x-model="m.pipeline"><option value="">(auto by filename)</option><template x-for="p in cfg.pipelines" :key="p.name"><option :value="p.name" x-text="p.name"></option></template></select></label>
+                <label class="fld"><span class="fld-label">Output format</span><select x-model="m.output_format"><option value="text">text</option><option value="json">json</option></select></label>
+                <label class="fld"><span class="fld-label">Min print severity</span><select x-model="m.min_print_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+                <label class="fld"><span class="fld-label">Stale after (min)</span><input type="number" min="0" x-model.number="m.stale_after_minutes" placeholder="(never)"></label>
               </div>
-            </template>
-            <button type="button" class="secondary btn-sm add-row" @click="add(m.rag.knowledge_sources, {repo_url:'', branch:'main', include_paths:['**/*.md']})">+ Add source</button>
+            </div>
+
+            <!-- LLM -->
+            <div x-show="(modTab[i]||'general') === 'llm'">
+              <div class="subsection">
+                <div class="sub-title">LLM</div>
+                <div class="form-grid">
+                  <label class="fld check"><input type="checkbox" x-model="m.llm.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+                  <label class="fld"><span class="fld-label">Provider</span>
+                    <select x-model="m.llm.provider"><option value="">(default)</option><template x-for="p in providers" :key="p.name"><option :value="p.name" x-text="p.name"></option></template></select></label>
+                  <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.llm.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+                  <label class="fld"><span class="fld-label">Prompt template</span><input type="text" class="input-mono" x-model="m.llm.prompt_template"></label>
+                  <label class="fld"><span class="fld-label">Context prefix lines</span><input type="number" min="0" x-model.number="m.llm.context_prefix_lines" placeholder="0"></label>
+                  <label class="fld"><span class="fld-label">Context suffix lines</span><input type="number" min="0" x-model.number="m.llm.context_suffix_lines" placeholder="0"></label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Alerts -->
+            <div x-show="(modTab[i]||'general') === 'alerts'">
+              <div class="subsection">
+                <div class="sub-title">Alerts · webhook</div>
+                <div class="form-grid">
+                  <label class="fld check"><input type="checkbox" x-model="m.alerts.webhook.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+                  <label class="fld"><span class="fld-label">Method</span><select x-model="m.alerts.webhook.method"><option>POST</option><option>GET</option><option>PUT</option><option>DELETE</option></select></label>
+                  <label class="fld full"><span class="fld-label">URL</span><input type="text" class="input-mono" x-model="m.alerts.webhook.url"></label>
+                  <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.alerts.webhook.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+                </div>
+              </div>
+              <div class="subsection">
+                <div class="sub-title">Alerts · MQTT</div>
+                <div class="form-grid">
+                  <label class="fld check"><input type="checkbox" x-model="m.alerts.mqtt.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label>
+                  <label class="fld"><span class="fld-label">Host</span><input type="text" class="input-mono" x-model="m.alerts.mqtt.host"></label>
+                  <label class="fld"><span class="fld-label">Port</span><input type="number" min="1" x-model.number="m.alerts.mqtt.port"></label>
+                  <label class="fld"><span class="fld-label">Topic</span><input type="text" class="input-mono" x-model="m.alerts.mqtt.topic"></label>
+                  <label class="fld"><span class="fld-label">Min severity</span><select x-model="m.alerts.mqtt.min_severity"><template x-for="sv in severities" :key="sv"><option x-text="sv" :value="sv"></option></template></select></label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stream -->
+            <div x-show="(modTab[i]||'general') === 'stream'">
+              <div class="subsection">
+                <div class="sub-title">Stream (follow mode)</div>
+                <div class="form-grid">
+                  <label class="fld check"><input type="checkbox" x-model="m.stream.from_beginning"><span class="fld-label" style="text-transform:none;">From beginning</span></label>
+                  <label class="fld"><span class="fld-label">Poll interval (s)</span><input type="number" step="0.1" min="0.1" x-model.number="m.stream.interval" placeholder="1.0"></label>
+                </div>
+              </div>
+            </div>
+
+            <!-- RAG -->
+            <div x-show="(modTab[i]||'general') === 'rag'">
+              <div class="subsection">
+                <div class="row between"><div class="sub-title" style="margin:0;">RAG knowledge sources</div>
+                  <label class="fld check" style="margin:0;"><input type="checkbox" x-model="m.rag.enabled"><span class="fld-label" style="text-transform:none;">Enabled</span></label></div>
+                <template x-for="(ks, k) in m.rag.knowledge_sources" :key="k">
+                  <div class="repeat-card" style="margin-top:var(--s-2);">
+                    <div class="repeat-head">
+                      <button type="button" class="collapse-toggle" @click="toggleKS(i, k)" :aria-expanded="(openKS[i+'-'+k] !== false).toString()" aria-label="Toggle source">
+                        <span class="chev" :class="{ open: openKS[i+'-'+k] !== false }">▶</span>
+                      </button>
+                      <span class="repeat-title mono" style="font-size:0.82rem;" x-text="ks.repo_url || 'repo'"></span>
+                      <button type="button" class="ghost btn-sm" @click="rm(m.rag.knowledge_sources, k)">✕</button>
+                    </div>
+                    <div x-show="openKS[i+'-'+k] !== false">
+                      <div class="form-grid">
+                        <label class="fld full"><span class="fld-label">Repo URL</span><input type="text" class="input-mono" x-model="ks.repo_url"></label>
+                        <label class="fld"><span class="fld-label">Branch</span><input type="text" class="input-mono" x-model="ks.branch" placeholder="main"></label>
+                      </div>
+                      <div class="sub-title" style="margin-top:var(--s-2);">Include paths</div>
+                      <div class="chip-rows">
+                        <template x-for="(ip, p2) in ks.include_paths" :key="p2">
+                          <div class="chip-row"><input type="text" x-model="ks.include_paths[p2]"><button type="button" class="ghost btn-sm rm" @click="rm(ks.include_paths, p2)">✕</button></div>
+                        </template>
+                      </div>
+                      <div class="row between" style="margin-top:var(--s-2);">
+                        <button type="button" class="secondary btn-sm" @click="add(ks.include_paths, '')">+ Add path</button>
+                        <!-- F4: scan repo for docs -->
+                        <span class="row" style="gap:var(--s-2);">
+                          <button type="button" class="secondary btn-sm"
+                                  :disabled="!ks.repo_url || (scanState[i+'-'+k] && scanState[i+'-'+k].state==='scanning')"
+                                  @click="scanDocs(i, k)"
+                                  x-text="(scanState[i+'-'+k] && scanState[i+'-'+k].state==='scanning') ? 'Scanning…' : 'Scan for docs'"></button>
+                          <template x-if="scanState[i+'-'+k] && scanState[i+'-'+k].state==='ok'">
+                            <span class="scan-note">
+                              <span x-text="scanState[i+'-'+k].message"></span>
+                              <span class="badge" x-show="scanState[i+'-'+k].used_llm">LLM</span>
+                            </span>
+                          </template>
+                          <template x-if="scanState[i+'-'+k] && scanState[i+'-'+k].state==='err'">
+                            <span class="test-err" x-text="scanState[i+'-'+k].message"></span>
+                          </template>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <button type="button" class="secondary btn-sm add-row" @click="add(m.rag.knowledge_sources, {repo_url:'', branch:'main', include_paths:['**/*.md']})">+ Add source</button>
+              </div>
+            </div>
           </div>
         </div>
       </template>
@@ -579,11 +652,94 @@
       severities: ['WARNING', 'ERROR', 'CRITICAL'],
       cfg: {}, providers: [], loggers: [], yamlError: '',
 
+      // ---- transient UI state (NEVER serialized to YAML; kept OUTSIDE cfg) ----
+      moduleTabs: [
+        { id: 'general', label: 'General' }, { id: 'llm', label: 'LLM' },
+        { id: 'alerts', label: 'Alerts' }, { id: 'stream', label: 'Stream' }, { id: 'rag', label: 'RAG' },
+      ],
+      modTab: {},        // F8: { [moduleIdx]: 'general'|'llm'|'alerts'|'stream'|'rag' }
+      openPipe: {},      // F7: { [pipeIdx]: bool }   (undefined => open)
+      openMod: {},       // F7: { [moduleIdx]: bool } (undefined => open)
+      openKS: {},        // F7: { [`${modIdx}-${ksIdx}`]: bool } (undefined => open)
+      providerTest: {},  // F3: { [providerIdx]: { state, message, detail } }
+      scanState: {},     // F4: { [`${modIdx}-${ksIdx}`]: { state, message, used_llm } }
+
       init() {
         let raw = {};
         try { raw = JSON.parse((document.getElementById('config-json-data') || {}).textContent || '{}') || {}; } catch (e) { raw = {}; }
         this.cfg = raw;
         this.normalize();
+      },
+
+      // ---- F7 collapse togglers (undefined => open) ----
+      togglePipe(i) { this.openPipe[i] = !(this.openPipe[i] !== false); },
+      toggleMod(i)  { this.openMod[i]  = !(this.openMod[i] !== false); },
+      toggleKS(i, k) { const key = i + '-' + k; this.openKS[key] = !(this.openKS[key] !== false); },
+
+      // ---- F2: fixed Claude endpoint ----
+      onProviderTypeChange(i) {
+        const p = this.providers[i];
+        if (!p) return;
+        if (p.provider_type === 'anthropic') { p.api_base = 'https://api.anthropic.com'; }
+        else { p.api_base = ''; } // restore placeholder for openai/ollama
+      },
+
+      // ---- F3: test a provider's auth/reachability (never persists) ----
+      async testProvider(i) {
+        const p = this.providers[i];
+        if (!p) return;
+        this.providerTest[i] = { state: 'testing', message: '', detail: '' };
+        const payload = {
+          name: p.name || '',
+          provider_type: p.provider_type || '',
+          api_base: p.provider_type === 'anthropic' ? 'https://api.anthropic.com' : (p.api_base || ''),
+          api_key: p.api_key || null,
+          api_key_env: p.api_key_env || null,
+          model: p.model || '',
+        };
+        try {
+          const r = await fetch('/api/llm/test', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const j = await r.json();
+          this.providerTest[i] = {
+            state: j.ok ? 'ok' : 'err',
+            message: j.message || (j.ok ? 'OK' : 'Failed'),
+            detail: j.detail || '',
+          };
+        } catch (e) {
+          this.providerTest[i] = { state: 'err', message: 'Request failed', detail: String(e) };
+        }
+      },
+
+      // ---- F4: scan a repo for documentation; replace include_paths on success ----
+      async scanDocs(i, k) {
+        const m = this.cfg.modules[i];
+        if (!m || !m.rag || !m.rag.knowledge_sources) return;
+        const ks = m.rag.knowledge_sources[k];
+        if (!ks || !ks.repo_url) return;
+        const key = i + '-' + k;
+        this.scanState[key] = { state: 'scanning', message: '', used_llm: false };
+        try {
+          const r = await fetch('/api/rag/scan-docs', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repo_url: ks.repo_url, branch: ks.branch || 'main' }),
+          });
+          const j = await r.json();
+          if (j.ok) {
+            ks.include_paths = Array.isArray(j.include_paths) ? [...j.include_paths] : [];
+            this.scanState[key] = {
+              state: 'ok',
+              message: 'Detected ' + ks.include_paths.length + ' path' + (ks.include_paths.length === 1 ? '' : 's'),
+              used_llm: !!j.used_llm,
+            };
+          } else {
+            this.scanState[key] = { state: 'err', message: j.message || 'Scan failed', used_llm: false };
+          }
+        } catch (e) {
+          this.scanState[key] = { state: 'err', message: 'Request failed: ' + String(e), used_llm: false };
+        }
       },
       normalize() {
         const c = this.cfg;
@@ -634,9 +790,10 @@
 
       add(arr, item) { arr.push(typeof item === 'object' && item !== null ? JSON.parse(JSON.stringify(item)) : item); },
       rm(arr, i) { arr.splice(i, 1); },
-      addProvider() { this.providers.push({ name: 'new_provider', provider_type: 'openai', api_base: '', api_key_env: '', model: '' }); },
-      addPipeline() { this.cfg.pipelines.push({ name: 'new_pipeline', match: { filename_regex: '' }, classifier: { type: 'regex_counter', error_regexes: [], warning_regexes: [], ignore_regexes: [] }, grouping: { type: 'whole_file' } }); },
-      addModule() { this.cfg.modules.push({ name: 'new_module', enabled: true, path: '', mode: 'follow', pipeline: '', output_format: 'text', min_print_severity: 'WARNING', llm: { enabled: false }, alerts: { webhook: {}, mqtt: {} }, stream: { from_beginning: false, interval: 1.0 }, rag: { enabled: false, knowledge_sources: [] } }); },
+      // ---- F6: seed documented defaults into NEW items (these ARE serialized) ----
+      addProvider() { this.providers.push({ name: 'new_provider', provider_type: 'openai', api_base: '', api_key: '', model: '', max_excerpt_lines: 20, max_output_tokens: 512, request_timeout: 30, temperature: 0, top_p: 1 }); },
+      addPipeline() { this.cfg.pipelines.push({ name: 'new_pipeline', match: { filename_regex: '.*' }, classifier: { type: 'regex_counter', error_regexes: [], warning_regexes: [], ignore_regexes: [] }, grouping: { type: 'whole_file' } }); },
+      addModule() { this.cfg.modules.push({ name: 'new_module', enabled: true, path: '', mode: 'follow', pipeline: '', output_format: 'text', min_print_severity: 'WARNING', stale_after_minutes: null, llm: { enabled: false, context_prefix_lines: 0, context_suffix_lines: 0 }, alerts: { webhook: {}, mqtt: {} }, stream: { from_beginning: false, interval: 1.0 }, rag: { enabled: false, knowledge_sources: [] } }); },
 
       save() {
         if (this.tab === 'forms') {

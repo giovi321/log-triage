@@ -7,10 +7,15 @@ import logging
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -1369,6 +1374,407 @@ async def get_rag_progress():
         }
 
 
+# ---------------------------------------------------------------------------
+# Lightweight stdlib HTTP helpers for the provider-test / scan-docs endpoints.
+# These mirror the transport style in logtriage/llm_client.py (urllib, ~10s
+# timeouts) rather than pulling in httpx/requests, keeping behavior consistent
+# with the rest of the LLM stack. JSON POST bodies make them CSRF-exempt (the
+# csrf middleware only guards form/multipart content types), matching the
+# existing POST /api/rag/reindex/{repo_id} route.
+# ---------------------------------------------------------------------------
+
+def _http_get(url: str, headers: Dict[str, str], timeout: float = 10.0):
+    """GET a URL; return (status_code, body_text). HTTP error responses are
+    returned as (code, body) rather than raised, so callers can branch on the
+    status code for the common 401/404 cases."""
+    req = urllib.request.Request(url, headers=headers or {}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        return exc.code, body
+
+
+def _ollama_root(api_base: str) -> str:
+    """Derive the Ollama server root from any base, stripping trailing /v1 and
+    /api so the native /api/tags endpoint can be reached."""
+    root = (api_base or "").rstrip("/")
+    if root.endswith("/v1"):
+        root = root[: -len("/v1")].rstrip("/")
+    if root.endswith("/api"):
+        root = root[: -len("/api")].rstrip("/")
+    return root or "http://127.0.0.1:11434"
+
+
+def _parse_model_ids(text: str) -> Optional[List[str]]:
+    """Best-effort parse of an OpenAI/Anthropic/Ollama models listing."""
+    try:
+        data = json.loads(text)
+    except Exception:
+        return None
+    items = None
+    if isinstance(data, dict):
+        items = data.get("data") or data.get("models")
+    elif isinstance(data, list):
+        items = data
+    if not isinstance(items, list):
+        return None
+    out: List[str] = []
+    for it in items:
+        if isinstance(it, dict):
+            mid = it.get("id") or it.get("name") or it.get("model")
+            if isinstance(mid, str) and mid:
+                out.append(mid)
+        elif isinstance(it, str):
+            out.append(it)
+    return out or None
+
+
+def _model_note(model: str, models: Optional[List[str]]) -> Optional[str]:
+    if not model or not models:
+        return None
+    if model in models:
+        return f"Model '{model}' is available."
+    return f"Model '{model}' not listed ({len(models)} models returned)."
+
+
+@app.post("/api/llm/test")
+async def api_llm_test(request: Request):
+    """Lightweight LLM provider auth/reachability check.
+
+    Accepts a JSON body {name, provider_type, api_base, api_key, api_key_env,
+    model}. Always returns HTTP 200 with {ok, message, detail, latency_ms,
+    models}; logical failures are reported via ok=false. CSRF-exempt (JSON),
+    auth required (mirrors /api/rag/reindex/{repo_id})."""
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    name = (body.get("name") or "").strip()
+    provider_type = (body.get("provider_type") or "openai").strip().lower()
+    api_base = (body.get("api_base") or "").strip()
+    api_key_env = (body.get("api_key_env") or "").strip()
+    api_key_literal = (body.get("api_key") or "").strip()
+    model = (body.get("model") or "").strip()
+
+    # Resolve key: literal wins, else env var.
+    api_key = api_key_literal or (os.environ.get(api_key_env) if api_key_env else None)
+
+    state = {"latency_ms": None}
+    t0 = time.monotonic()
+
+    def _ok(message, detail=None, models=None):
+        return JSONResponse({
+            "ok": True, "message": message, "detail": detail,
+            "latency_ms": state["latency_ms"], "models": models,
+        })
+
+    def _err(message, detail=None):
+        return JSONResponse({
+            "ok": False, "message": message, "detail": detail,
+            "latency_ms": state["latency_ms"], "models": None,
+        })
+
+    def _generation_fallback():
+        """Confirm credentials via a minimal 1-token generation through
+        _call_llm, so transport matches production exactly. Used when the models
+        listing endpoint is unsupported / returns a non-2xx, non-auth status."""
+        try:
+            from ..models import LLMProviderConfig
+            prov = LLMProviderConfig(
+                name=name or "test",
+                api_base=(("https://api.anthropic.com" if provider_type == "anthropic" else api_base) or ""),
+                api_key_env=api_key_env or None,
+                api_key=api_key_literal or None,
+                model=model or "",
+                provider_type=provider_type,
+                request_timeout=10.0,
+                max_output_tokens=1,
+                temperature=0.0,
+            )
+            payload = {
+                "model": model or "",
+                "messages": [{"role": "user", "content": "ping"}],
+                "max_tokens": 1,
+                "temperature": 0.0,
+            }
+            _call_llm(prov, payload)
+            state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+            return _ok("Generation succeeded.")
+        except Exception as exc:
+            state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+            return _err("Provider test failed", f"{type(exc).__name__}: {exc}")
+
+    try:
+        if provider_type == "anthropic":
+            # Address fixed; ignore submitted api_base.
+            if not api_key:
+                return _err("No API key", f"Set an API key or the {api_key_env or 'configured'} env var.")
+            url = "https://api.anthropic.com/v1/models"
+            headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+            code, text = _http_get(url, headers, timeout=10.0)
+            state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+            if 200 <= code < 300:
+                models = _parse_model_ids(text)
+                return _ok("Reachable; credentials accepted.", _model_note(model, models), models)
+            if code in (401, 403):
+                return _err("Authentication failed", f"HTTP {code} from /v1/models")
+            return _generation_fallback()
+        elif provider_type == "ollama":
+            root = _ollama_root(api_base) if api_base else "http://127.0.0.1:11434"
+            url = f"{root}/api/tags"
+            code, text = _http_get(url, {}, timeout=10.0)
+            state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+            if 200 <= code < 300:
+                models = _parse_model_ids(text)
+                return _ok("Reachable.", _model_note(model, models), models)
+            return _err("Ollama not reachable", f"HTTP {code} from /api/tags")
+        else:
+            # openai / openai-compatible
+            if not api_base:
+                return _err("No API base", "Set the API base URL (e.g. https://api.openai.com/v1).")
+            if not api_key:
+                return _err("No API key", f"Set an API key or the {api_key_env or 'configured'} env var.")
+            url = f"{api_base.rstrip('/')}/models"
+            headers = {"Authorization": f"Bearer {api_key}"}
+            code, text = _http_get(url, headers, timeout=10.0)
+            state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+            if 200 <= code < 300:
+                models = _parse_model_ids(text)
+                return _ok("Reachable; credentials accepted.", _model_note(model, models), models)
+            if code in (401, 403):
+                return _err("Authentication failed", f"HTTP {code} from /models")
+            return _generation_fallback()
+    except Exception as exc:
+        state["latency_ms"] = int((time.monotonic() - t0) * 1000)
+        return _err("Connection failed", f"{type(exc).__name__}: {exc}")
+
+
+def _looks_like_git_target(repo_url) -> bool:
+    if not isinstance(repo_url, str):
+        return False
+    u = repo_url.strip()
+    if not u:
+        return False
+    return (
+        u.startswith("http://")
+        or u.startswith("https://")
+        or u.startswith("git@")
+        or u.startswith("ssh://")
+    )
+
+
+def _detect_doc_globs(root: Path) -> List[str]:
+    """Heuristic documentation glob detection over a cloned repo tree."""
+    patterns: List[str] = []
+
+    def _add(p: str) -> None:
+        if p and p not in patterns:
+            patterns.append(p)
+
+    skip = {".git", "node_modules", "vendor", ".venv"}
+    doc_dir_names = {"docs", "doc", "documentation", "wiki", "guide", "guides", "manual"}
+
+    found_dirs: List[Path] = []
+    try:
+        for d in root.rglob("*"):
+            if d.is_dir() and d.name.lower() in doc_dir_names:
+                rel_parts = {part.lower() for part in d.relative_to(root).parts}
+                if rel_parts & skip:
+                    continue
+                found_dirs.append(d)
+    except OSError:
+        pass
+    found_dirs.sort(key=lambda p: len(p.relative_to(root).parts))
+    for d in found_dirs[:6]:
+        rel = d.relative_to(root).as_posix()
+        _add(f"{rel}/**/*.md")
+        _add(f"{rel}/**/*.rst")
+
+    # mkdocs config -> docs_dir (default "docs")
+    for mk in ("mkdocs.yml", "mkdocs.yaml"):
+        mkpath = root / mk
+        if mkpath.is_file():
+            docs_dir = "docs"
+            try:
+                if yaml is not None:
+                    mk_cfg = yaml.safe_load(mkpath.read_text(encoding="utf-8")) or {}
+                    if isinstance(mk_cfg, dict) and isinstance(mk_cfg.get("docs_dir"), str):
+                        docs_dir = mk_cfg["docs_dir"].strip("/") or "docs"
+            except Exception:
+                docs_dir = "docs"
+            _add(f"{docs_dir}/**/*.md")
+            break
+
+    # Sphinx conf.py -> its directory
+    try:
+        for conf in root.rglob("conf.py"):
+            rel_parts = {part.lower() for part in conf.relative_to(root).parts}
+            if rel_parts & skip:
+                continue
+            cdir = conf.parent.relative_to(root).as_posix()
+            prefix = f"{cdir}/" if cdir not in ("", ".") else ""
+            _add(f"{prefix}**/*.rst")
+            _add(f"{prefix}**/*.md")
+            break
+    except OSError:
+        pass
+
+    # root README*
+    try:
+        if any(p.name.lower().startswith("readme") for p in root.iterdir() if p.is_file()):
+            _add("README*")
+    except OSError:
+        pass
+
+    # several *.md at repo root
+    try:
+        root_md = [p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".md"]
+        if len(root_md) >= 2:
+            _add("*.md")
+    except OSError:
+        pass
+
+    if not patterns:
+        patterns = ["**/*.md", "**/*.rst", "**/*.txt"]
+    return patterns[:12]
+
+
+def _llm_refine_doc_globs(root: Path, heuristic: List[str]):
+    """Best-effort LLM refinement of doc globs. Never raises; returns
+    (patterns, used_llm)."""
+    try:
+        if not getattr(llm_defaults, "enabled", False):
+            return heuristic, False
+        provider = llm_defaults.providers.get(llm_defaults.default_provider or "")
+        if provider is None:
+            return heuristic, False
+        files: List[str] = []
+        for p in root.rglob("*"):
+            if len(files) >= 400:
+                break
+            if p.is_file():
+                rel = p.relative_to(root).as_posix()
+                if rel.startswith(".git/"):
+                    continue
+                files.append(rel)
+        if not files:
+            return heuristic, False
+        prompt = (
+            "You are given the file list of a git repository. Return a JSON array "
+            "of glob patterns (relative to the repo root) that capture the "
+            "human-readable documentation (markdown/rst/text guides, manuals, "
+            "READMEs). Return ONLY a JSON array of strings, no prose.\n\n"
+            "Files:\n" + "\n".join(files)
+        )
+        resp = _call_llm(provider, {
+            "model": provider.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 512,
+            "temperature": 0.0,
+        })
+        content = ""
+        if isinstance(resp, dict):
+            content = resp.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+        if not content:
+            return heuristic, False
+        st = content.find("[")
+        en = content.rfind("]")
+        if st == -1 or en == -1 or en <= st:
+            return heuristic, False
+        arr = json.loads(content[st: en + 1])
+        llm_globs = [g.strip() for g in arr if isinstance(g, str) and g.strip()]
+        if not llm_globs:
+            return heuristic, False
+        merged = list(heuristic)
+        contributed = False
+        for g in llm_globs:
+            if g not in merged:
+                merged.append(g)
+                contributed = True
+        return merged[:24], contributed
+    except Exception:
+        return heuristic, False
+
+
+@app.post("/api/rag/scan-docs")
+async def api_scan_docs(request: Request):
+    """Shallow-clone a repo and detect documentation glob patterns.
+
+    JSON body {repo_url, branch} (branch default "main"). Auth required,
+    CSRF-exempt (JSON). Returns {ok, include_paths, message, used_llm}."""
+    username = get_current_user(request, settings)
+    if not username:
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    repo_url = (body.get("repo_url") or "").strip()
+    branch = (body.get("branch") or "main").strip() or "main"
+
+    if not _looks_like_git_target(repo_url):
+        return JSONResponse({
+            "ok": False, "include_paths": [],
+            "message": "Invalid repo URL (expected http(s)://, git@ or ssh://).",
+            "used_llm": False,
+        })
+
+    tmpdir = tempfile.mkdtemp(prefix="logtriage-scandocs-")
+    try:
+        def _clone(with_branch: bool):
+            cmd = ["git", "clone", "--depth", "1"]
+            if with_branch:
+                cmd += ["--branch", branch]
+            cmd += [repo_url, tmpdir]
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        try:
+            proc = _clone(with_branch=True)
+            if proc.returncode != 0:
+                # tmpdir may be partly populated; reset for a clean retry.
+                shutil.rmtree(tmpdir, ignore_errors=True)
+                os.makedirs(tmpdir, exist_ok=True)
+                proc = _clone(with_branch=False)
+        except subprocess.TimeoutExpired:
+            return JSONResponse({
+                "ok": False, "include_paths": [],
+                "message": "clone failed", "detail": "git clone timed out",
+                "used_llm": False,
+            })
+
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout or "").strip()[:500]
+            return JSONResponse({
+                "ok": False, "include_paths": [],
+                "message": "clone failed", "detail": detail,
+                "used_llm": False,
+            })
+
+        root = Path(tmpdir)
+        heuristic = _detect_doc_globs(root)
+        include_paths, used_llm = _llm_refine_doc_globs(root, heuristic)
+        msg = f"Detected {len(include_paths)} path pattern(s)"
+        if used_llm:
+            msg += " (LLM-refined)"
+        return JSONResponse({
+            "ok": True, "include_paths": include_paths,
+            "message": msg, "used_llm": used_llm,
+        })
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 @app.post("/api/rag/reindex/{repo_id}")
 async def reindex_rag_repo(repo_id: str, request: Request):
     username = get_current_user(request, settings)
@@ -1441,10 +1847,26 @@ async def edit_config_post(
     tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
     backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
     try:
-        tmp_path.write_text(config_text, encoding="utf-8")
+        # Atomic save: back up the current config by COPY (the original stays in
+        # place), write the new text to a temp file and fsync it, then atomically
+        # swap it in with os.replace. On the same filesystem os.replace is atomic,
+        # so the live config is never missing or half-written -- even if the
+        # process crashes mid-save.
         if CONFIG_PATH.exists():
-            CONFIG_PATH.replace(backup_path)
-        tmp_path.replace(CONFIG_PATH)
+            shutil.copy2(CONFIG_PATH, backup_path)
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(config_text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp_path, CONFIG_PATH)
+        try:
+            dir_fd = os.open(str(CONFIG_PATH.parent), os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except (OSError, AttributeError):
+            pass  # directory fsync unsupported on some platforms (e.g. Windows)
     except Exception as e:
         return _render_config_editor(
             request,

@@ -115,6 +115,8 @@ class LLMProviderConfig:
     api_key_env: Optional[str]
     model: str
     provider_type: str = "openai"
+    # Literal API key pasted into the config (takes precedence over api_key_env).
+    api_key: Optional[str] = None
     organization: Optional[str] = None
     api_version: Optional[str] = None
     max_excerpt_lines: int = 20

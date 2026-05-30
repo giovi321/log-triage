@@ -631,6 +631,58 @@ table.data tbody tr:last-child td { border-bottom: none; }
 .row.between { justify-content: space-between; }
 .spacer { flex: 1; }
 
+/* ===== Settings revamp (config_edit) ===== */
+
+/* C1 — keep the "+ Add provider/pipeline/module" header from touching the
+   first card. The header is a `.row.between` immediately followed by the first
+   repeat-card; give the header bottom space and every repeat-card top space so
+   all three sections (providers/pipelines/modules) match. */
+.row.between { margin-bottom: var(--s-3); }
+.row.between + .repeat-card { margin-top: var(--s-3); }
+.form-section .repeat-card { margin-top: var(--s-3); }
+
+/* C2 — collapse toggle + chevron (rotates 90deg when open) */
+.collapse-toggle {
+  background: transparent; border: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px; margin-right: var(--s-1);
+  color: var(--text-faint);
+}
+.collapse-toggle:hover { color: var(--text); background: transparent; box-shadow: none; filter: none; }
+.chev {
+  display: inline-block; font-size: 0.7rem; line-height: 1;
+  transform: rotate(0deg); transition: transform 0.15s var(--ease);
+}
+.chev.open { transform: rotate(90deg); }
+/* let the title take the slack so trailing actions stay right-aligned */
+.repeat-card > .repeat-head .repeat-title { flex: 1; }
+
+/* F2 — fixed (read-only) endpoint line for the anthropic provider */
+.fixed-endpoint {
+  padding: 9px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-inset);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+/* C3 — inline test/scan result lines + LLM badge (severity vars) */
+.test-ok   { margin-top: var(--s-2); color: var(--sev-ok);       font-family: var(--font-mono); font-size: 0.8rem; }
+.test-err  { margin-top: var(--s-2); color: var(--sev-critical); font-family: var(--font-mono); font-size: 0.8rem; }
+.scan-note { display: inline-flex; align-items: center; gap: var(--s-2); color: var(--sev-ok); font-family: var(--font-mono); font-size: 0.8rem; }
+.badge {
+  display: inline-flex; align-items: center; gap: var(--s-1);
+  padding: 1px var(--s-2); border-radius: var(--r-sm);
+  font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.06em;
+  border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  color: var(--brand-bright);
+}
+
+/* C4 — per-module sub-tab bar inside a card needs breathing room */
+.section-subtabs.in-card { margin-top: var(--s-3); margin-bottom: var(--s-4); }
+
 .muted { color: var(--text-dim); }
 .faint { color: var(--text-faint); }
 .helper-text { font-size: 0.9rem; color: var(--text-dim); }

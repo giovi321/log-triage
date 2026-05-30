@@ -195,6 +195,7 @@ def build_llm_config(cfg: Dict[str, Any]) -> GlobalLLMConfig:
             api_key_env=api_key_env,
             model=str(model),
             provider_type=provider_type,
+            api_key=(str(pdata.get("api_key")) if pdata.get("api_key") else None),
             organization=pdata.get("organization"),
             api_version=pdata.get("api_version"),
             max_excerpt_lines=int(pdata.get("max_excerpt_lines", base_max_excerpt_lines)),
