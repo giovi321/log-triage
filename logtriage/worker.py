@@ -112,10 +112,29 @@ class EnrichmentWorker:
 # Standalone entry point: ``logtriage-worker``
 # ---------------------------------------------------------------------------
 
+# Cache of built deps keyed on config path → (mtime, deps). Avoids re-parsing
+# YAML + rebuilding modules every worker cycle when the file hasn't changed.
+_deps_cache: Dict[str, Tuple[float, Tuple]] = {}
+
+
 def _build_deps_from_config(cfg_path: Path):
-    """Build (modules_by_name, llm_defaults, rag_client) from a config file."""
+    """Build (modules_by_name, llm_defaults, rag_client) from a config file.
+
+    Cached on the config file's modification time: a worker cycle re-parses the
+    YAML and rebuilds modules only when the file actually changed. A Web-UI save
+    bumps the mtime, so edits are still picked up on the next cycle.
+    """
     from .config import load_config, build_llm_config, build_modules, build_rag_config
     from .webui.db import setup_database
+
+    try:
+        mtime = cfg_path.stat().st_mtime
+    except OSError:
+        mtime = None
+
+    cached = _deps_cache.get(str(cfg_path))
+    if cached is not None and mtime is not None and cached[0] == mtime:
+        return cached[1]
 
     cfg = load_config(cfg_path)
     db_cfg = (cfg.get("database") or {}) if isinstance(cfg, dict) else {}
@@ -138,7 +157,10 @@ def _build_deps_from_config(cfg_path: Path):
     except Exception:
         rag_client = None
 
-    return modules_by_name, llm_defaults, rag_client
+    deps = (modules_by_name, llm_defaults, rag_client)
+    if mtime is not None:
+        _deps_cache[str(cfg_path)] = (mtime, deps)
+    return deps
 
 
 def main(argv=None) -> None:

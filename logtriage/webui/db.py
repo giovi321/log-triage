@@ -499,12 +499,14 @@ def _upsert_issue(
     return issue.id
 
 
-def store_finding(module_name: str, finding, anomaly_flag: bool = False):
-    """Persist a single Finding and fold it into its de-duplicated issue."""
-    sess = get_session()
-    if sess is None:
-        return
+def _store_one(sess, module_name: str, finding, anomaly_flag: bool = False) -> bool:
+    """Add one finding (dedup check + issue upsert + record) to an OPEN session.
 
+    Does not commit — the caller owns the transaction. Flushes after the insert
+    so a subsequent finding in the same batch sees this row during its duplicate
+    check (preserving the old commit-per-finding behaviour). Returns True if a
+    row was added, False if it was skipped as a duplicate occurrence.
+    """
     llm_response = getattr(finding, "llm_response", None)
     llm_error = getattr(finding, "llm_error", None)
     created_at = _normalize_created_at(getattr(finding, "created_at", None))
@@ -513,7 +515,7 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
     # Check for duplicate finding to prevent re-inserting the same occurrence
     try:
         existing = (
-            sess.query(FindingRecord)
+            sess.query(FindingRecord.id)
             .filter(FindingRecord.module_name == module_name)
             .filter(FindingRecord.file_path == str(getattr(finding, "file_path", "")))
             .filter(FindingRecord.line_start == int(getattr(finding, "line_start", 0)))
@@ -523,23 +525,23 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
             .first()
         )
         if existing:
-            # Duplicate found, don't store again (and don't double-count the issue)
-            sess.close()
-            return
+            return False
     except Exception:
         # If duplicate check fails, continue with storing
         pass
 
-    # Signature + issue aggregation
+    # Signature + issue aggregation. A failure here must not abort the whole
+    # batch, so isolate it in a SAVEPOINT: only this finding's issue upsert is
+    # rolled back, prior findings in the batch are preserved.
     fingerprint: Optional[str] = None
     issue_id: Optional[int] = None
     try:
         sig = signature_for_finding(finding)
+        with sess.begin_nested():
+            issue_id = _upsert_issue(sess, module_name, finding, sig, ts)
         fingerprint = sig.fingerprint
-        issue_id = _upsert_issue(sess, module_name, finding, sig, ts)
     except Exception:
         # Never let fingerprinting break finding persistence.
-        sess.rollback()
         fingerprint = None
         issue_id = None
 
@@ -568,15 +570,38 @@ def store_finding(module_name: str, finding, anomaly_flag: bool = False):
     if created_at is not None:
         record_kwargs["created_at"] = created_at
 
-    obj = FindingRecord(**record_kwargs)
+    sess.add(FindingRecord(**record_kwargs))
+    sess.flush()
+    return True
+
+
+def store_findings(module_name: str, findings, anomaly_flag: bool = False) -> int:
+    """Persist a batch of findings in ONE transaction (one commit, not N).
+
+    Equivalent to calling :func:`store_finding` per item, but folds the whole
+    batch into a single session/commit — far fewer fsyncs on ingestion. Returns
+    the number of rows actually inserted (duplicates are skipped).
+    """
+    sess = get_session()
+    if sess is None:
+        return 0
+    stored = 0
     try:
-        sess.add(obj)
+        for finding in findings:
+            if _store_one(sess, module_name, finding, anomaly_flag):
+                stored += 1
         sess.commit()
     except Exception:
         sess.rollback()
         raise
     finally:
         sess.close()
+    return stored
+
+
+def store_finding(module_name: str, finding, anomaly_flag: bool = False):
+    """Persist a single Finding and fold it into its de-duplicated issue."""
+    store_findings(module_name, [finding], anomaly_flag)
 
 
 def cleanup_old_findings(retention_days: int):

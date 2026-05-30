@@ -10,7 +10,7 @@ from .classifiers import classify_lines
 from .llm_client import analyze_findings_with_llm
 from .llm_payload import should_send_to_llm, write_llm_payloads
 from .alerts import send_alerts
-from .webui.db import store_finding, get_next_finding_index
+from .webui.db import store_findings, get_next_finding_index
 
 # Import RAG service client (optional import to avoid circular dependencies)
 try:
@@ -218,11 +218,12 @@ def stream_file(
                 print(f"  needs_llm: {f.needs_llm}")
                 print()
 
-            try:
-                store_finding(mod.name, f)
-            except Exception:
-                pass
-
             if mod.alert_mqtt or mod.alert_webhook:
                 send_alerts(mod, f)
+
+        # Persist the whole interval's findings in a single transaction.
+        try:
+            store_findings(mod.name, findings)
+        except Exception:
+            pass
 
