@@ -65,6 +65,7 @@ from .config import load_full_config, parse_webui_settings, WebUISettings, get_c
 from .auth import authenticate_user, create_session_token, get_current_user
 from .events import EventHub, sse_format, db_snapshot
 from ..worker import EnrichmentWorker
+from .state import STATE
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ def _webui_create_rag_client(service_url: str):
 def _set_webui_rag_client(client) -> None:
     global rag_client
     rag_client = client
+    _sync_state()
 
 from .db import (
     delete_all_findings,
@@ -492,6 +494,7 @@ def start_rag_monitor():
         )
 
     _rag_monitor.start()
+    _sync_state()
     logger.info("RAG monitoring thread started")
 
 
@@ -515,6 +518,27 @@ def get_settings() -> WebUISettings:
     return settings
 
 
+def _sync_state() -> None:
+    """Mirror app.py's module-globals into the shared STATE singleton.
+
+    Transition shim for the router split: app.py still owns the globals (and all
+    its in-file reads keep working), but extracted routers read ``STATE`` only.
+    Called once at startup and after every reload/mutation so STATE never goes
+    stale. STATE itself is never rebound — only its attributes are reassigned.
+    """
+    STATE.settings = settings
+    STATE.raw_config = raw_config
+    STATE.config_path = CONFIG_PATH
+    STATE.llm_defaults = llm_defaults
+    STATE.rag_client = rag_client
+    STATE.context_hints = context_hints
+    STATE.event_hub = globals().get("event_hub")
+    STATE.enrichment_worker = globals().get("enrichment_worker")
+    STATE.rag_monitor = globals().get("_rag_monitor")
+    STATE.rag_monitor_status = rag_monitor_status
+    STATE.db_status = db_status
+
+
 def _refresh_llm_defaults() -> None:
     global llm_defaults
     try:
@@ -528,6 +552,7 @@ def _refresh_llm_defaults() -> None:
             context_prefix_lines=0,
             context_suffix_lines=0,
         )
+    _sync_state()
 
 
 def _refresh_rag_client() -> None:
@@ -571,6 +596,8 @@ def _refresh_rag_client() -> None:
     else:
         logger.info("RAG service client not available, RAG functionality disabled")
         rag_client = None
+    _sync_state()
+
 
 def _build_modules_from_config() -> List[ModuleConfig]:
     try:
@@ -589,6 +616,7 @@ _refresh_rag_client()
 # ---------------------------------------------------------------------------
 event_hub = EventHub()
 enrichment_worker: Optional[EnrichmentWorker] = None
+_sync_state()  # capture event_hub now that it exists (initial RAG sync ran earlier)
 
 
 def _worker_deps():
@@ -619,6 +647,7 @@ def _maybe_start_worker() -> None:
         logger_=logger,
     )
     enrichment_worker.start()
+    _sync_state()
 
 
 def _fetch_rag_progress():
