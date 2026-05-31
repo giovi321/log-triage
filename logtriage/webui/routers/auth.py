@@ -1,6 +1,7 @@
 """Authentication & account routes: local login, OIDC SSO, user management."""
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Form, Request, status
@@ -12,6 +13,8 @@ from ..state import STATE
 from ..shared import templates
 from .. import oidc as oidc_mod
 from .. import users as users_mod
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -70,6 +73,9 @@ async def oidc_callback(request: Request):
     try:
         username, is_admin = await oidc_mod.fetch_identity(request, STATE.settings)
     except Exception as exc:
+        # Log the full traceback so a failed callback is diagnosable from the
+        # service logs (the notification alone isn't visible there).
+        logger.warning("OIDC callback failed: %s", exc, exc_info=True)
         add_notification("error", "OIDC callback failed", str(exc))
         username, is_admin = None, False
     if not username:

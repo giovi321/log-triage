@@ -140,21 +140,44 @@ async def fetch_identity(request, settings):
     Validates the authorization code → token exchange and the ID token (authlib
     verifies the signature against the IdP JWKS and checks nonce/state), then
     pulls the configured username claim and resolves admin from the groups claim.
+
+    Logs at each decision point so a failed SSO login is diagnosable from the
+    service logs (which claims the IdP returned, which username claim was sought)
+    without exposing secrets.
     """
     if _client is None:
         raise RuntimeError("OIDC is not configured")
     token = await _client.authorize_access_token(request)
+
+    # authlib puts the id_token claims under "userinfo" when openid scope + nonce
+    # were used; otherwise hit the userinfo endpoint explicitly.
     userinfo = token.get("userinfo") if isinstance(token, dict) else None
     if not userinfo:
         try:
             userinfo = await _client.userinfo(token=token)
-        except Exception:
+        except Exception as exc:
+            logger.warning("OIDC userinfo endpoint call failed: %s", exc)
             userinfo = None
     if not userinfo:
+        logger.warning(
+            "OIDC login produced no userinfo (token keys=%s). Check that the "
+            "'openid' scope is granted and the provider returns an ID token.",
+            sorted(token.keys()) if isinstance(token, dict) else type(token).__name__,
+        )
         return None, False
 
     claim = getattr(settings, "oidc_username_claim", "preferred_username")
     username = userinfo.get(claim) or userinfo.get("email") or userinfo.get("sub")
     if not username:
+        logger.warning(
+            "OIDC login: no username found. Configured username_claim=%r, "
+            "claims present=%s. Set webui.oidc.username_claim to one of these, or "
+            "grant the scope that carries it (e.g. 'profile' for preferred_username, "
+            "'email' for email).",
+            claim, sorted(userinfo.keys()),
+        )
         return None, False
-    return str(username), _is_admin_from_groups(userinfo, settings)
+
+    is_admin = _is_admin_from_groups(userinfo, settings)
+    logger.info("OIDC login resolved username=%r admin=%s", str(username), is_admin)
+    return str(username), is_admin
