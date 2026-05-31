@@ -14,13 +14,12 @@ its render "passed" while production failed. This test uses a ``url_for`` that
 returns a real ``URL`` and renders through the application's own
 ``templates.env`` (real filters/globals), so a URL/str mix-up fails the test.
 
-Page contexts are imported from ``_preview_render.build_pages()`` so the test
-data stays in lockstep with the preview scaffolding and the real routes.
+Page contexts come from ``tests/template_contexts.py`` (a tracked module, the
+single source of truth) so the data stays in lockstep with the real routes. The
+gitignored ``_preview_render.py`` scaffolding imports the same contexts, so the
+two never drift.
 """
 from __future__ import annotations
-
-import sys
-from pathlib import Path
 
 import pytest
 
@@ -28,9 +27,7 @@ import pytest
 pytest.importorskip("starlette")
 from starlette.datastructures import URL  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from template_contexts import build_pages  # noqa: E402
 
 
 def _faithful_url_for(name, **kw):
@@ -69,15 +66,11 @@ class _Request:
 
 
 def _load_pages():
-    import _preview_render as preview
-    return preview.build_pages()
+    return build_pages()
 
 
 def _page_ids():
-    try:
-        return [out for _tpl, out, _ctx in _load_pages()]
-    except Exception:  # pragma: no cover - import-time issues surface in the test
-        return []
+    return [out for _tpl, out, _ctx in _load_pages()]
 
 
 @pytest.fixture(scope="module")
