@@ -376,6 +376,9 @@
           <label class="fld"><span class="fld-label">Base path</span><input type="text" class="input-mono" x-model="cfg.webui.base_path"></label>
           <label class="fld"><span class="fld-label">Session cookie name</span><input type="text" class="input-mono" x-model="cfg.webui.session_cookie_name"></label>
           <label class="fld"><span class="fld-label">Session max age (h)</span><input type="number" min="1" x-model.number="cfg.webui.session_max_age_hours"></label>
+          <label class="fld"><span class="fld-label">Staleness window (min)</span><input type="number" min="1" x-model.number="cfg.webui.staleness_minutes" placeholder="60">
+            <span class="fld-hint">Default minutes before a log is "stale" on the dashboard.</span></label>
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.metrics.enabled"><span class="fld-label" style="text-transform:none;">Prometheus /metrics</span></label>
           <label class="fld full"><span class="fld-label">Secret key</span><input type="password" class="input-mono" x-model="cfg.webui.secret_key">
             <span class="fld-hint">Used to sign sessions — use a long random value.</span></label>
         </div>
@@ -401,7 +404,40 @@
         </div>
         <div class="subsection">
           <div class="sub-title">Users</div>
-          <p class="fld-hint">Local Web UI users are managed on the <a href="{{ url_for('account') }}">Account</a> page (stored in the database). SSO is configured under the <code class="mono">oidc</code> / forward-auth settings.</p>
+          <p class="fld-hint">Local Web UI users are managed on the <a href="{{ url_for('account') }}">Account</a> page (stored in the database). Configure single sign-on below.</p>
+        </div>
+      </div>
+
+      <!-- ---- SSO / OIDC ---- -->
+      <div class="form-section">
+        <div class="section-eyebrow">SINGLE SIGN-ON (OIDC)</div>
+        <p class="fld-hint" style="margin-top:0;">
+          Authorization Code + PKCE via the <code class="mono">[oidc]</code> extra
+          (<code class="mono">pip install '.[oidc]'</code>). Register this redirect URL at your IdP:
+          <code class="mono" x-text="oidcRedirectUrl"></code>
+        </p>
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.oidc.enabled"><span class="fld-label" style="text-transform:none;">OIDC enabled</span></label>
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.oidc.exclusive"><span class="fld-label" style="text-transform:none;">Hide local password login</span></label>
+          <label class="fld full"><span class="fld-label">Issuer (discovery base URL)</span>
+            <input type="text" class="input-mono" x-model="cfg.webui.oidc.issuer" placeholder="https://auth.example.com/application/o/logtriage/">
+            <span class="fld-hint">Without the <code class="mono">/.well-known/openid-configuration</code> suffix.</span></label>
+          <label class="fld"><span class="fld-label">Client ID</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.client_id"></label>
+          <label class="fld"><span class="fld-label">Client secret</span><input type="password" class="input-mono" x-model="cfg.webui.oidc.client_secret"></label>
+          <label class="fld"><span class="fld-label">Scopes</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.scopes" placeholder="openid email profile"></label>
+          <label class="fld"><span class="fld-label">Username claim</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.username_claim" placeholder="preferred_username"></label>
+          <label class="fld full"><span class="fld-label">Logout URL (optional)</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.logout_url" placeholder="https://auth.example.com/.../end-session/"></label>
+        </div>
+      </div>
+
+      <!-- ---- Reverse-proxy forward-auth ---- -->
+      <div class="form-section">
+        <div class="section-eyebrow">REVERSE-PROXY FORWARD-AUTH</div>
+        <p class="fld-hint" style="margin-top:0;">Trust an identity header from a reverse proxy (e.g. Authentik) — only honoured when the request's direct peer is one of the <b>Trusted proxies</b> above.</p>
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.forward_auth.enabled"><span class="fld-label" style="text-transform:none;">Forward-auth enabled</span></label>
+          <label class="fld"><span class="fld-label">Username header</span><input type="text" class="input-mono" x-model="cfg.webui.forward_auth.username_header" placeholder="X-authentik-username"></label>
+          <label class="fld full"><span class="fld-label">Logout URL (optional)</span><input type="text" class="input-mono" x-model="cfg.webui.forward_auth.logout_url"></label>
         </div>
       </div>
     </div>
@@ -440,6 +476,10 @@
       levels: ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
       severities: ['WARNING', 'ERROR', 'CRITICAL'],
       cfg: {}, providers: [], loggers: [], yamlError: '',
+
+      // OIDC redirect/callback URL to register at the IdP (derived from the
+      // browser origin; never serialized).
+      get oidcRedirectUrl() { return window.location.origin + '/auth/callback'; },
 
       // ---- transient UI state (NEVER serialized to YAML; kept OUTSIDE cfg) ----
       moduleTabs: [
@@ -539,6 +579,9 @@
         c.webui.allowed_ips = c.webui.allowed_ips || [];
         c.webui.trusted_proxies = c.webui.trusted_proxies || [];
         c.webui.admin_users = c.webui.admin_users || [];
+        c.webui.metrics = c.webui.metrics || {};
+        c.webui.forward_auth = c.webui.forward_auth || {};
+        c.webui.oidc = c.webui.oidc || {};
         this.providers = Object.entries(c.llm.providers).map(([name, v]) => ({ name, ...(v || {}) }));
         this.loggers = Object.entries(c.logging.loggers || {}).map(([name, level]) => ({ name, level }));
         c.pipelines.forEach(p => {
@@ -562,6 +605,15 @@
         const loggersObj = {};
         this.loggers.forEach(l => { if (l.name) loggersObj[l.name] = l.level; });
         if (Object.keys(loggersObj).length) this.cfg.logging.loggers = loggersObj; else delete this.cfg.logging.loggers;
+        // Drop empty webui sub-objects so a never-configured oidc/forward_auth
+        // section doesn't litter the YAML with `{}`.
+        const w = this.cfg.webui || {};
+        ['oidc', 'forward_auth', 'metrics'].forEach(k => {
+          if (w[k] && typeof w[k] === 'object') {
+            w[k] = this.clean(w[k]);
+            if (!Object.keys(w[k]).length) delete w[k];
+          }
+        });
         return this.cfg;
       },
       clean(o) { // drop empty-string / null / undefined keys so YAML stays tidy
