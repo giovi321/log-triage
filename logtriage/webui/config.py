@@ -13,6 +13,11 @@ from ..config import load_config
 class WebUser:
     username: str
     password_hash: str  # bcrypt or similar
+    # Users defined in the legacy ``webui.admin_users`` config list are admins by
+    # definition. This flag lets the config-fallback login path (used when the
+    # user has no row in the DB user table yet) grant admin, matching the
+    # pre-DB behaviour instead of silently demoting them.
+    is_admin: bool = True
 
 
 @dataclass

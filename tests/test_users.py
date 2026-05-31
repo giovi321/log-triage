@@ -84,3 +84,42 @@ def test_cannot_delete_last_admin(database):
         users.delete_user("admin")
     # A non-admin can still be deleted.
     assert users.delete_user("bob") is True
+
+
+def test_set_admin_promotes_and_demotes(database):
+    users.create_user("admin", "supersecret", is_admin=True)   # forced admin (first)
+    users.create_user("bob", "supersecret", is_admin=False)
+    assert users.get_user("bob").is_admin is False
+
+    # Promote bob (the break-glass recovery path).
+    assert users.set_admin("bob", True) is True
+    assert users.get_user("bob").is_admin is True
+    assert users.count_admins() == 2
+
+    # Demote bob again.
+    assert users.set_admin("bob", False) is True
+    assert users.get_user("bob").is_admin is False
+
+    # Unknown user → False, not an exception.
+    assert users.set_admin("ghost", True) is False
+
+
+def test_set_admin_refuses_to_demote_last_admin(database):
+    users.create_user("admin", "supersecret", is_admin=True)
+    users.create_user("bob", "supersecret", is_admin=False)
+    with pytest.raises(ValueError, match="last remaining admin"):
+        users.set_admin("admin", False)
+    assert users.get_user("admin").is_admin is True
+
+
+def test_config_fallback_user_is_admin():
+    """A user defined only in webui.admin_users (no DB row) must log in as admin.
+
+    Regression: WebUser had no is_admin field, so the config-fallback login path
+    silently demoted config-defined admins to non-admin.
+    """
+    from logtriage.webui.config import WebUser
+    # Default is admin (that's what being in admin_users means).
+    assert WebUser(username="a", password_hash="h").is_admin is True
+    # The login path reads getattr(user, "is_admin", False); confirm it's truthy.
+    assert getattr(WebUser(username="a", password_hash="h"), "is_admin", False) is True

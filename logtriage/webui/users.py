@@ -160,6 +160,43 @@ def set_password(username: str, new_password: str) -> bool:
         sess.close()
 
 
+def set_admin(username: str, is_admin: bool) -> bool:
+    """Set (or clear) a user's admin flag. Returns False if the user is unknown.
+
+    Refuses to clear the last remaining admin, so the instance can never be left
+    with no way into the admin-only surfaces.
+    """
+    username = (username or "").strip()
+    if not username:
+        return False
+    if not is_admin:
+        target = get_user(username)
+        if target is not None and target.is_admin and count_admins() <= 1:
+            raise ValueError("Cannot demote the last remaining admin.")
+    sess = db.get_session()
+    if sess is None:
+        return False
+    try:
+        updated = (
+            sess.query(db.UserRecord)
+            .filter(db.UserRecord.username == username)
+            .update(
+                {
+                    "is_admin": bool(is_admin),
+                    "updated_at": datetime.datetime.now(datetime.timezone.utc),
+                },
+                synchronize_session=False,
+            )
+        )
+        sess.commit()
+        return bool(updated)
+    except Exception:
+        sess.rollback()
+        raise
+    finally:
+        sess.close()
+
+
 def count_admins() -> int:
     sess = db.get_session()
     if sess is None:
