@@ -4,8 +4,8 @@
 <div class="grid wide-two-col">
   <div class="card" data-reveal style="--i:0">
     <div class="section-eyebrow">CREDENTIALS</div>
-    <h2 style="margin-top:0;">Change password</h2>
-    <p class="helper-text">Updates your bcrypt hash inside <code class="mono">webui.admin_users</code>. A backup of <code class="mono">config.yaml</code> is written first.</p>
+    <h2 style="margin-top:0;">Change your password</h2>
+    <p class="helper-text">Updates the stored bcrypt hash for <b>{{ username }}</b>.</p>
     <form method="post" action="{{ url_for('change_password') }}" class="account-form">
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <label class="field">
@@ -25,11 +25,66 @@
   </div>
 
   <div class="card" data-reveal style="--i:1">
-    <div class="section-eyebrow">ADMINISTRATION</div>
-    <h2 style="margin-top:0;">Add an admin</h2>
-    <p class="helper-text">Edit <code class="mono">webui.admin_users</code> in the <a href="{{ url_for('edit_config') }}">config editor</a>. Each entry needs a <code class="mono">username</code> and a bcrypt <code class="mono">password_hash</code>.</p>
-    <pre class="panel mono" style="font-size:0.8rem; overflow:auto; margin-top:var(--s-3);">python -c "import bcrypt; \
-print(bcrypt.hashpw(b'secret', bcrypt.gensalt()).decode())"</pre>
+    <div class="section-eyebrow">USER MANAGEMENT</div>
+    <h2 style="margin-top:0;">Local users</h2>
+    {% if oidc_enabled %}
+      <p class="helper-text">SSO is enabled — most users sign in through your identity provider. Local accounts below are a break-glass path and aren't managed by the IdP.</p>
+    {% else %}
+      <p class="helper-text">Local accounts that can sign in to the Web UI. Stored in the database, not in <code class="mono">config.yaml</code>.</p>
+    {% endif %}
+
+    {% if users %}
+    <table class="user-table">
+      <thead><tr><th>Username</th><th>Created</th><th class="ua-actions">Actions</th></tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="mono">{{ u.username }}{% if u.username == username %} <span class="you-tag">you</span>{% endif %}</td>
+          <td class="ua-dim">{{ u.created_at | localtime if u.created_at else '—' }}</td>
+          <td class="ua-actions">
+            <details class="ua-reset">
+              <summary>Reset password</summary>
+              <form method="post" action="{{ url_for('user_reset_password') }}" class="ua-inline">
+                <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+                <input type="hidden" name="target_username" value="{{ u.username }}">
+                <input type="password" name="new_password" minlength="8" placeholder="New password" required>
+                <button type="submit" class="small">Set</button>
+              </form>
+            </details>
+            {% if u.username != username %}
+            <form method="post" action="{{ url_for('user_delete') }}" class="ua-inline"
+                  onsubmit="return confirm('Delete user {{ u.username }}?');">
+              <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+              <input type="hidden" name="target_username" value="{{ u.username }}">
+              <button type="submit" class="small danger">Delete</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p class="helper-text">No local users yet.</p>
+    {% endif %}
+
+    <h3 class="ua-subhead">Add a user</h3>
+    <form method="post" action="{{ url_for('user_create') }}" class="account-form">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+      <label class="field">
+        <span class="field-label">Username</span>
+        <input type="text" name="new_username" autocomplete="off" required>
+      </label>
+      <label class="field">
+        <span class="field-label">Password</span>
+        <input type="password" name="new_password" minlength="8" autocomplete="new-password" required>
+      </label>
+      <label class="field">
+        <span class="field-label">Confirm password</span>
+        <input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
+      </label>
+      <button type="submit">Create user</button>
+    </form>
   </div>
 </div>
 
@@ -37,5 +92,17 @@ print(bcrypt.hashpw(b'secret', bcrypt.gensalt()).decode())"</pre>
   .account-form { display:grid; gap:var(--s-4); max-width:520px; margin-top:var(--s-4); }
   .account-form .field { display:grid; gap:6px; }
   .account-form .field-label { font-family:var(--font-mono); font-size:0.72rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-faint); }
+  .user-table { width:100%; border-collapse:collapse; margin-top:var(--s-4); font-size:0.9rem; }
+  .user-table th, .user-table td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .user-table th { font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-faint); }
+  .ua-actions { white-space:nowrap; }
+  .ua-dim { color:var(--text-dim); }
+  .you-tag { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--brand); border:1px solid var(--brand-dim); border-radius:var(--r-sm); padding:1px 5px; margin-left:4px; }
+  .ua-inline { display:inline-flex; gap:6px; align-items:center; margin:4px 0 0; }
+  .ua-inline input[type=password] { width:150px; }
+  .ua-reset summary { cursor:pointer; color:var(--text-dim); font-size:0.82rem; }
+  button.small { padding:5px 10px; font-size:0.8rem; }
+  button.danger { color:#ffc9cb; border-color:rgba(255,93,98,0.4); }
+  .ua-subhead { margin-top:var(--s-5); font-size:1rem; }
 </style>
 {% endblock %}

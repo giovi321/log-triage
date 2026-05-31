@@ -62,7 +62,7 @@ except ImportError:
     RAGClient = None
     create_rag_client = None
 from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
-from .auth import authenticate_user, create_session_token, get_current_user, pwd_context
+from .auth import authenticate_user, create_session_token, get_current_user
 from .events import EventHub, sse_format, db_snapshot
 from ..worker import EnrichmentWorker
 
@@ -3227,15 +3227,31 @@ async def mark_false_positive(
     )
 
 
+def _account_context(request, username, *, error=None, message=None):
+    from . import users as users_mod
+    try:
+        user_list = users_mod.list_users()
+    except Exception:
+        user_list = []
+    return {
+        "request": request,
+        "username": username,
+        "error": error,
+        "message": message,
+        "users": user_list,
+        "oidc_enabled": bool(getattr(settings, "oidc_enabled", False)),
+        "db_status": db_status,
+    }
+
+
 @app.get("/account", name="account")
-async def account(request: Request):
+async def account(request: Request, error: Optional[str] = None, message: Optional[str] = None):
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
     return templates.TemplateResponse(
-        "account.html",
-        {"request": request, "username": username, "error": None, "message": None},
+        "account.html", _account_context(request, username, error=error, message=message)
     )
 
 
@@ -3246,121 +3262,111 @@ async def change_password(
     new_password: str = Form(...),
     confirm_password: str = Form(...),
 ):
-    global settings, raw_config, llm_defaults, rag_client
+    from . import users as users_mod
 
     username = get_current_user(request, settings)
     if not username:
         return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
 
-    user = authenticate_user(settings, username, current_password)
-    if not user:
+    def _err(msg, code=status.HTTP_400_BAD_REQUEST):
         return templates.TemplateResponse(
-            "account.html",
-            {
-                "request": request,
-                "username": username,
-                "error": "Current password is incorrect.",
-                "message": None,
-            },
-            status_code=status.HTTP_400_BAD_REQUEST,
+            "account.html", _account_context(request, username, error=msg), status_code=code
         )
 
+    if authenticate_user(settings, username, current_password) is None:
+        return _err("Current password is incorrect.")
     if new_password != confirm_password:
-        return templates.TemplateResponse(
-            "account.html",
-            {
-                "request": request,
-                "username": username,
-                "error": "New passwords do not match.",
-                "message": None,
-            },
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
+        return _err("New passwords do not match.")
     if len(new_password) < 8:
-        return templates.TemplateResponse(
-            "account.html",
-            {
-                "request": request,
-                "username": username,
-                "error": "Use at least 8 characters for the new password.",
-                "message": None,
-            },
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
+        return _err("Use at least 8 characters for the new password.")
 
     try:
-        cfg_dict = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    except Exception as e:
-        return templates.TemplateResponse(
-            "account.html",
-            {
-                "request": request,
-                "username": username,
-                "error": f"Failed to read config: {e}",
-                "message": None,
-            },
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    webui_cfg = cfg_dict.setdefault("webui", {})
-    admins = webui_cfg.get("admin_users") or []
-    target = None
-    for entry in admins:
-        if isinstance(entry, dict) and entry.get("username") == username:
-            target = entry
-            break
-
-    if target is None:
-        return templates.TemplateResponse(
-            "account.html",
-            {
-                "request": request,
-                "username": username,
-                "error": "Your account is not present in webui.admin_users. Update it via the config editor.",
-                "message": None,
-            },
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-    target["password_hash"] = pwd_context.hash(new_password)
-
-    try:
-        new_text = yaml.safe_dump(cfg_dict, sort_keys=False)
-        tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
-        backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
-        tmp_path.write_text(new_text, encoding="utf-8")
-        if CONFIG_PATH.exists():
-            CONFIG_PATH.replace(backup_path)
-        tmp_path.replace(CONFIG_PATH)
-    except Exception as e:
-        return templates.TemplateResponse(
-            "account.html",
-            {
-                "request": request,
-                "username": username,
-                "error": f"Failed to write config: {e}",
-                "message": None,
-            },
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    from .config import parse_webui_settings  # avoid cycle
-
-    raw_config = load_config(CONFIG_PATH)
-    settings = parse_webui_settings(raw_config)
-    _refresh_llm_defaults()
-    _refresh_rag_client()
+        if not users_mod.set_password(username, new_password):
+            return _err(
+                "Your account has no local password to change (it may be managed by your SSO provider).",
+            )
+    except ValueError as exc:
+        return _err(str(exc))
+    except Exception as exc:
+        return _err(f"Failed to update password: {exc}", code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     return templates.TemplateResponse(
         "account.html",
-        {
-            "request": request,
-            "username": username,
-            "error": None,
-            "message": "Password updated. Existing sessions stay active until their cookies expire.",
-        },
+        _account_context(
+            request, username,
+            message="Password updated. Existing sessions stay active until their cookies expire.",
+        ),
     )
+
+
+@app.post("/account/users/create", name="user_create")
+async def user_create(
+    request: Request,
+    new_username: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    from . import users as users_mod
+
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    account_url = app.url_path_for("account")
+    if new_password != confirm_password:
+        return RedirectResponse(account_url + "?error=Passwords+do+not+match", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        users_mod.create_user(new_username, new_password, is_admin=True)
+    except ValueError as exc:
+        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+    except Exception as exc:
+        add_notification("error", "User creation failed", str(exc))
+        return RedirectResponse(account_url + "?error=Could+not+create+user", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(account_url + "?message=User+created", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/account/users/reset", name="user_reset_password")
+async def user_reset_password(
+    request: Request,
+    target_username: str = Form(...),
+    new_password: str = Form(...),
+):
+    from . import users as users_mod
+
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    account_url = app.url_path_for("account")
+    try:
+        ok = users_mod.set_password(target_username, new_password)
+    except ValueError as exc:
+        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+    except Exception:
+        ok = False
+    msg = "?message=Password+reset" if ok else "?error=User+not+found"
+    return RedirectResponse(account_url + msg, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.post("/account/users/delete", name="user_delete")
+async def user_delete(request: Request, target_username: str = Form(...)):
+    from . import users as users_mod
+
+    username = get_current_user(request, settings)
+    if not username:
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+
+    account_url = app.url_path_for("account")
+    if target_username == username:
+        return RedirectResponse(account_url + "?error=You+cannot+delete+your+own+account", status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        ok = users_mod.delete_user(target_username)
+    except ValueError as exc:
+        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+    except Exception:
+        ok = False
+    msg = "?message=User+deleted" if ok else "?error=User+not+found"
+    return RedirectResponse(account_url + msg, status_code=status.HTTP_303_SEE_OTHER)
 
 
 def _tail_lines(
