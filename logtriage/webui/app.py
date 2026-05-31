@@ -66,6 +66,7 @@ from .auth import authenticate_user, create_session_token, get_current_user
 from .events import EventHub, sse_format, db_snapshot
 from ..worker import EnrichmentWorker
 from .state import STATE
+from . import config_io
 
 logger = logging.getLogger(__name__)
 
@@ -448,64 +449,43 @@ def _sync_state() -> None:
     STATE.db_status = db_status
 
 
+def _mirror_state_to_globals() -> None:
+    """Copy the reloadable fields back from STATE into app.py's module globals.
+
+    The inverse of _sync_state(): after config_io.reload_from_disk() mutates
+    STATE, app.py's own (not-yet-extracted) routes still read these globals, so
+    keep them in lock-step. Extracted routers read STATE directly and don't need
+    this. Goes away once every route is moved out.
+    """
+    global settings, raw_config, llm_defaults, rag_client
+    settings = STATE.settings
+    raw_config = STATE.raw_config
+    llm_defaults = STATE.llm_defaults
+    rag_client = STATE.rag_client
+
+
+def _reload_from_disk() -> None:
+    """Reload config from disk through the config_io service (STATE-only), then
+    mirror the result into app.py's globals so in-file routes stay fresh."""
+    config_io.reload_from_disk(
+        init_database=_init_database,
+        configure_oidc=oidc_mod.configure,
+    )
+    _mirror_state_to_globals()
+
+
 def _refresh_llm_defaults() -> None:
+    """Rebuild llm_defaults via the config_io service, then mirror back."""
     global llm_defaults
-    try:
-        llm_defaults = build_llm_config(raw_config)
-    except Exception as exc:
-        add_notification("error", "LLM defaults error", str(exc))
-        llm_defaults = GlobalLLMConfig(
-            enabled=False,
-            providers={},
-            default_provider=None,
-            context_prefix_lines=0,
-            context_suffix_lines=0,
-        )
-    _sync_state()
+    config_io.refresh_llm_defaults()
+    llm_defaults = STATE.llm_defaults
 
 
 def _refresh_rag_client() -> None:
-    """Initialize or update the RAG client based on configuration."""
+    """(Re)initialise the RAG client via the config_io service, then mirror back."""
     global rag_client
-    
-    # Try to use RAG service client
-    if create_rag_client is not None:
-        try:
-            logger.info("Initializing RAG service client...")
-            rag_config = build_rag_config(raw_config)
-            if rag_config and rag_config.enabled:
-                logger.info(f"RAG config found and enabled, using service client")
-                # Get RAG service URL from config or use default
-                rag_service_url = rag_config.service_url if hasattr(rag_config, 'service_url') else "http://127.0.0.1:8091"
-                rag_client = create_rag_client(rag_service_url, fallback=True)
-                
-                if rag_client.is_healthy():
-                    logger.info("RAG service client is healthy")
-                    # Add module configurations to RAG client
-                    modules = _build_modules_from_config()
-                    logger.info(f"Adding {len(modules)} modules to RAG service")
-                    for module in modules:
-                        if module.rag and module.rag.enabled:
-                            logger.info(f"Adding RAG config for module: {module.name}")
-                            rag_client.add_module_config(module.name, module.rag)
-                    # Update knowledge base
-                    logger.info("Updating RAG service knowledge base...")
-                    rag_client.update_knowledge_base()
-                    logger.info("RAG service client initialization completed")
-                else:
-                    logger.warning("RAG service is not available, RAG functionality will be disabled")
-                    # Keep rag_client as NoOp (already returned by create_rag_client)
-            else:
-                logger.info("RAG disabled in configuration")
-                rag_client = None
-        except Exception as exc:
-            logger.error(f"RAG service client initialization failed: {exc}", exc_info=True)
-            add_notification("warning", "RAG service unavailable", "RAG functionality will be disabled")
-            rag_client = None
-    else:
-        logger.info("RAG service client not available, RAG functionality disabled")
-        rag_client = None
-    _sync_state()
+    config_io.refresh_rag_client()
+    rag_client = STATE.rag_client
 
 
 # Initialize RAG client after function definition
@@ -798,19 +778,11 @@ def _add_ignore_regex_to_pipeline(pipeline_name: Optional[str], regex_value: str
         ignore_list.append(regex_value)
 
     try:
-        new_text = yaml.safe_dump(cfg_dict, sort_keys=False)
-        tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
-        backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
-        tmp_path.write_text(new_text, encoding="utf-8")
-        if CONFIG_PATH.exists():
-            CONFIG_PATH.replace(backup_path)
-        tmp_path.replace(CONFIG_PATH)
+        config_io.save_config_text(yaml.safe_dump(cfg_dict, sort_keys=False))
     except Exception as exc:
         return f"Failed to write config: {exc}"
 
-    raw_config = load_config(CONFIG_PATH)
-    settings = parse_webui_settings(raw_config)
-    _refresh_llm_defaults()
+    _reload_from_disk()
     return None
 
 
@@ -1695,29 +1667,8 @@ async def edit_config_post(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    tmp_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
-    backup_path = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".bak")
     try:
-        # Atomic save: back up the current config by COPY (the original stays in
-        # place), write the new text to a temp file and fsync it, then atomically
-        # swap it in with os.replace. On the same filesystem os.replace is atomic,
-        # so the live config is never missing or half-written -- even if the
-        # process crashes mid-save.
-        if CONFIG_PATH.exists():
-            shutil.copy2(CONFIG_PATH, backup_path)
-        with open(tmp_path, "w", encoding="utf-8") as fh:
-            fh.write(config_text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, CONFIG_PATH)
-        try:
-            dir_fd = os.open(str(CONFIG_PATH.parent), os.O_RDONLY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        except (OSError, AttributeError):
-            pass  # directory fsync unsupported on some platforms (e.g. Windows)
+        config_io.save_config_text(config_text)
     except Exception as e:
         return _render_config_editor(
             request,
@@ -1728,12 +1679,7 @@ async def edit_config_post(
         )
 
     try:
-        raw_config = load_config(CONFIG_PATH)
-        settings = parse_webui_settings(raw_config)
-        _init_database(raw_config, settings)
-        _refresh_llm_defaults()
-        _refresh_rag_client()
-        oidc_mod.configure(settings)
+        _reload_from_disk()
     except Exception as exc:
         add_notification("error", "Configuration reload failed", str(exc))
         return _render_config_editor(
@@ -2907,11 +2853,7 @@ async def mark_false_positive(
             sample_source=sample_source,
         )
 
-    from .config import parse_webui_settings  # avoid cycle
-
-    raw_config = load_config(CONFIG_PATH)
-    settings = parse_webui_settings(raw_config)
-    _refresh_llm_defaults()
+    _reload_from_disk()
 
     try:
         removed_count = delete_findings_matching_regex(regex_value, pipeline_name=pipeline_name)
@@ -3637,11 +3579,7 @@ async def regex_save(
             ),
         )
 
-    from .config import parse_webui_settings  # avoid cycle
-
-    raw_config = load_config(CONFIG_PATH)
-    settings = parse_webui_settings(raw_config)
-    _refresh_llm_defaults()
+    _reload_from_disk()
 
     return templates.TemplateResponse(
         "regex.html",
