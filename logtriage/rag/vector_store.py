@@ -17,17 +17,18 @@ logger = logging.getLogger(__name__)
 class VectorStore:
     """FAISS-based vector database for storing and retrieving document embeddings with memory limits."""
     
-    def __init__(self, persist_directory: Path):
+    def __init__(self, persist_directory: Path, embedding_dimension: int = 384):
         self.persist_directory = persist_directory
         self.persist_directory.mkdir(parents=True, exist_ok=True)
-        
+
         # FAISS and SQLite paths
         self.faiss_index_path = self.persist_directory / "faiss_index.bin"
         self.metadata_db_path = self.persist_directory / "metadata.db"
-        
-        # Memory limits and embedding dimension
+
+        # Memory limits and embedding dimension. The dimension is overwritten by
+        # the actual index dimension when an existing index is loaded.
         self.max_chunks_in_memory = 1000  # FAISS can handle more
-        self.embedding_dimension = 384  # Default for MiniLM
+        self.embedding_dimension = int(embedding_dimension)  # Default for MiniLM
         
         self._lock = threading.RLock()
         self._index = None
@@ -63,7 +64,9 @@ class VectorStore:
             self.conn = sqlite3.connect(str(self.metadata_db_path), check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
             
-            # Create tables
+            # Create tables. The `embedding` BLOB stores each chunk's normalized
+            # vector so the FAISS index can be rebuilt faithfully after a repo is
+            # deleted (FAISS IndexFlatIP cannot remove individual vectors).
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS chunks (
                     chunk_id TEXT PRIMARY KEY,
@@ -73,14 +76,23 @@ class VectorStore:
                     content TEXT NOT NULL,
                     commit_hash TEXT,
                     metadata TEXT,
-                    faiss_index INTEGER
+                    faiss_index INTEGER,
+                    embedding BLOB
                 )
             """)
-            
+
             # Create indexes for fast queries
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_repo_id ON chunks(repo_id)")
             self.conn.execute("CREATE INDEX IF NOT EXISTS idx_faiss_index ON chunks(faiss_index)")
-            
+
+            # Migrate stores created before the embedding column existed.
+            cols = {row["name"] for row in self.conn.execute("PRAGMA table_info(chunks)")}
+            if "embedding" not in cols:
+                try:
+                    self.conn.execute("ALTER TABLE chunks ADD COLUMN embedding BLOB")
+                except Exception:
+                    pass
+
             self.conn.commit()
             logger.info("SQLite metadata database initialized")
             
@@ -119,11 +131,14 @@ class VectorStore:
                 
                 start_idx = int(self._index.ntotal)
                 self._index.add(emb)
-                
+
                 rows = []
                 for i, chunk in enumerate(chunks):
                     faiss_idx = start_idx + i
                     metadata_json = json.dumps(chunk.metadata) if chunk.metadata else None
+                    # Persist the normalized vector so the index can be rebuilt
+                    # after a repo deletion without re-embedding.
+                    emb_blob = np.ascontiguousarray(emb[i], dtype=np.float32).tobytes()
                     rows.append((
                         chunk.chunk_id,
                         chunk.repo_id,
@@ -132,13 +147,14 @@ class VectorStore:
                         chunk.content,
                         chunk.commit_hash,
                         metadata_json,
-                        faiss_idx
+                        faiss_idx,
+                        emb_blob,
                     ))
-                
+
                 self.conn.executemany("""
-                    INSERT OR REPLACE INTO chunks 
-                    (chunk_id, repo_id, file_path, heading, content, commit_hash, metadata, faiss_index)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO chunks
+                    (chunk_id, repo_id, file_path, heading, content, commit_hash, metadata, faiss_index, embedding)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, rows)
                 self.conn.commit()
 
@@ -147,11 +163,9 @@ class VectorStore:
 
                 del emb
                 del rows
-            
-            # Aggressive cleanup
-            for _ in range(3):
-                gc.collect()
-            
+
+            gc.collect()
+
             logger.debug(f"Successfully added {len(chunks)} chunks to FAISS store (streaming)")
             
         except Exception as e:
@@ -229,11 +243,7 @@ class VectorStore:
                     # Limit results
                     if len(chunks) >= n_results:
                         break
-            
-            # Aggressive cleanup
-            for _ in range(3):
-                gc.collect()
-            
+
             return chunks, distances
             
         except Exception as e:
@@ -264,35 +274,60 @@ class VectorStore:
             logger.error(f"Failed to delete repo {repo_id}: {e}")
     
     def _rebuild_faiss_index(self):
-        """Rebuild FAISS index from remaining chunks."""
+        """Rebuild the FAISS index from the embeddings stored in SQLite.
+
+        FAISS ``IndexFlatIP`` cannot remove individual vectors, so after a repo's
+        rows are deleted we rebuild the whole index from the (normalized)
+        embedding BLOBs kept alongside each surviving chunk, reassigning
+        contiguous ``faiss_index`` values so SQLite and FAISS stay aligned.
+
+        Previously this method built an EMPTY index (its own comment admitted it),
+        silently discarding every surviving repo's vectors — queries returned
+        nothing until a full reindex. Rows with no stored embedding (created
+        before the BLOB column existed) are marked unsearchable (``faiss_index =
+        -1``) rather than corrupting the alignment, until their repo is reindexed.
+        """
         try:
             import faiss
-            
-            # Get all remaining embeddings
-            cursor = self.conn.execute("""
-                SELECT faiss_index, content FROM chunks ORDER BY faiss_index
-            """)
-            
+
+            cursor = self.conn.execute(
+                "SELECT rowid, embedding FROM chunks ORDER BY faiss_index"
+            )
             rows = cursor.fetchall()
-            
-            if rows:
-                # Create new index
+
+            with_emb = [r for r in rows if r["embedding"] is not None]
+            without_emb = [r for r in rows if r["embedding"] is None]
+
+            with self._lock:
                 new_index = faiss.IndexFlatIP(self.embedding_dimension)
-                
-                # Note: We'd need to re-embed content here, but for now just create empty index
-                # In practice, we'd store embeddings or re-generate them
-                
-                with self._lock:
-                    self._index = new_index
-                    faiss.write_index(self._index, str(self.faiss_index_path))
-                
-                logger.info("FAISS index rebuilt")
+                if with_emb:
+                    vectors = np.vstack([
+                        np.frombuffer(r["embedding"], dtype=np.float32)
+                        for r in with_emb
+                    ]).astype(np.float32)
+                    new_index.add(vectors)
+                    for new_idx, r in enumerate(with_emb):
+                        self.conn.execute(
+                            "UPDATE chunks SET faiss_index = ? WHERE rowid = ?",
+                            (new_idx, r["rowid"]),
+                        )
+                for r in without_emb:
+                    self.conn.execute(
+                        "UPDATE chunks SET faiss_index = -1 WHERE rowid = ?", (r["rowid"],)
+                    )
+                self.conn.commit()
+                self._index = new_index
+                faiss.write_index(self._index, str(self.faiss_index_path))
+
+            if without_emb:
+                logger.warning(
+                    "FAISS index rebuilt with %d vectors; %d legacy chunks had no "
+                    "stored embedding and are unsearchable until reindexed.",
+                    len(with_emb), len(without_emb),
+                )
             else:
-                # Create empty index
-                with self._lock:
-                    self._index = faiss.IndexFlatIP(self.embedding_dimension)
-                    faiss.write_index(self._index, str(self.faiss_index_path))
-                
+                logger.info("FAISS index rebuilt with %d vectors", len(with_emb))
+
         except Exception as e:
             logger.error(f"Failed to rebuild FAISS index: {e}")
     
