@@ -68,6 +68,43 @@ def test_call_ollama_normalizes_response(monkeypatch):
     assert out["usage"] == {"prompt_tokens": 31, "completion_tokens": 12}
 
 
+# ---- _post_json shared HTTP helper ---------------------------------------
+
+def test_post_json_raises_tagged_http_error(monkeypatch):
+    import io
+    import urllib.error
+
+    def fake_urlopen(req, timeout=None):
+        raise urllib.error.HTTPError(
+            req.full_url, 429, "Too Many Requests", {}, io.BytesIO(b"rate limited")
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError) as excinfo:
+        llm_client._post_json(
+            "https://api.example.com/v1/messages",
+            {"a": 1},
+            {"Content-Type": "application/json"},
+            5.0,
+            "p1",
+        )
+    msg = str(excinfo.value)
+    assert "p1 HTTP 429" in msg
+    assert "rate limited" in msg
+
+
+def test_post_json_raises_on_unreachable(monkeypatch):
+    import urllib.error
+
+    def fake_urlopen(req, timeout=None):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError) as excinfo:
+        llm_client._post_json("https://x/y", {}, {}, 5.0, "p1")
+    assert "Failed to reach LLM provider p1" in str(excinfo.value)
+
+
 # ---- _call_llm routing ----------------------------------------------------
 
 @pytest.mark.parametrize("ptype,target", [

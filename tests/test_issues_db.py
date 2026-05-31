@@ -119,6 +119,27 @@ def test_sparkline_buckets_occurrences(database):
     assert len(spark) == 24
 
 
+def test_store_findings_batch_matches_per_finding(database):
+    """store_findings (one transaction) equals N store_finding calls."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    batch = [
+        _finding("2026-05-29 14:00:00 ERROR mqtt cannot reach 10.0.0.5", line=1, ts=now),
+        _finding("2026-05-29 15:00:00 ERROR mqtt cannot reach 10.0.0.9", line=2, ts=now),
+        _finding("ERROR disk full on /dev/sda", line=3, rule="DISK", ts=now),
+    ]
+    stored = db.store_findings("ha", batch)
+    assert stored == 3
+    issues = db.get_issues(module_name="ha")
+    # Two distinct signatures: the recurring mqtt error (count 2) + the disk one.
+    assert sorted(i.occurrence_count for i in issues) == [1, 2]
+    assert db.count_findings() == 3
+
+    # A duplicate occurrence in a later batch is skipped (0 inserted).
+    again = db.store_findings("ha", [batch[0]])
+    assert again == 0
+    assert db.count_findings() == 3
+
+
 def test_batch_sparklines_match_per_issue(database):
     """get_issue_sparklines (one query) must equal per-issue get_issue_sparkline."""
     now = datetime.datetime.now(datetime.timezone.utc)
