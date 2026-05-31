@@ -149,6 +149,13 @@ def select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
     return None
 
 
+def finding_excerpt_preview(finding, max_lines: int) -> str:
+    excerpt_lines = (getattr(finding, "excerpt", "") or "").splitlines()
+    if max_lines > 0:
+        excerpt_lines = excerpt_lines[:max_lines]
+    return "\n".join(excerpt_lines)
+
+
 def suggest_regex_from_line(line: str) -> str:
     """Naive ignore-regex suggestion: escape, then generalize digits/hex runs."""
     import re
