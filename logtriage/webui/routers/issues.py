@@ -19,6 +19,7 @@ from ..db import (
     get_issue_sparklines,
     get_issues,
     issue_status_counts,
+    issue_category_counts,
     update_issue_status,
     ISSUE_STATUSES,
     ISSUE_ACTIVE_STATUSES,
@@ -48,6 +49,8 @@ async def issues_list(
     status_filter: str = "active",
     severity: Optional[str] = None,
     q: Optional[str] = None,
+    category: Optional[str] = None,
+    group_by_category: int = 0,
     message: Optional[str] = None,
     error: Optional[str] = None,
 ):
@@ -66,13 +69,24 @@ async def issues_list(
     now = datetime.datetime.now(datetime.timezone.utc)
     issues = get_issues(
         module_name=module or None, statuses=statuses, severities=severities,
-        search=(q or None), limit=150, now=now,
+        search=(q or None), limit=150, now=now, category=(category or None),
     )
     sparklines = get_issue_sparklines(
         [iss.id for iss in issues], buckets=24, bucket_seconds=3600, now=now
     )
     counts = issue_status_counts(module or None)
+    category_counts = issue_category_counts(module or None, statuses=statuses)
     modules = sorted(build_modules_from_config(), key=lambda m: m.name.lower())
+
+    # Optional grouping: order the already-fetched (priority-sorted) list by
+    # category so the template can render section headers without losing rank.
+    grouped = None
+    if group_by_category:
+        grouped = {}
+        for iss in issues:
+            raw = getattr(iss, "llm_category", None)
+            key = (raw.split(":", 1)[0].strip() if raw else "uncategorized") or "other"
+            grouped.setdefault(key, []).append(iss)
 
     return templates.TemplateResponse(
         "issues.html",
@@ -80,8 +94,12 @@ async def issues_list(
             "request": request,
             "username": username,
             "issues": issues,
+            "grouped": grouped,
             "sparklines": sparklines,
             "counts": counts,
+            "category_counts": category_counts,
+            "category_filter": category or "",
+            "group_by_category": bool(group_by_category),
             "modules": modules,
             "current_module": module or "",
             "status_filter": status_filter or "active",

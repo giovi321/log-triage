@@ -91,6 +91,28 @@ def _ensure_llm_columns(engine):
                 continue
 
 
+def _ensure_issue_columns(engine):
+    """Add newer columns to the issues table on existing deployments."""
+    if Base is None:
+        return
+    inspector = inspect(engine)
+    try:
+        existing = {col["name"] for col in inspector.get_columns("issues")}
+    except Exception:
+        return
+    ddl_statements = [
+        ("llm_category", "VARCHAR(64)"),
+    ]
+    with engine.begin() as conn:
+        for col_name, col_type in ddl_statements:
+            if col_name in existing:
+                continue
+            try:
+                conn.execute(text(f"ALTER TABLE issues ADD COLUMN {col_name} {col_type}"))
+            except Exception:
+                continue
+
+
 def _ensure_indexes(engine):
     """Create composite indexes on existing tables.
 
@@ -269,6 +291,8 @@ if Base is not None:
         llm_model = Column(String(128), nullable=True)
         llm_content = Column(Text, nullable=True)
         llm_citations = Column(Text, nullable=True)  # JSON-encoded list[str]
+        # LLM-assigned category for grouping (fixed vocab + free-form `other:` fallback)
+        llm_category = Column(String(64), nullable=True, index=True)
         llm_analyzed_fingerprint = Column(String(32), nullable=True)
         llm_error = Column(Text, nullable=True)
         llm_prompt_tokens = Column(Integer, nullable=True)
@@ -374,6 +398,7 @@ def setup_database(database_url: str):
     engine = create_engine(database_url, future=True)
     Base.metadata.create_all(engine)
     _ensure_llm_columns(engine)
+    _ensure_issue_columns(engine)
     _ensure_indexes(engine)
     SessionLocal.configure(bind=engine)
     _engine = engine
@@ -1116,6 +1141,7 @@ def get_issues(
     search: Optional[str] = None,
     limit: int = 300,
     now: Optional[datetime.datetime] = None,
+    category: Optional[str] = None,
 ) -> List["IssueRecord"]:
     """Return issues (optionally filtered), ordered by triage priority desc."""
     sess = get_session()
@@ -1131,6 +1157,17 @@ def get_issues(
         sev_list = [s.upper() for s in (severities or []) if s]
         if sev_list:
             q = q.filter(func.upper(IssueRecord.severity).in_(sev_list))
+        if category:
+            if category == "uncategorized":
+                q = q.filter(IssueRecord.llm_category.is_(None))
+            else:
+                # Match the fixed category or any `other:<phrase>` under "other".
+                q = q.filter(
+                    or_(
+                        IssueRecord.llm_category == category,
+                        IssueRecord.llm_category.ilike(category + ":%"),
+                    )
+                )
         if search:
             like = f"%{search}%"
             q = q.filter(
@@ -1207,6 +1244,40 @@ def issue_status_counts(module_name: Optional[str] = None) -> Dict[str, int]:
             q = q.filter(IssueRecord.module_name == module_name)
         for status, n in q.group_by(IssueRecord.status).all():
             counts[str(status)] = int(n or 0)
+    except Exception:
+        pass
+    finally:
+        sess.close()
+    return counts
+
+
+def issue_category_counts(
+    module_name: Optional[str] = None,
+    statuses: Optional[Iterable[str]] = None,
+) -> Dict[str, int]:
+    """Count active issues per LLM category (for the Triage filter chips).
+
+    Free-form ``other:<phrase>`` categories are rolled up under ``other``; issues
+    without a category are counted as ``uncategorized``.
+    """
+    counts: Dict[str, int] = {}
+    sess = get_session()
+    if sess is None:
+        return counts
+    try:
+        q = sess.query(IssueRecord.llm_category, func.count(IssueRecord.id))
+        if module_name:
+            q = q.filter(IssueRecord.module_name == module_name)
+        status_list = [s for s in (statuses or []) if s]
+        if status_list:
+            q = q.filter(IssueRecord.status.in_(status_list))
+        for cat, n in q.group_by(IssueRecord.llm_category).all():
+            n = int(n or 0)
+            if not cat:
+                key = "uncategorized"
+            else:
+                key = str(cat).split(":", 1)[0].strip() or "other"
+            counts[key] = counts.get(key, 0) + n
     except Exception:
         pass
     finally:
@@ -1349,6 +1420,7 @@ def update_issue_llm(
     fingerprint: Optional[str] = None,
     prompt_tokens: Optional[int] = None,
     completion_tokens: Optional[int] = None,
+    category: Optional[str] = None,
 ) -> bool:
     sess = get_session()
     if sess is None:
@@ -1363,6 +1435,7 @@ def update_issue_llm(
                     "llm_model": model,
                     "llm_content": content,
                     "llm_citations": json.dumps(citations or []),
+                    "llm_category": category,
                     "llm_analyzed_fingerprint": fingerprint,
                     "llm_error": None,
                     "llm_prompt_tokens": prompt_tokens,

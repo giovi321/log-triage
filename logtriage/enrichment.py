@@ -26,13 +26,48 @@ from .webui.db import (
 
 logger = logging.getLogger(__name__)
 
+# Fixed category vocabulary for grouping issues by interpretation. The LLM is
+# asked to pick one; anything else is normalized to an `other:<phrase>` form.
+CATEGORIES = ("auth", "network", "storage", "config", "dependency", "performance", "other")
+
 SYSTEM_INSTRUCTION = (
     "You are a log-triage assistant. You are given a recurring log issue (a group of "
-    "identical-shape log lines). In 2-4 sentences explain what it most likely means and "
-    "the single most useful next action to investigate or resolve it. Be concrete and avoid "
-    "filler. If documentation context is provided below, ground your answer in it and cite "
+    "identical-shape log lines). Respond with EXACTLY two parts:\n"
+    "1. A first line of the form `CATEGORY: <one of: " + ", ".join(CATEGORIES) + ">`. "
+    "Pick the best fit; if none fits, use `CATEGORY: other: <2-3 word label>`.\n"
+    "2. Then, in 2-4 sentences, explain what it most likely means and the single most "
+    "useful next action to investigate or resolve it. Be concrete and avoid filler.\n"
+    "If documentation context is provided below, ground your answer in it and cite "
     "sources using their bracketed reference numbers."
 )
+
+
+def _parse_category_and_body(content: str):
+    """Split the LLM response into (category, body).
+
+    Expects a leading `CATEGORY: <x>` line; falls back to ("other", content) when
+    absent. The category is normalized to the fixed vocabulary, preserving an
+    `other: <phrase>` free-form fallback (lower-cased, trimmed, length-capped).
+    """
+    text = (content or "").strip()
+    category = None
+    body = text
+    first, _, rest = text.partition("\n")
+    fl = first.strip()
+    if fl.lower().startswith("category:"):
+        raw = fl.split(":", 1)[1].strip()
+        body = rest.strip() or text
+        low = raw.lower()
+        # `other: foo` free-form fallback
+        if low.startswith("other:"):
+            phrase = raw.split(":", 1)[1].strip().lower()
+            category = ("other: " + phrase[:48]).strip() if phrase else "other"
+        elif low in CATEGORIES:
+            category = low
+        else:
+            # LLM returned an out-of-vocab single word → treat as free-form other.
+            category = ("other: " + low[:48]) if low else "other"
+    return category, body
 
 
 def build_finding_from_issue(issue) -> Finding:
@@ -140,15 +175,18 @@ def analyze_issue(
         )
         return False
 
+    category, body = _parse_category_and_body(content)
+
     update_issue_llm(
         issue.id,
         provider=provider.name,
         model=response.get("model", provider.model),
-        content=content,
+        content=body,
         citations=citations or None,
         fingerprint=getattr(issue, "fingerprint", None),
         prompt_tokens=usage.get("prompt_tokens"),
         completion_tokens=usage.get("completion_tokens"),
+        category=category,
     )
     return True
 

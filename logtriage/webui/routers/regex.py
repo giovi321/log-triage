@@ -12,6 +12,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
+from ...models import ModuleConfig
 from ..auth import get_current_user, current_user_is_admin
 from ..db import get_module_stats, get_recent_findings_for_module
 from ..ingestion_status import _derive_ingestion_status

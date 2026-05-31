@@ -828,6 +828,17 @@ table.data tbody tr:last-child td { border-bottom: none; }
   .issue-row { grid-template-columns: 1fr; gap: var(--s-2); }
 }
 
+/* Issue LLM-category navigation */
+.cat-badge { display: inline-block; padding: 0 6px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--brand-bright); border: 1px solid var(--accent-line); font-size: 0.7rem; letter-spacing: 0.02em; text-transform: lowercase; }
+.cat-chips { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+.cat-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: var(--r-pill); border: 1px solid var(--line); color: var(--text-dim); font-size: 0.8rem; text-decoration: none; }
+.cat-chip:hover { border-color: var(--line-strong); color: var(--text); text-decoration: none; }
+.cat-chip.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--brand-bright); }
+.cat-chip.toggle { margin-left: auto; }
+.cat-chip-n { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-faint); }
+.cat-section-head { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); margin: var(--s-4) 0 var(--s-2); padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.cat-section-head:first-child { margin-top: 0; }
+
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 0.88rem; }
 .kv dt { color: var(--text-faint); font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.06em; text-transform: uppercase; align-self: center; }
 .kv dd { margin: 0; color: var(--text); }

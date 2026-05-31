@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -37,6 +38,7 @@ from ..state import STATE
 from ..shared import (
     templates,
     build_modules_from_config,
+    format_local_timestamp as _format_local_timestamp,
     normalize_sample_source as _normalize_sample_source,
     sample_source_options as _sample_source_options,
     sample_source_label as _sample_source_label,
@@ -48,6 +50,9 @@ from ..logs_shared import _tail_lines, _get_sample_lines_for_module
 from .. import config_io
 
 router = APIRouter()
+
+# Severities that count as "findings" in the logs explorer (matches the triage set).
+SEVERITY_CHOICES = ["CRITICAL", "ERROR", "WARNING"]
 
 
 def _logs_redirect(
@@ -73,7 +78,7 @@ def _logs_redirect(
         params["error"] = error
 
     query = urllib.parse.urlencode(params)
-    url = request.app.url_path_for("ai_logs")
+    url = "/ai-logs"
     if query:
         url = f"{url}?{query}"
     return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
@@ -455,6 +460,7 @@ async def ai_logs(
                         displayed_finding_ids.add(fid)
         open_findings_count = len(displayed_finding_ids)
 
+    llm_defaults = STATE.llm_defaults
     provider_name = _select_provider_name(module_obj)
     provider_cfg = llm_defaults.providers.get(provider_name) if provider_name else None
     provider_settings = {
@@ -491,7 +497,7 @@ async def ai_logs(
             "modules": modules,
             "current_module": module_obj,
             **log_state,
-            "db_status": db_status,
+            "db_status": STATE.db_status,
             "message": message,
             "error": error or sample_error,
             "providers": list(llm_defaults.providers.values()),

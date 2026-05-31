@@ -75,12 +75,12 @@
   <h2 style="margin:0 0 var(--s-2);">Logs &amp; AI analysis</h2>
   {% if current_module %}
   <div class="context-toggle" style="display:inline-flex; margin-bottom:var(--s-3);">
-    <span class="chip-group">
-      <a href="{{ url_for('issues') }}?module={{ current_module.name }}" style="text-decoration:none;"><button type="button">Issues view</button></a>
-      <button type="button" class="active" disabled>Raw log</button>
+    <span class="chip-group" role="group" aria-label="Log view mode">
+      <a href="{{ url_for('issues') }}?module={{ current_module.name }}" style="text-decoration:none;"><button type="button">Grouped (issues)</button></a>
+      <button type="button" class="active" disabled>Raw lines</button>
     </span>
   </div>
-  <span class="faint" style="font-size:0.78rem; margin-left:var(--s-2);">Tip: the <b>Issues view</b> groups these lines into deduplicated, AI-summarized problems.</span>
+  <span class="faint" style="font-size:0.78rem; margin-left:var(--s-2);">You're viewing every matching line. Switch to <b>Grouped</b> to collapse repeats into one AI-summarized issue per problem.</span>
   {% endif %}
   <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
     <form method="get" action="{{ url_for('ai_logs') }}" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">

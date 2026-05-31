@@ -131,3 +131,45 @@ def test_analyze_pending_issues_skips_disabled_modules(database, monkeypatch):
     disabled = ModuleLLMConfig(enabled=False, min_severity=Severity.WARNING, max_excerpt_lines=50)
     modules = {"ha": types.SimpleNamespace(name="ha", llm=disabled)}
     assert enrichment.analyze_pending_issues(modules, _llm_defaults()) == 0
+
+
+# ---- category parsing ------------------------------------------------------
+
+def test_parse_category_fixed_vocab():
+    cat, body = enrichment._parse_category_and_body("CATEGORY: network\nDNS is failing. Check resolv.conf.")
+    assert cat == "network"
+    assert body == "DNS is failing. Check resolv.conf."
+
+
+def test_parse_category_other_freeform():
+    cat, body = enrichment._parse_category_and_body("CATEGORY: other: cron drift\nThe job ran late.")
+    assert cat == "other: cron drift"
+    assert body == "The job ran late."
+
+
+def test_parse_category_out_of_vocab_word_becomes_other():
+    cat, body = enrichment._parse_category_and_body("CATEGORY: kerberos\nTicket expired.")
+    assert cat == "other: kerberos"
+    assert body == "Ticket expired."
+
+
+def test_parse_category_absent_defaults_none_and_keeps_body():
+    cat, body = enrichment._parse_category_and_body("Just a plain summary with no category line.")
+    assert cat is None
+    assert body == "Just a plain summary with no category line."
+
+
+def test_analyze_issue_stores_category(database, monkeypatch):
+    issue = _store_issue(database)
+    monkeypatch.setattr(
+        enrichment, "_call_llm",
+        lambda provider, payload: {
+            "model": "test-model",
+            "choices": [{"message": {"content": "CATEGORY: storage\nDisk almost full on /var."}}],
+            "usage": {},
+        },
+    )
+    assert enrichment.analyze_issue(issue, _llm_defaults(), _module_llm(), force=True) is True
+    refreshed = db.get_issue_by_id(issue.id)
+    assert refreshed.llm_category == "storage"
+    assert refreshed.llm_content == "Disk almost full on /var."

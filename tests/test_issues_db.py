@@ -165,3 +165,39 @@ def test_module_stats_counts_and_latest(database):
     assert s.errors_24h == 2  # ERROR + CRITICAL, old one excluded
     assert s.warnings_24h == 1
     assert s.last_severity == "CRITICAL"  # most recent in-window finding
+
+
+def _set_category(issue_id, category):
+    db.update_issue_llm(
+        issue_id, provider="p", model="m", content="summary",
+        fingerprint=None, category=category,
+    )
+
+
+def test_get_issues_filter_by_category(database):
+    db.store_finding("ha", _finding("ERROR a", line=1, rule="A"))
+    db.store_finding("ha", _finding("ERROR b", line=2, rule="B"))
+    db.store_finding("ha", _finding("ERROR c", line=3, rule="C"))
+    issues = db.get_issues(module_name="ha")
+    _set_category(issues[0].id, "network")
+    _set_category(issues[1].id, "other: cron drift")
+    # issues[2] left uncategorized
+
+    assert [i.id for i in db.get_issues(module_name="ha", category="network")] == [issues[0].id]
+    # `other` matches the free-form `other:<phrase>` rollup.
+    assert [i.id for i in db.get_issues(module_name="ha", category="other")] == [issues[1].id]
+    assert [i.id for i in db.get_issues(module_name="ha", category="uncategorized")] == [issues[2].id]
+
+
+def test_issue_category_counts_rollup(database):
+    db.store_finding("ha", _finding("ERROR a", line=1, rule="A"))
+    db.store_finding("ha", _finding("ERROR b", line=2, rule="B"))
+    db.store_finding("ha", _finding("ERROR c", line=3, rule="C"))
+    issues = db.get_issues(module_name="ha")
+    _set_category(issues[0].id, "network")
+    _set_category(issues[1].id, "other: cron drift")
+    # issues[2] uncategorized
+    counts = db.issue_category_counts("ha")
+    assert counts.get("network") == 1
+    assert counts.get("other") == 1            # free-form rolled up under "other"
+    assert counts.get("uncategorized") == 1

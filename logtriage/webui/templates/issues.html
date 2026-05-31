@@ -11,6 +11,38 @@
   </span>
 {% endmacro %}
 
+{% macro cat_label(raw) %}{% if not raw %}uncategorized{% elif ':' in raw %}{{ raw.split(':', 1)[1].strip() or raw.split(':',1)[0] }}{% else %}{{ raw }}{% endif %}{% endmacro %}
+
+{% macro issue_row(issue, sparklines) %}
+  <div class="issue-row">
+    <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-start;">
+      <span class="status-badge sev-{{ issue.severity }}">{{ issue.severity }}</span>
+      <span class="faint mono" style="font-size:0.68rem;" title="priority score">p{{ issue.priority_score | round | int }}</span>
+    </div>
+    <div style="min-width:0;">
+      <div class="issue-title"><a href="{{ url_for('issue_detail', issue_id=issue.id) }}">{{ issue.title }}</a></div>
+      <div class="issue-sig">{{ issue.module_name }} · {{ issue.signature }}{% if issue.llm_category %} · <span class="cat-badge">{{ cat_label(issue.llm_category) }}</span>{% endif %}</div>
+      {% if issue.llm_content and issue.llm_analyzed_fingerprint == issue.fingerprint %}
+        <div class="issue-summary">{{ issue.llm_content }}</div>
+      {% else %}
+        <div class="issue-summary faint">Not analyzed yet — open to run analysis.</div>
+      {% endif %}
+    </div>
+    <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-start;">
+      <span class="issue-count">{{ issue.occurrence_count }}<span class="faint" style="font-size:0.7rem; font-weight:400;"> seen</span></span>
+      {{ sparkbars(sparklines.get(issue.id, [])) }}
+    </div>
+    <div class="mono" style="font-size:0.78rem;">
+      <div title="last seen">{{ issue.last_seen | localtime }}</div>
+      <div class="faint" style="font-size:0.72rem;" title="first seen">first: {{ issue.first_seen | localtime }}</div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+      <span class="tag">{{ issue.status }}</span>
+      <a href="{{ url_for('issue_detail', issue_id=issue.id) }}" class="mono" style="font-size:0.8rem;">Open →</a>
+    </div>
+  </div>
+{% endmacro %}
+
 {% block content %}
 {% set active_count = (counts.get('open', 0) + counts.get('acknowledged', 0)) %}
 
@@ -53,6 +85,20 @@
     </label>
     <button type="submit" class="secondary" style="align-self:flex-end;">Filter</button>
   </form>
+
+  {% if category_counts %}
+  <div class="cat-chips">
+    {% set qbase = url_for('issues') + '?status_filter=' + status_filter + ('&module=' ~ current_module if current_module else '') + ('&severity=' ~ severity_filter if severity_filter else '') + ('&group_by_category=1' if group_by_category else '') %}
+    <a class="cat-chip {% if not category_filter %}active{% endif %}" href="{{ qbase }}">All</a>
+    {% for cat, n in category_counts | dictsort %}
+      <a class="cat-chip {% if category_filter == cat %}active{% endif %}" href="{{ qbase }}&category={{ cat }}">{{ cat }} <span class="cat-chip-n">{{ n }}</span></a>
+    {% endfor %}
+    <a class="cat-chip toggle {% if group_by_category %}active{% endif %}"
+       href="{{ url_for('issues') }}?status_filter={{ status_filter }}{% if current_module %}&module={{ current_module }}{% endif %}{% if category_filter %}&category={{ category_filter }}{% endif %}{% if not group_by_category %}&group_by_category=1{% endif %}">
+      {% if group_by_category %}✓ Grouped{% else %}Group by category{% endif %}
+    </a>
+  </div>
+  {% endif %}
 </div>
 
 <div class="card" data-reveal style="--i:1">
@@ -60,36 +106,13 @@
     <p class="muted">Database not connected — issues require a configured database.</p>
   {% elif not issues %}
     <p class="muted">No issues match this view. 🎉</p>
-  {% else %}
-    {% for issue in issues %}
-      <div class="issue-row">
-        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-start;">
-          <span class="status-badge sev-{{ issue.severity }}">{{ issue.severity }}</span>
-          <span class="faint mono" style="font-size:0.68rem;" title="priority score">p{{ issue.priority_score | round | int }}</span>
-        </div>
-        <div style="min-width:0;">
-          <div class="issue-title"><a href="{{ url_for('issue_detail', issue_id=issue.id) }}">{{ issue.title }}</a></div>
-          <div class="issue-sig">{{ issue.module_name }} · {{ issue.signature }}</div>
-          {% if issue.llm_content and issue.llm_analyzed_fingerprint == issue.fingerprint %}
-            <div class="issue-summary">{{ issue.llm_content }}</div>
-          {% else %}
-            <div class="issue-summary faint">Not analyzed yet — open to run analysis.</div>
-          {% endif %}
-        </div>
-        <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-start;">
-          <span class="issue-count">{{ issue.occurrence_count }}<span class="faint" style="font-size:0.7rem; font-weight:400;"> seen</span></span>
-          {{ sparkbars(sparklines.get(issue.id, [])) }}
-        </div>
-        <div class="mono" style="font-size:0.78rem;">
-          <div title="last seen">{{ issue.last_seen | localtime }}</div>
-          <div class="faint" style="font-size:0.72rem;" title="first seen">first: {{ issue.first_seen | localtime }}</div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
-          <span class="tag">{{ issue.status }}</span>
-          <a href="{{ url_for('issue_detail', issue_id=issue.id) }}" class="mono" style="font-size:0.8rem;">Open →</a>
-        </div>
-      </div>
+  {% elif grouped %}
+    {% for cat, group in grouped | dictsort %}
+      <div class="cat-section-head">{{ cat }} <span class="faint">· {{ group | length }}</span></div>
+      {% for issue in group %}{{ issue_row(issue, sparklines) }}{% endfor %}
     {% endfor %}
+  {% else %}
+    {% for issue in issues %}{{ issue_row(issue, sparklines) }}{% endfor %}
   {% endif %}
 </div>
 {% endblock %}

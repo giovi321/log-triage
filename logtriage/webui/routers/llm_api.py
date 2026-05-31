@@ -285,8 +285,8 @@ async def llm_query_finding(
         )
         
         analyze_findings_with_llm(
-            [compatible_finding], 
-            llm_defaults, 
+            [compatible_finding],
+            STATE.llm_defaults,
             temp_module_llm,
             rag_client=STATE.rag_client,
             module_name=module_name
