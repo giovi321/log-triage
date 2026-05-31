@@ -1,23 +1,15 @@
-from __future__ import annotations
 
 import asyncio
-import datetime
 import json
 import logging
 import os
-import re
 import secrets
-import shutil
-import subprocess
 import sys
-import tempfile
-import threading
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
 try:
     import yaml  # type: ignore
@@ -26,9 +18,8 @@ except ImportError:
 
 # Import FastAPI and related dependencies
 try:
-    from fastapi import FastAPI, Request, Response, HTTPException, status, Form
-    from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
-    from fastapi.templating import Jinja2Templates
+    from fastapi import FastAPI, Request, status
+    from fastapi.responses import HTMLResponse
     from fastapi.staticfiles import StaticFiles
     try:
         from fastapi.middleware import SessionMiddleware
@@ -41,17 +32,9 @@ except ImportError as e:
     sys.exit(1)
 
 # Import LogTriage components
-from ..models import GlobalLLMConfig, Severity, Finding, ModuleConfig, PipelineConfig, ModuleLLMConfig
-from ..config import build_llm_config, build_modules, build_pipelines, load_config, build_rag_config
-from ..engine import analyze_path
-from ..llm_client import analyze_findings_with_llm, _call_llm
-from ..llm_payload import write_llm_payloads, should_send_to_llm
-from ..utils import select_pipeline
-from ..stream import stream_file
-from ..alerts import send_alerts
-from ..version import __version__
-from ..notifications import add_notification, list_notifications, notification_summary
-from .ingestion_status import INGESTION_STALENESS_MINUTES, _derive_ingestion_status
+from ..models import GlobalLLMConfig
+from ..config import build_llm_config, build_rag_config
+from ..notifications import add_notification
 from ..rag.monitor import RAGServiceMonitor
 
 # Import RAG client (optional import to avoid circular dependencies)
@@ -61,9 +44,13 @@ try:
 except ImportError:
     RAGClient = None
     create_rag_client = None
-from .config import load_full_config, parse_webui_settings, WebUISettings, get_client_ip
-from .auth import authenticate_user, create_session_token, get_current_user
-from .events import EventHub, sse_format, db_snapshot
+from .config import (
+    load_full_config,
+    parse_webui_settings,
+    WebUISettings,
+    get_client_ip,
+)
+from .events import EventHub
 from ..worker import EnrichmentWorker
 from .state import STATE
 from . import config_io
@@ -103,33 +90,7 @@ def _set_webui_rag_client(client) -> None:
     rag_client = client
     _sync_state()
 
-from .db import (
-    delete_all_findings,
-    delete_findings_for_module,
-    delete_findings_by_ids,
-    delete_findings_matching_regex,
-    delete_finding_by_id,
-    get_finding_by_id,
-    get_module_stats,
-    count_open_findings_for_module,
-    get_next_finding_index,
-    cleanup_old_findings,
-    setup_database,
-    get_recent_findings_for_module,
-    update_finding_llm_data,
-    update_finding_llm_error,
-    update_finding_severity,
-    store_finding,
-    get_issues,
-    get_issue_by_id,
-    update_issue_status,
-    issue_status_counts,
-    get_issue_sparkline,
-    get_issue_sparklines,
-    get_findings_for_issue,
-    ISSUE_STATUSES,
-    ISSUE_ACTIVE_STATUSES,
-)
+from .db import setup_database
 
 
 app = FastAPI(title="log-triage Web UI")
@@ -138,22 +99,10 @@ app = FastAPI(title="log-triage Web UI")
 # Keep the old private names as aliases so app.py's many in-file references and
 # the existing tests that patch them keep working during the router split.
 from .shared import (
-    BASE_DIR,
-    ROOT_DIR,
     ASSETS_DIR,
-    SAMPLE_LOG_DIR,
-    templates,
-    format_local_timestamp as _format_local_timestamp,
     ensure_csrf_token as _ensure_csrf_token,
     load_context_hints as _load_context_hints,
-    available_sample_logs as _available_sample_logs,
-    sample_source_options as _sample_source_options,
-    normalize_sample_source as _normalize_sample_source,
-    sample_source_label as _sample_source_label,
     build_modules_from_config as _build_modules_from_config,
-    select_provider_name as _select_provider_name,
-    suggest_regex_from_line as _suggest_regex_from_line,
-    finding_excerpt_preview as _finding_excerpt_preview,
 )
 
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -266,11 +215,7 @@ def stop_rag_monitor():
     logger.info("RAG monitoring thread stopped")
 
 
-from .live import (
-    get_rag_monitor_status,
-    fetch_rag_progress as _fetch_rag_progress,
-    build_live_snapshot as _build_live_snapshot,
-)
+from .live import build_live_snapshot as _build_live_snapshot
 
 
 def get_settings() -> WebUISettings:
