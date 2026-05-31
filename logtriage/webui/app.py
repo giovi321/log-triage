@@ -589,40 +589,6 @@ async def _on_shutdown():
 
 
 
-def _render_config_editor(
-    request: Request,
-    username: str,
-    config_text: str,
-    *,
-    error: Optional[str] = None,
-    message: Optional[str] = None,
-    status_code: int = status.HTTP_200_OK,
-):
-    # Reload hints to be safe
-    current_hints = _load_context_hints()
-    # Parse the YAML so the structured form editor can initialise from clean JSON.
-    parsed_obj: Any = None
-    if yaml is not None:
-        try:
-            parsed_obj = yaml.safe_load(config_text)
-        except Exception:
-            parsed_obj = None
-    config_json = json.dumps(parsed_obj if isinstance(parsed_obj, dict) else {})
-    return templates.TemplateResponse(
-        "config_edit.html",
-        {
-            "request": request,
-            "username": username,
-            "config_text": config_text,
-            "config_json": config_json,
-            "error": error,
-            "message": message,
-            "context_hints": current_hints,
-        },
-        status_code=status_code,
-    )
-
-
 def _regex_context(
     request: Request,
     username: str,
@@ -726,89 +692,14 @@ from .routers import issues as issues_router
 from .routers import rag_api as rag_api_router
 from .routers import llm_api as llm_api_router
 from .routers import dashboard as dashboard_router
+from .routers import config_editor as config_editor_router
 app.include_router(auth_router.router)
 app.include_router(system_router.router)
 app.include_router(issues_router.router)
 app.include_router(rag_api_router.router)
 app.include_router(llm_api_router.router)
 app.include_router(dashboard_router.router)
-
-
-@app.get("/config/edit", name="edit_config")
-async def edit_config(request: Request):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    try:
-        text = CONFIG_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        text = f"Error reading {CONFIG_PATH}: {e}"
-
-    return _render_config_editor(request, username, text)
-
-
-@app.post("/config/edit", name="edit_config_post")
-async def edit_config_post(
-    request: Request,
-    config_text: str = Form(...),
-):
-    global settings, raw_config, llm_defaults, rag_client
-
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    if yaml is None:
-        return _render_config_editor(
-            request,
-            username,
-            config_text,
-            error="YAML support is not available (missing PyYAML dependency).",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    try:
-        parsed = yaml.safe_load(config_text) or {}
-    except Exception as e:
-        add_notification("error", "Configuration validation failed", str(e))
-        return _render_config_editor(
-            request,
-            username,
-            config_text,
-            error=f"YAML error: {e}",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-    try:
-        config_io.save_config_text(config_text)
-    except Exception as e:
-        return _render_config_editor(
-            request,
-            username,
-            config_text,
-            error=f"Write error: {e}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    try:
-        _reload_from_disk()
-    except Exception as exc:
-        add_notification("error", "Configuration reload failed", str(exc))
-        return _render_config_editor(
-            request,
-            username,
-            config_text,
-            error=f"Reload failed: {exc}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    return _render_config_editor(
-        request,
-        username,
-        config_text,
-        message="Configuration saved.",
-    )
+app.include_router(config_editor_router.router)
 
 
 @app.get("/regex", name="regex_lab")

@@ -149,6 +149,36 @@ def select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
     return None
 
 
+def render_config_editor(request, username, config_text, *, error=None, message=None, status_code=200):
+    """Render the structured config editor, seeding the form from parsed YAML."""
+    import json as _json
+    try:
+        import yaml as _yaml
+    except ImportError:
+        _yaml = None
+    current_hints = load_context_hints()
+    parsed_obj = None
+    if _yaml is not None:
+        try:
+            parsed_obj = _yaml.safe_load(config_text)
+        except Exception:
+            parsed_obj = None
+    config_json = _json.dumps(parsed_obj if isinstance(parsed_obj, dict) else {})
+    return templates.TemplateResponse(
+        "config_edit.html",
+        {
+            "request": request,
+            "username": username,
+            "config_text": config_text,
+            "config_json": config_json,
+            "error": error,
+            "message": message,
+            "context_hints": current_hints,
+        },
+        status_code=status_code,
+    )
+
+
 def finding_excerpt_preview(finding, max_lines: int) -> str:
     excerpt_lines = (getattr(finding, "excerpt", "") or "").splitlines()
     if max_lines > 0:
