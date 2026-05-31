@@ -54,7 +54,7 @@ If you are upgrading a database that predates issues, build them once:
 The Web UI is for trusted networks — front it with a reverse proxy that terminates TLS and enforces authentication. Two common patterns:
 
 - **Network-only:** bind `logtriage-webui` to `127.0.0.1`, proxy with TLS, and restrict by firewall / `webui.allowed_ips`.
-- **SSO via Authentik:** put an Authentik **proxy provider/outpost** in front and set `webui.forward_auth.enabled: true` with `trusted_proxies` pointing at the outpost. log-triage then trusts the `X-authentik-username` header for identity. See [Configuration](configuration.md#web-ui-metrics-and-forward-authentication) and [Security](security.md).
+- **SSO:** either enable in-app **OIDC** (`webui.oidc`, Authorization Code + PKCE; register the `<base-url>/auth/callback` redirect URI and optionally map admins via `admin_groups`), or put an Authentik **proxy provider/outpost** in front and set `webui.forward_auth.enabled: true` with `trusted_proxies` pointing at the outpost. See [Configuration](configuration.md#web-ui-users-authentication-and-metrics) and [Security](security.md).
 
 ## Monitoring
 

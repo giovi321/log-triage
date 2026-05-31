@@ -61,8 +61,8 @@ pip install ".[webui,alerts]"
 - **Sessions** are HMAC-signed and now expire (`webui.session_max_age_hours`), but the scheme has no server-side revocation, and the default `secret_key` of `CHANGE_ME` makes forgery trivial — **always set a strong `secret_key`**.
 - **Cookie attributes** (Secure/HttpOnly/SameSite) are not explicitly enforced in code; terminate TLS and set policies at a reverse proxy.
 - **IP allowlisting** compares `request.client.host` (exact match, no CIDR); behind a proxy use `trusted_proxies` and enforce access at the proxy.
-- **Forward-auth** (e.g. Authentik proxy provider) is supported and recommended for putting the UI behind SSO — see [Configuration](configuration.md#web-ui-metrics-and-forward-authentication).
-- **Config write access is root-equivalent:** the editor can repoint log ingestion, webhooks, LLM endpoints, and RAG repos. Restrict who can reach it.
+- **OIDC SSO** (Authorization Code + PKCE) and reverse-proxy **forward-auth** (e.g. Authentik) are both supported for putting the UI behind SSO — see [Configuration](configuration.md#web-ui-users-authentication-and-metrics).
+- **Config write access is admin-only and root-equivalent:** the settings editor (gated to admins) can repoint log ingestion, webhooks, LLM endpoints, and RAG repos. Admin comes from a local user's flag or an OIDC group.
 
 Run the UI only on private networks, behind strong network controls (TLS + SSO/forward-auth), with a unique `secret_key`. See the [security assessment](security.md) for the full picture.
 

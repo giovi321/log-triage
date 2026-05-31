@@ -325,30 +325,88 @@ worker:
   batch: 25              # max issues analyzed per pass (caps burst LLM usage)
 ```
 
-## Web UI: metrics and forward authentication
+## Web UI: users, authentication, and metrics
 
-These live under the `webui` block (alongside `host`, `port`, `secret_key`, `admin_users`, `allowed_ips`, `trusted_proxies`, `session_max_age_hours`, `csrf_enabled`).
+These live under the `webui` block (alongside `host`, `port`, `secret_key`,
+`allowed_ips`, `trusted_proxies`, `session_max_age_hours`, `staleness_minutes`,
+`csrf_enabled`).
+
+### Users and admin access
+
+Local Web UI users live in a **database table** (`webui_users`), not in
+`config.yaml`, and are managed from the **Account** page in the Web UI
+(add / reset password / delete). On first run, any users still listed under the
+legacy `webui.admin_users` key are **seeded into the database once** so existing
+deployments keep working; after that, manage users in the UI. The very first
+account is always created as an admin so a fresh install is never locked out.
+
+Access is role-based: **admins** can edit settings, run the regex lab, and
+manage users; non-admins get the triage/logs/read surfaces. Admin status comes
+from `UserRecord.is_admin` for local users, or from an OIDC group for SSO users
+(see below).
 
 ```yaml
 webui:
+  # One-time bootstrap only — seeded into the DB on first run, then managed in
+  # the Account page. Generate a hash with:
+  #   python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"
+  admin_users:
+    - username: admin
+      password_hash: $2b$12$....
+
+  # Default dashboard staleness window (minutes) before a module's log file is
+  # flagged stale. Per-module `stale_after_minutes` overrides this.
+  staleness_minutes: 60
+
   # Prometheus exposition at /metrics (still subject to allowed_ips).
   metrics:
     enabled: true
-
-  # Reverse-proxy forward-auth (e.g. Authentik proxy provider / outpost).
-  # The username is trusted from `username_header` ONLY when the request's
-  # direct peer is one of `trusted_proxies` — otherwise the header is ignored
-  # (so it cannot be spoofed). Leave disabled unless behind such a proxy.
-  forward_auth:
-    enabled: false
-    username_header: X-authentik-username
-    # logout_url: https://auth.example.com/application/o/logtriage/end-session/
 
   trusted_proxies:
     - 127.0.0.1
 ```
 
-> Full OIDC *code-flow* is not implemented; for Authentik, use a **proxy provider/outpost** in front of log-triage and enable `forward_auth`.
+### OIDC single sign-on
+
+log-triage supports a real OIDC **Authorization Code + PKCE** flow via the
+`[oidc]` extra (`pip install '.[oidc]'`). The IdP owns identity; on success a
+normal session is created keyed on `username_claim`. Local password login stays
+available as a break-glass path unless `exclusive: true`. Map admins by IdP
+group with `groups_claim` + `admin_groups`.
+
+The redirect/callback URL to register at your IdP is **`<base-url>/auth/callback`**
+— the Settings page shows it as a copyable field.
+
+```yaml
+webui:
+  oidc:
+    enabled: true
+    issuer: https://auth.example.com/application/o/logtriage/   # discovery base
+    client_id: logtriage
+    client_secret: CHANGE_ME
+    scopes: openid email profile        # add `groups` if mapping admins by group
+    username_claim: preferred_username
+    groups_claim: groups                # token claim carrying the user's groups
+    admin_groups: [logtriage-admins]    # members get admin; empty = no SSO admin
+    exclusive: false                    # true = hide local password login
+    # logout_url: https://auth.example.com/application/o/logtriage/end-session/
+```
+
+### Reverse-proxy forward authentication
+
+Alternatively, trust an identity header from a reverse proxy (e.g. an Authentik
+proxy provider/outpost). The username is trusted from `username_header` **only**
+when the request's direct peer is one of `trusted_proxies` — otherwise the
+header is ignored, so it cannot be spoofed. Forward-auth users are non-admin by
+default (use OIDC or a local admin for privileged access).
+
+```yaml
+webui:
+  forward_auth:
+    enabled: false
+    username_header: X-authentik-username
+    # logout_url: https://auth.example.com/application/o/logtriage/end-session/
+```
 
 ## RAG (Retrieval-Augmented Generation)
 

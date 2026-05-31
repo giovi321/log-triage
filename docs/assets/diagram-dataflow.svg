@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1000 440" xmlns="http://www.w3.org/2000/svg"><style>@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap");</style>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(210,226,221,0.10)"/></pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#90a8a3"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2dd4bf"/></marker>
+        <marker id="arrow-focal" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#ff6bb0"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#07151a"/>
+      <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+      <!-- Arrows (behind boxes) -->
+      <line x1="156" y1="120" x2="208" y2="120" stroke="#90a8a3" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="372" y1="120" x2="424" y2="120" stroke="#90a8a3" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <line x1="588" y1="120" x2="640" y2="120" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+      <!-- collapse down into one issue -->
+      <line x1="724" y1="152" x2="724" y2="212" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+      <!-- issue -> LLM (once) -->
+      <line x1="648" y1="244" x2="468" y2="244" stroke="#ff6bb0" stroke-width="1.4" marker-end="url(#arrow-focal)"/>
+      <!-- LLM cached back onto issue -->
+      <line x1="404" y1="276" x2="404" y2="320" stroke="#90a8a3" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <line x1="468" y1="336" x2="648" y2="290" stroke="#90a8a3" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <!-- issue -> triage -->
+      <line x1="724" y1="276" x2="724" y2="332" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+
+      <!-- Arrow labels -->
+      <rect x="160" y="100" width="48" height="12" rx="2" fill="#07151a"/><text x="184" y="110" fill="#90a8a3" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">GROUP</text>
+      <rect x="376" y="100" width="48" height="12" rx="2" fill="#07151a"/><text x="400" y="110" fill="#90a8a3" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MATCH</text>
+      <rect x="592" y="100" width="48" height="12" rx="2" fill="#07151a"/><text x="616" y="110" fill="#2dd4bf" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HASH</text>
+      <rect x="500" y="226" width="80" height="12" rx="2" fill="#07151a"/><text x="540" y="236" fill="#ff6bb0" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ANALYZE 1×</text>
+      <rect x="500" y="300" width="80" height="12" rx="2" fill="#07151a"/><text x="540" y="310" fill="#90a8a3" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CACHE</text>
+
+      <!-- Row 1: ingest pipeline -->
+      <!-- Log file -->
+      <rect x="28" y="88" width="128" height="64" rx="6" fill="#07151a"/>
+      <rect x="28" y="88" width="128" height="64" rx="6" fill="rgba(144,168,163,0.10)" stroke="#5f7873" stroke-width="1"/>
+      <rect x="36" y="96" width="28" height="12" rx="2" fill="transparent" stroke="rgba(95,120,115,0.50)" stroke-width="0.8"/>
+      <text x="50" y="105" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IN</text>
+      <text x="92" y="124" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Log file</text>
+      <text x="92" y="140" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tail / batch</text>
+
+      <!-- Group -->
+      <rect x="208" y="88" width="164" height="64" rx="6" fill="#07151a"/>
+      <rect x="208" y="88" width="164" height="64" rx="6" fill="#102931" stroke="#d2e2dd" stroke-width="1"/>
+      <rect x="216" y="96" width="44" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.40)" stroke-width="0.8"/>
+      <text x="238" y="105" fill="#d2e2dd" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GROUP</text>
+      <text x="290" y="124" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Group + classify</text>
+      <text x="290" y="140" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">pipeline regexes</text>
+
+      <!-- Findings -->
+      <rect x="424" y="88" width="164" height="64" rx="6" fill="#07151a"/>
+      <rect x="424" y="88" width="164" height="64" rx="6" fill="rgba(210,226,221,0.05)" stroke="#90a8a3" stroke-width="1"/>
+      <rect x="432" y="96" width="48" height="12" rx="2" fill="transparent" stroke="rgba(144,168,163,0.50)" stroke-width="0.8"/>
+      <text x="456" y="105" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+      <text x="506" y="124" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Findings</text>
+      <text x="506" y="140" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">every match (10×)</text>
+
+      <!-- Fingerprint (focal accent) -->
+      <rect x="640" y="88" width="168" height="64" rx="6" fill="#07151a"/>
+      <rect x="640" y="88" width="168" height="64" rx="6" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
+      <rect x="648" y="96" width="60" height="12" rx="2" fill="transparent" stroke="rgba(45,212,191,0.50)" stroke-width="0.8"/>
+      <text x="678" y="105" fill="#2dd4bf" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SIGNATURE</text>
+      <text x="724" y="124" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Fingerprint</text>
+      <text x="724" y="140" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">normalize → SHA1</text>
+
+      <!-- Row 2: Issue (center, the hub) -->
+      <rect x="640" y="212" width="168" height="64" rx="6" fill="#07151a"/>
+      <rect x="640" y="212" width="168" height="64" rx="6" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
+      <rect x="648" y="220" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,212,191,0.50)" stroke-width="0.8"/>
+      <text x="666" y="229" fill="#2dd4bf" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ISSUE</text>
+      <text x="724" y="248" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Issue (deduped)</text>
+      <text x="724" y="264" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">count · first/last seen</text>
+
+      <!-- LLM analyze (focal magenta) -->
+      <rect x="300" y="212" width="168" height="64" rx="6" fill="#07151a"/>
+      <rect x="300" y="212" width="168" height="64" rx="6" fill="rgba(255,107,176,0.15)" stroke="#ff6bb0" stroke-width="1"/>
+      <rect x="308" y="220" width="28" height="12" rx="2" fill="transparent" stroke="rgba(255,107,176,0.55)" stroke-width="0.8"/>
+      <text x="322" y="229" fill="#ff6bb0" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LLM</text>
+      <text x="384" y="248" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Enrichment</text>
+      <text x="384" y="264" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">summary + category</text>
+
+      <!-- RAG (optional, dashed) -->
+      <rect x="300" y="320" width="168" height="56" rx="6" fill="#07151a"/>
+      <rect x="300" y="320" width="168" height="56" rx="6" fill="rgba(210,226,221,0.02)" stroke="rgba(210,226,221,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="308" y="328" width="32" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.22)" stroke-width="0.8"/>
+      <text x="324" y="337" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">OPT</text>
+      <text x="384" y="352" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">RAG context</text>
+      <text x="384" y="367" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">docs + citations</text>
+
+      <!-- Triage queue -->
+      <rect x="640" y="332" width="168" height="56" rx="6" fill="#07151a"/>
+      <rect x="640" y="332" width="168" height="56" rx="6" fill="#102931" stroke="#d2e2dd" stroke-width="1"/>
+      <rect x="648" y="340" width="44" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.40)" stroke-width="0.8"/>
+      <text x="670" y="349" fill="#d2e2dd" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TRIAGE</text>
+      <text x="724" y="364" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Triage queue</text>
+      <text x="724" y="379" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">one row / problem</text>
+
+      <!-- Legend -->
+      <line x1="28" y1="402" x2="972" y2="402" stroke="rgba(210,226,221,0.10)" stroke-width="0.8"/>
+      <text x="28" y="418" fill="#90a8a3" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+      <rect x="120" y="410" width="14" height="10" rx="2" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
+      <text x="140" y="418" fill="#90a8a3" font-size="8.5">Dedup / issue</text>
+      <rect x="250" y="410" width="14" height="10" rx="2" fill="rgba(255,107,176,0.15)" stroke="#ff6bb0" stroke-width="1"/>
+      <text x="270" y="418" fill="#90a8a3" font-size="8.5">LLM (once, cached)</text>
+      <rect x="420" y="410" width="14" height="10" rx="2" fill="rgba(210,226,221,0.05)" stroke="#90a8a3" stroke-width="1"/>
+      <text x="440" y="418" fill="#90a8a3" font-size="8.5">Store</text>
+      <rect x="520" y="410" width="14" height="10" rx="2" fill="rgba(210,226,221,0.02)" stroke="rgba(210,226,221,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="540" y="418" fill="#90a8a3" font-size="8.5">Optional</text>
+      <line x1="620" y1="415" x2="648" y2="415" stroke="#90a8a3" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <text x="656" y="418" fill="#90a8a3" font-size="8.5">Cached write</text>
+    </svg>

@@ -2,7 +2,7 @@
 
 The Web UI runs on FastAPI and shares the same configuration file as the CLI. It provides login, configuration editing, and a dashboard for findings.
 
-> Configuration and regexes can be built and edited entirely in the Web UI. The config editor saves YAML with backups, while the regex lab lets you test patterns live before adding them to a pipeline.
+> Configuration and regexes can be built and edited entirely in the Web UI (admin only). The config editor saves YAML with backups, while the regex lab lets you test patterns live before adding them to a pipeline.
 
 ## Start the server
 
@@ -19,13 +19,25 @@ By default the UI listens on `http://127.0.0.1:8090`. Use `LOGTRIAGE_HOST` and `
     Open **http://127.0.0.1:8090** in your browser, sign in with **admin / admin123**, and change the password after first login.
 
 1. Start the server (see above) and wait for the startup log line that shows the bind address.
-2. Navigate to the Web UI, log in with the default credentials, and confirm you land on the dashboard.
-3. Pick a module card to jump into the logs explorer, config editor, or regex lab.
-4. Use the config editor or regex lab to adjust pipelines, then rerun follow-mode modules with `--reload-on-change` for immediate effect.
+2. Navigate to the Web UI, log in with the default credentials, and confirm you land on the **Triage** queue (the primary workflow).
+3. Use the top nav to move between Triage, Overview (dashboard), and Logs; admins also see Settings and the Regex Lab.
+4. Use the settings editor or regex lab to adjust pipelines, then rerun follow-mode modules with `--reload-on-change` for immediate effect.
 
-## Dashboard overview
+![How findings become one cached issue](assets/diagram-dataflow.svg)
 
-The dashboard is the landing page once you log in:
+## Roles and admin access
+
+Access is role-based. **Admins** can edit settings, use the regex lab, and
+manage users; **non-admins** get the read/triage surfaces (Triage, Overview,
+Logs, their own Account password). The Settings and Regex Lab nav links, the
+user-management panel, and destructive log actions are hidden and
+server-enforced for non-admins. Admin status comes from a local user's
+`is_admin` flag or, for SSO users, membership in a configured OIDC
+`admin_groups` (see [Configuration](configuration.md#oidc-single-sign-on)).
+
+## Overview (dashboard)
+
+The Overview page summarizes module health:
 
 - **Module cards** show the module name, current severity, and last activity time. A stale indicator is based on `stale_after_minutes` from the config for **follow** modules; batch modules finish immediately and never become stale.
 - **24h counts** display warning and error totals to help spot spikes.
@@ -38,9 +50,10 @@ The dashboard also updates **live over Server-Sent Events** (RAG indexing progre
 
 ## Triage queue (issues)
 
-The **Triage** page is the primary workflow when a database is configured. Recurring findings are collapsed into **issues** by a normalized signature (timestamps, IDs, IPs and numbers are stripped), so you review each distinct problem once instead of scrolling thousands of near-identical lines.
+The **Triage** page is the login landing and primary workflow when a database is configured. Recurring findings are collapsed into **issues** by a normalized signature (timestamps, IDs, IPs and numbers are stripped), so you review each distinct problem once instead of scrolling thousands of near-identical lines. The LLM analyzes each signature **once** and the summary is cached — so a problem that occurs 10,000 times costs one LLM call.
 
 - **Prioritized list:** issues are ranked by `severity × recency × rate × novelty`. Each row shows the severity, signature, **occurrence count**, a 24-hour **sparkline**, first/last-seen, status, and the **cached AI summary**.
+- **Navigate by interpretation:** each analyzed issue carries an LLM-assigned **category** (auth, network, storage, config, dependency, performance, or a free-form `other`). Category **filter chips** (with counts) narrow the queue, and a **Group by category** toggle sections the list by problem theme — so you can browse by *what the problem is*, not just by signature.
 - **Status tiles & filters:** filter by status (Active / Open / Acknowledged / Resolved / Muted / False-positive / All), module, severity, or a free-text search.
 - **Issue detail:** opens the full AI analysis with documentation **citations**, 14-day and 24-hour occurrence timelines, the representative excerpt, and the recent occurrences table.
 - **Workflow actions:** Acknowledge, Resolve, Mute, Mark false-positive, or Reopen. A resolved issue automatically reopens if it recurs.
@@ -57,7 +70,7 @@ Findings can move through three related states:
 
 ## AI Logs Explorer
 
-The AI Logs Explorer page displays log findings in context, allowing you to see the surrounding log lines and select any lines to send to an LLM for analysis:
+The AI Logs Explorer page displays log findings in context, allowing you to see the surrounding log lines and select any lines to send to an LLM for analysis. A **Grouped ⇄ Raw lines** toggle switches between the deduplicated, one-row-per-problem view (with occurrence count and cached AI summary, like Triage) and the full line-in-context view; a **Full triage →** link jumps to the global queue.
 
 1. **Pick a module:** Use the module selector to focus on a single pipeline.
 2. **View findings in context:** Findings are highlighted inline within the full log view, with severity badges indicating their importance. Click the expand button on a finding line to see details and AI opinions.
@@ -67,24 +80,26 @@ The AI Logs Explorer page displays log findings in context, allowing you to see 
 
 This unified view ensures you can see findings in their full context and select exactly the lines needed for analysis.
 
-## Config editor and regex lab
+## Settings editor and regex lab
 
-Use these tools to evolve your configuration without leaving the browser:
+These admin-only tools let you evolve your configuration without leaving the browser:
 
-1. **Open the config editor** from the navigation. It has two tabs:
-   - **Forms** — structured editors for every section (General/Database/Logging, LLM + providers, RAG, Pipelines, Modules, Web UI), with add/remove rows for list items (providers, pipelines, regex lists, modules, knowledge sources, admin users, allowed IPs). Best for everyday changes.
-   - **Advanced** — the raw-YAML editor (CodeMirror) with find/replace and context hints, as the fallback and safety net.
-   Either way, **Save** validates the YAML and writes `config.yaml` atomically with a `.bak` backup. (Saving from the Forms tab reformats the YAML and does not preserve comments; use Advanced to keep them.)
-2. **Jump to the regex lab** from the navigation. Paste sample log lines, try new ignore/warning/error patterns, and save them back to the selected pipeline when they behave as expected.
+1. **Open Settings** from the navigation. It is a **structured forms** editor with a section sub-nav (General/Database/Logging, LLM + providers, RAG, Pipelines, Modules, Web UI) and add/remove rows for list items (providers, pipelines, regex lists, modules, knowledge sources, allowed IPs, OIDC admin groups). The Web UI section includes SSO/OIDC (with a copyable redirect URI), forward-auth, and the staleness window. **Save** validates the config and writes `config.yaml` atomically with a `.bak` backup, then reloads it in-process. (Users are managed on the Account page, not here; the raw-YAML editor and the separate "reload from disk" button were removed — saving the forms reloads automatically.)
+2. **Jump to the Regex Lab** from the navigation. Paste sample log lines, try new ignore/warning/error patterns, and save them back to the selected pipeline when they behave as expected.
 3. **Reload running modules** if you are tailing with the CLI by starting it with `--reload-on-change`, so changes take effect immediately.
+
+## Account and user management
+
+The **Account** page lets any signed-in user change their own password. Admins additionally get a **user-management** panel: list local users (with role), add a user (optionally admin), reset a password, or delete a user. Guardrails prevent deleting your own account or the last remaining admin. When SSO is enabled, local accounts are a break-glass path; most users sign in through the IdP and get admin via group membership.
 
 ## Features
 
-- **Authentication:** username/password with bcrypt hashing; optional **reverse-proxy forward-auth** (e.g. Authentik) via a trusted identity header — see [Configuration](configuration.md#web-ui-metrics-and-forward-authentication).
-- **Triage queue:** prioritized, de-duplicated issues with sparklines, cached AI summaries, and acknowledge/resolve/mute/false-positive actions.
+- **Authentication:** local username/password (bcrypt, DB-backed), **OIDC SSO** (Authorization Code + PKCE), or **reverse-proxy forward-auth** — see [Configuration](configuration.md#web-ui-users-authentication-and-metrics).
+- **Role-based access:** admins manage settings/users; non-admins get read/triage. Admin via local `is_admin` or an OIDC group.
+- **Triage queue:** prioritized, de-duplicated issues with sparklines, cached AI summaries, **LLM-category navigation**, and acknowledge/resolve/mute/false-positive actions.
 - **Modules overview:** enabled modules, last severity, 24h error/warning counts, and RAG status — updating live over SSE.
-- **Logs explorer:** browse findings in context, update severity, or mark false positives.
-- **Config editor:** structured **forms** plus a raw-YAML **Advanced** tab, with backups and atomic writes.
+- **Logs explorer:** grouped (one row per problem) or raw line-in-context view; update severity or mark false positives.
+- **Settings editor:** structured forms with backups and atomic in-process reload.
 - **Regex lab:** experiment with regexes and save them to classifiers.
 - **Metrics:** Prometheus exposition at `/metrics` (issue counts, findings, worker activity), subject to the IP allowlist; toggle with `webui.metrics.enabled`.
 - **Themes:** light by default, with a one-click light/dark toggle in the header (remembered per browser).

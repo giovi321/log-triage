@@ -17,6 +17,9 @@ In addition to raw LLM prompting, `log-triage` can run in **RAG (Retrieval-Augme
 - **Addressed & false positives:** Workflow flags in the dashboard; marking a false positive also writes an ignore regex back to the pipeline to prevent repeats.
 
 ### How it works
+
+<img src="docs/assets/diagram-dataflow.svg" alt="log-triage data flow: findings collapse into one cached issue" width="100%">
+
 `log-triage` watches your logs, passes them through a configured pipeline, and surfaces only the important pieces:
 
 1. **Collect:** Point a module at a log file (or directory) to read entries once or continuously with rotation handling.

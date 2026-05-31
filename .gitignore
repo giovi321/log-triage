@@ -7,3 +7,6 @@ config.yaml
 _preview/
 _preview_render.py
 __pycache__/
+
+# mkdocs build output
+/site/

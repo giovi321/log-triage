@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1000 460" xmlns="http://www.w3.org/2000/svg"><style>@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap");</style>
+      <defs>
+        <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(210,226,221,0.10)"/></pattern>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#90a8a3"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2dd4bf"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5aa9ff"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#07151a"/>
+      <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+      <!-- trust boundary: the host -->
+      <rect x="36" y="150" width="784" height="248" rx="8" fill="none" stroke="rgba(45,212,191,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="52" y="142" width="120" height="16" rx="2" fill="#07151a"/>
+      <text x="60" y="154" fill="#2dd4bf" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">TRUSTED HOST / LAN</text>
+
+      <!-- arrows -->
+      <line x1="180" y1="96" x2="320" y2="188" stroke="#5aa9ff" stroke-width="1.2" marker-end="url(#arrow-link)"/>     <!-- browser -> proxy -->
+      <line x1="380" y1="220" x2="468" y2="220" stroke="#5aa9ff" stroke-width="1.2" marker-end="url(#arrow-link)"/>    <!-- proxy -> webui -->
+      <line x1="552" y1="252" x2="552" y2="312" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>  <!-- webui -> db -->
+      <line x1="332" y1="344" x2="468" y2="344" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>  <!-- ingest -> db -->
+      <line x1="744" y1="252" x2="640" y2="324" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>  <!-- worker -> db -->
+      <line x1="600" y1="220" x2="688" y2="220" stroke="#90a8a3" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow)"/> <!-- webui -> rag -->
+      <line x1="772" y1="188" x2="900" y2="120" stroke="#5aa9ff" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#arrow-link)"/> <!-- worker/webui -> LLM API -->
+
+      <!-- labels -->
+      <rect x="220" y="128" width="48" height="12" rx="2" fill="#07151a"/><text x="244" y="138" fill="#5aa9ff" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HTTPS</text>
+      <rect x="400" y="200" width="48" height="12" rx="2" fill="#07151a"/><text x="424" y="210" fill="#5aa9ff" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PROXY</text>
+      <rect x="560" y="276" width="44" height="12" rx="2" fill="#07151a"/><text x="582" y="286" fill="#2dd4bf" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SQL</text>
+      <rect x="612" y="200" width="44" height="12" rx="2" fill="#07151a"/><text x="634" y="210" fill="#90a8a3" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">HTTP</text>
+      <rect x="812" y="150" width="48" height="12" rx="2" fill="#07151a"/><text x="836" y="160" fill="#5aa9ff" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">API</text>
+
+      <!-- Browser (external, top) -->
+      <rect x="52" y="64" width="128" height="56" rx="6" fill="#07151a"/>
+      <rect x="52" y="64" width="128" height="56" rx="6" fill="rgba(144,168,163,0.10)" stroke="#5f7873" stroke-width="1"/>
+      <rect x="60" y="72" width="28" height="12" rx="2" fill="transparent" stroke="rgba(95,120,115,0.50)" stroke-width="0.8"/>
+      <text x="74" y="81" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+      <text x="116" y="98" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Operator</text>
+      <text x="116" y="113" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">browser · SSO</text>
+
+      <!-- Reverse proxy -->
+      <rect x="252" y="188" width="128" height="64" rx="6" fill="#07151a"/>
+      <rect x="252" y="188" width="128" height="64" rx="6" fill="rgba(210,226,221,0.03)" stroke="rgba(210,226,221,0.30)" stroke-width="1"/>
+      <rect x="260" y="196" width="44" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.22)" stroke-width="0.8"/>
+      <text x="282" y="205" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PROXY</text>
+      <text x="316" y="224" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Reverse proxy</text>
+      <text x="316" y="240" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">TLS · forward-auth</text>
+
+      <!-- Web UI (focal) -->
+      <rect x="468" y="188" width="132" height="64" rx="6" fill="#07151a"/>
+      <rect x="468" y="188" width="132" height="64" rx="6" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
+      <rect x="476" y="196" width="40" height="12" rx="2" fill="transparent" stroke="rgba(45,212,191,0.50)" stroke-width="0.8"/>
+      <text x="496" y="205" fill="#2dd4bf" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WEBUI</text>
+      <text x="534" y="224" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">logtriage-webui</text>
+      <text x="534" y="240" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">FastAPI · :8090</text>
+
+      <!-- Ingest (CLI) -->
+      <rect x="172" y="312" width="160" height="64" rx="6" fill="#07151a"/>
+      <rect x="172" y="312" width="160" height="64" rx="6" fill="#102931" stroke="#d2e2dd" stroke-width="1"/>
+      <rect x="180" y="320" width="48" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.40)" stroke-width="0.8"/>
+      <text x="204" y="329" fill="#d2e2dd" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">INGEST</text>
+      <text x="252" y="348" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">logtriage (CLI)</text>
+      <text x="252" y="364" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">tail / batch → findings</text>
+
+      <!-- Database (focal store) -->
+      <rect x="468" y="312" width="160" height="64" rx="6" fill="#07151a"/>
+      <rect x="468" y="312" width="160" height="64" rx="6" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
+      <rect x="476" y="320" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,212,191,0.50)" stroke-width="0.8"/>
+      <text x="490" y="329" fill="#2dd4bf" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">DB</text>
+      <text x="548" y="348" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Database</text>
+      <text x="548" y="364" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SQLite / Postgres</text>
+
+      <!-- Worker -->
+      <rect x="668" y="188" width="136" height="64" rx="6" fill="#07151a"/>
+      <rect x="668" y="188" width="136" height="64" rx="6" fill="#102931" stroke="#d2e2dd" stroke-width="1"/>
+      <rect x="676" y="196" width="40" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.40)" stroke-width="0.8"/>
+      <text x="696" y="205" fill="#d2e2dd" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WORK</text>
+      <text x="736" y="224" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">Worker</text>
+      <text x="736" y="240" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">enrichment loop</text>
+
+      <!-- RAG service (optional) -->
+      <rect x="668" y="312" width="136" height="56" rx="6" fill="#07151a"/>
+      <rect x="668" y="312" width="136" height="56" rx="6" fill="rgba(210,226,221,0.02)" stroke="rgba(210,226,221,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <rect x="676" y="320" width="32" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.22)" stroke-width="0.8"/>
+      <text x="692" y="329" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">OPT</text>
+      <text x="736" y="344" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">RAG service</text>
+      <text x="736" y="359" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">FAISS · :8091</text>
+
+      <!-- LLM API (external cloud) -->
+      <rect x="844" y="64" width="128" height="64" rx="6" fill="#07151a"/>
+      <rect x="844" y="64" width="128" height="64" rx="6" fill="rgba(210,226,221,0.03)" stroke="rgba(210,226,221,0.30)" stroke-width="1"/>
+      <rect x="852" y="72" width="40" height="12" rx="2" fill="transparent" stroke="rgba(210,226,221,0.22)" stroke-width="0.8"/>
+      <text x="872" y="81" fill="#90a8a3" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLOUD</text>
+      <text x="908" y="100" fill="#d2e2dd" font-size="12" font-weight="600" text-anchor="middle">LLM provider</text>
+      <text x="908" y="115" fill="#90a8a3" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OpenAI · Anthropic</text>
+
+      <!-- Legend -->
+      <line x1="36" y1="418" x2="972" y2="418" stroke="rgba(210,226,221,0.10)" stroke-width="0.8"/>
+      <text x="36" y="434" fill="#90a8a3" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+      <rect x="128" y="426" width="14" height="10" rx="2" fill="rgba(45,212,191,0.12)" stroke="#2dd4bf" stroke-width="1"/>
+      <text x="148" y="434" fill="#90a8a3" font-size="8.5">Web UI / DB</text>
+      <rect x="246" y="426" width="14" height="10" rx="2" fill="#102931" stroke="#d2e2dd" stroke-width="1"/>
+      <text x="266" y="434" fill="#90a8a3" font-size="8.5">Process</text>
+      <rect x="356" y="426" width="14" height="10" rx="2" fill="rgba(210,226,221,0.02)" stroke="rgba(210,226,221,0.20)" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="376" y="434" fill="#90a8a3" font-size="8.5">Optional</text>
+      <rect x="456" y="426" width="14" height="10" rx="2" fill="rgba(210,226,221,0.03)" stroke="rgba(210,226,221,0.30)" stroke-width="1"/>
+      <text x="476" y="434" fill="#90a8a3" font-size="8.5">External</text>
+      <line x1="560" y1="431" x2="588" y2="431" stroke="#5aa9ff" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="596" y="434" fill="#90a8a3" font-size="8.5">HTTP</text>
+      <line x1="664" y1="431" x2="692" y2="431" stroke="#2dd4bf" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+      <text x="700" y="434" fill="#90a8a3" font-size="8.5">SQL</text>
+    </svg>

@@ -53,11 +53,12 @@ Relevant code:
 
 Observed behavior:
 
-- **Admin auth** is username/password with bcrypt verification.
+- **Local auth** is username/password with bcrypt verification; users live in the `webui_users` DB table (`logtriage/webui/users.py`), not in `config.yaml`.
+- **OIDC SSO** (Authorization Code + PKCE, `logtriage/webui/oidc.py`) is supported; the IdP validates identity and the username comes from `username_claim`.
+- **Role-based access control:** an `is_admin` flag is set at login (local `UserRecord.is_admin`, or OIDC group membership intersected with `webui.oidc.admin_groups`) and stored in the session **paired to the username**, so a flag minted for one identity can't elevate another. Admin is **server-enforced** on the settings editor, regex lab, and user-management routes (`require_admin` / `current_user_is_admin`); non-admins are redirected.
 - **Session token** is an HMAC over `username|issued_at` (`create_session_token`), validated with a configurable max age (`webui.session_max_age_hours`, default 24h).
-- **Server-side session storage** uses `SessionMiddleware` with a `secret_key` from config.
-- `WebUISettings.secret_key` defaults to **`CHANGE_ME`**.
-- **Optional forward-auth**: when `webui.forward_auth.enabled`, the identity is taken from a header (e.g. `X-authentik-username`) **only** if the direct peer is in `trusted_proxies` (`resolve_proxy_user`).
+- **Server-side session storage** uses `SessionMiddleware` with a `secret_key` from config. `WebUISettings.secret_key` defaults to **`CHANGE_ME`**.
+- **Optional forward-auth**: when `webui.forward_auth.enabled`, the identity is taken from a header (e.g. `X-authentik-username`) **only** if the direct peer is in `trusted_proxies` (`resolve_proxy_user`). Forward-auth users are non-admin by default.
 
 Risks:
 
@@ -222,16 +223,20 @@ Observed behavior:
 - The service clones repositories via GitPython.
 - Git hooks are deleted after clone (`.git/hooks/*`).
 - It persists a FAISS index plus a SQLite metadata DB.
+- The Web UI's RAG status endpoints (`/api/rag/status`, `/api/rag/progress`) **require a valid session** — they expose operator-facing infra detail (repo URLs, commit hashes, indexing progress, memory) and are no longer reachable unauthenticated.
+- The **standalone RAG service** (`logtriage-rag`, default `:8091`) exposes its own `/status` / `/progress` / `/health` **without auth** and is intended to be reached only by the Web UI/worker on the local host.
 
 Risks:
 
 - **Supply chain / content attacks**: repository content can contain prompt-injection text that will be retrieved and appended to prompts.
 - **Disk exhaustion**: many repos or large repos can fill cache/vector-store directories.
 - **Outbound network access**: clones from configured URLs.
+- **Standalone RAG service info exposure** if its port is reachable beyond localhost.
 
 Recommendations:
 
 - Only add trusted documentation repositories.
+- **Bind the standalone RAG service to localhost** (or a private interface) and never expose `:8091` publicly; it has no authentication of its own.
 - Run the RAG service with:
   - a dedicated system user
   - restrictive filesystem permissions

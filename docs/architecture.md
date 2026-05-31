@@ -9,7 +9,11 @@ The codebase is organized around four entry points:
 - `logtriage-rag` (RAG service)
 - `logtriage-worker` (background enrichment worker)
 
+![Deployment topology](assets/diagram-deployment.svg)
+
 ## High-level data flow
+
+![Findings collapse into one cached issue](assets/diagram-dataflow.svg)
 
 ### Batch analysis (CLI)
 
@@ -39,13 +43,11 @@ The codebase is organized around four entry points:
 
 ### Web UI
 
-- The Web UI is a FastAPI app (`logtriage/webui/app.py`) that:
-  - reads the same YAML configuration
-  - shows findings (in-memory or via database)
-  - can edit `config.yaml`
-  - can test/save regexes
-  - can trigger LLM calls
-  - can optionally integrate with the RAG service
+![Web UI: routers read a reload-safe STATE](assets/diagram-webui.svg)
+
+- The Web UI is a FastAPI app split into focused **routers** (`logtriage/webui/routers/`: `auth`, `issues`, `logs`, `regex`, `dashboard`, `config_editor`, `rag_api`, `llm_api`, `system`). `logtriage/webui/app.py` is a thin assembler — it builds the app, wires middleware (session, CSRF, IP-allowlist) and startup, and mounts the routers.
+- All mutable runtime config lives in one **`STATE`** singleton (`logtriage/webui/state.py`) that is created once and **never rebound** — reload mutates its attributes in place (`logtriage/webui/config_io.py`). Routers read `STATE` at call time, so they always see the current config and there's no stale-after-reload binding. Cross-cutting helpers live in `logtriage/webui/shared.py`.
+- It reads the same YAML configuration, surfaces the **Triage** queue (deduplicated issues with cached AI summaries, navigable by LLM **category**), a grouped/raw **Logs explorer**, an admin-only **Settings** forms editor and **Regex Lab**, DB-backed users with **role-based access**, and optional **OIDC SSO**, and can trigger LLM calls / integrate with the RAG service.
 
 ### RAG (Retrieval-Augmented Generation)
 
