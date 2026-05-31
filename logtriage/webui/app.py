@@ -1964,47 +1964,6 @@ async def edit_config_post(
     )
 
 
-@app.post("/config/reload", name="reload_config")
-async def reload_config(request: Request):
-    global settings, raw_config, llm_defaults, rag_client
-
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    try:
-        text = CONFIG_PATH.read_text(encoding="utf-8")
-    except Exception as e:
-        text = f"Error reading {CONFIG_PATH}: {e}"
-        add_notification("error", "Config reload failed", str(e))
-        return _render_config_editor(request, username, text, error=f"Reload failed: {e}")
-
-    try:
-        new_raw = load_config(CONFIG_PATH)
-        raw_config = new_raw
-        settings = parse_webui_settings(new_raw)
-        _init_database(new_raw, settings)
-        _refresh_llm_defaults()
-        _refresh_rag_client()
-        oidc_mod.configure(settings)
-    except Exception as e:
-        add_notification("error", "Config reload failed", str(e))
-        return _render_config_editor(
-            request,
-            username,
-            text,
-            error=f"Reload failed: {e}",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-    return _render_config_editor(
-        request,
-        username,
-        text,
-        message="Configuration reloaded from disk.",
-    )
-
-
 @app.get("/regex", name="regex_lab")
 async def regex_lab(
     request: Request,

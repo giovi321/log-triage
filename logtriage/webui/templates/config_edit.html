@@ -1,39 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Settings{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('assets', path='codemirror.min.css') }}">
-<link rel="stylesheet" href="{{ url_for('assets', path='material-darker.min.css') }}">
-{% endblock %}
-
 {% block content %}
 <style>
   [x-cloak] { display: none !important; }
-  .config-editor-grid { display: grid; grid-template-columns: minmax(0, 6fr) minmax(320px, 1fr); gap: var(--s-5); align-items: start; }
-  @media (max-width: 1080px) { .config-editor-grid { grid-template-columns: 1fr; } }
-  .config-editor .CodeMirror { height: 58vh; min-height: 300px; width: 100%; max-width: 100%; box-sizing: border-box; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line-strong); font-family: var(--font-mono); font-size: 0.94rem; }
-  .config-editor .CodeMirror-scroll { max-height: 58vh; overflow-y: auto; }
-  .hint-panel { position: sticky; top: 1.5rem; min-height: 100px; }
-  .hint-panel .hint-body { white-space: pre-wrap; }
-  #config-text { width: 95%; min-height: 300px; }
-  .editor-pane { min-width: 0; width: 100%; }
-  .editor-surface { position: relative; }
-  .search-row { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3); background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--r-md); }
-  .search-row label { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-right: 0.15rem; }
-  .search-row input { width: 170px; }
-  .search-row .search-actions { display: inline-flex; align-items: center; gap: var(--s-1); flex-wrap: nowrap; }
-  .search-status { color: var(--text-dim); font-size: 0.82rem; margin-left: auto; min-height: 1rem; }
-  .search-highlight { background: var(--brand-dim); color: #fff; }
-  .client-error { color: #ffc9cb; background: rgba(255,93,98,0.08); border: 1px solid rgba(255,93,98,0.4); border-radius: var(--r-md); padding: 0.65rem 0.75rem; margin-top: var(--s-3); display: none; font-family: var(--font-mono); font-size: 0.85rem; }
   .config-editor button[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; filter: saturate(0.4); }
-  .cm-s-material-darker .cm-keyword, .cm-s-material-darker .cm-atom { color: var(--sev-critical); }
-  .cm-s-material-darker .cm-number { color: var(--sev-warning); }
-  .cm-s-material-darker .cm-string { color: var(--sev-ok); }
-  .cm-s-material-darker .cm-comment { color: var(--text-faint); font-style: italic; }
-  .cm-s-material-darker .cm-def { color: var(--brand); }
-  .cm-s-material-darker .cm-property { color: #ffcb6b; }
-  .cm-s-material-darker .cm-meta { color: var(--brand-bright); }
-  .cm-error-line { background: rgba(255,93,98,0.16) !important; }
   .section-subtabs { gap: 2px; margin-bottom: var(--s-4); }
   .section-subtabs button { font-size: 0.82rem; padding: 7px 11px; }
 </style>
@@ -42,18 +13,13 @@
   <div class="section-eyebrow">CONFIGURATION</div>
   <h2 style="margin-top:0; margin-bottom:var(--s-2);">Settings</h2>
   <p class="helper-text" style="margin-top:0;">
-    Edit with structured forms, or drop to raw YAML under <b>Advanced</b>. Saved atomically — a
+    Edit settings with the structured forms below. Saved atomically — a
     <code class="mono">.bak</code> backup is written before replacing the file.
   </p>
-
-  <div class="tabbar">
-    <button type="button" :class="{active: tab==='forms'}" @click="showForms()">Forms</button>
-    <button type="button" :class="{active: tab==='advanced'}" @click="showAdvanced()">Advanced · YAML</button>
-  </div>
   <p class="yaml-warn" x-show="yamlError" x-text="yamlError" x-cloak></p>
 
   <!-- ============================ FORMS ============================ -->
-  <div x-show="tab==='forms'" x-cloak>
+  <div>
     <div class="tabbar section-subtabs">
       <template x-for="s in sections" :key="s.id">
         <button type="button" :class="{active: section===s.id}" @click="section=s.id" x-text="s.label"></button>
@@ -434,215 +400,38 @@
           <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.trusted_proxies, '')">+ Add proxy</button>
         </div>
         <div class="subsection">
-          <div class="sub-title">Admin users</div>
-          <template x-for="(u, i) in cfg.webui.admin_users" :key="i">
-            <div class="chip-row" style="margin-bottom:6px;">
-              <input type="text" class="input-mono" style="flex:1" placeholder="username" x-model="cfg.webui.admin_users[i].username">
-              <input type="text" class="input-mono" style="flex:2" placeholder="bcrypt password_hash" x-model="cfg.webui.admin_users[i].password_hash">
-              <button type="button" class="ghost btn-sm rm" @click="rm(cfg.webui.admin_users, i)">✕</button>
-            </div>
-          </template>
-          <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.admin_users, {username:'', password_hash:''})">+ Add admin</button>
-          <p class="fld-hint" style="margin-top:6px;">Generate a hash: <code class="mono">python -c "import bcrypt; print(bcrypt.hashpw(b'pw', bcrypt.gensalt()).decode())"</code></p>
+          <div class="sub-title">Users</div>
+          <p class="fld-hint">Local Web UI users are managed on the <a href="{{ url_for('account') }}">Account</a> page (stored in the database). SSO is configured under the <code class="mono">oidc</code> / forward-auth settings.</p>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ============================ ADVANCED (raw YAML) ============================ -->
-  <div x-show="tab==='advanced'" x-cloak>
-    <form method="post" action="{{ url_for('edit_config_post') }}" class="config-editor" id="config-form">
-      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-      <div class="config-editor-grid">
-        <div class="editor-pane">
-          <div class="editor-surface">
-            <div class="search-row" role="search">
-              <label for="find-text">Find</label>
-              <input id="find-text" type="text" placeholder="Search" autocomplete="off">
-              <div class="search-actions">
-                <button id="find-prev" type="button" class="secondary btn-sm" aria-label="Find previous match">Prev</button>
-                <button id="find-next" type="button" class="secondary btn-sm" aria-label="Find next match">Next</button>
-              </div>
-              <label for="replace-text">Replace</label>
-              <input id="replace-text" type="text" placeholder="With" autocomplete="off">
-              <div class="search-actions">
-                <button id="replace-one" type="button" class="secondary btn-sm" aria-label="Replace the current match">Replace</button>
-                <button id="replace-all" type="button" class="secondary btn-sm" aria-label="Replace all matches">Replace all</button>
-              </div>
-              <div class="search-status" id="search-status" aria-live="polite"></div>
-            </div>
-            <textarea id="config-text" name="config_text" rows="28" wrap="off" spellcheck="false" aria-label="config.yaml editor">{{ config_text }}</textarea>
-          </div>
-          <div id="client-error" class="client-error" role="alert"></div>
-        </div>
-        <div class="hint-panel" id="hint-panel">
-          <h3>Context hints</h3>
-          <div class="hint-body" id="hint-body">
-            {{ context_hints.get('root', "Top-level sections mirror the README. Move the cursor to a section to see details.") }}
-          </div>
-        </div>
-      </div>
-    </form>
-  </div>
+  <!-- Hidden form: the structured forms above serialize to YAML into this
+       textarea on Save and POST it to edit_config_post (atomic write + .bak). -->
+  <form method="post" action="{{ url_for('edit_config_post') }}" id="config-form" style="display:none;">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+    <textarea id="config-text" name="config_text">{{ config_text }}</textarea>
+  </form>
 
   <!-- ============================ SAVE BAR ============================ -->
   <div class="save-bar">
     <button type="button" @click="save()">Save changes</button>
-    <button type="button" class="secondary" @click="reload()">Reload from disk</button>
     <button type="button" class="ghost" @click="window.location.href='{{ url_for('dashboard') }}'">Cancel</button>
     <span class="spacer"></span>
-    <span class="faint" style="font-size:0.78rem;" x-show="tab==='forms'" x-cloak>Saving from Forms rewrites YAML (comments not preserved). Use Advanced to keep comments.</span>
     <a class="mono" style="font-size:0.82rem;" href="{{ url_for('regex_lab') }}">Open Regex Lab →</a>
   </div>
 </div>
 
-<form id="config-reload-form" method="post" action="{{ url_for('reload_config') }}" aria-hidden="true" style="display:none;">
-  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-</form>
-
 <script type="application/json" id="config-json-data">{{ config_json | safe }}</script>
-<script type="application/json" id="context-hints-json">{{ context_hints | tojson }}</script>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('assets', path='codemirror.min.js') }}"></script>
-<script src="{{ url_for('assets', path='mode-yaml.min.js') }}"></script>
 <script src="{{ url_for('assets', path='js-yaml.min.js') }}"></script>
 <script>
-  // ---- CodeMirror (Advanced YAML tab) -------------------------------------
-  const textarea = document.getElementById('config-text');
-  const editor = CodeMirror.fromTextArea(textarea, {
-    mode: 'text/x-yaml', lineNumbers: true, lineWrapping: false,
-    tabSize: 2, indentUnit: 2,
-    theme: (document.documentElement.getAttribute('data-theme') === 'dark') ? 'material-darker' : 'default',
-  });
-  window.__cm = editor;
-  editor.getInputField().setAttribute('spellcheck', 'false');
-  editor.getInputField().setAttribute('autocorrect', 'off');
-  editor.getWrapperElement().style.minHeight = '300px';
-
-  const hintBody = document.getElementById('hint-body');
-  const errorBox = document.getElementById('client-error');
-  const findInput = document.getElementById('find-text');
-  const replaceInput = document.getElementById('replace-text');
-  const searchStatus = document.getElementById('search-status');
-  const hintTexts = JSON.parse((document.getElementById('context-hints-json') || {}).textContent || '{}');
-  const safeHints = hintTexts && typeof hintTexts === 'object' ? hintTexts : {};
-  const defaultHint = safeHints.root || 'Top-level settings for logtriage.';
-  let errorLineHandle = null;
-  let lastSearchDirection = 'next';
-  let currentSearchMarker = null;
-
-  function debounce(fn, delay = 250) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), delay); }; }
-  function showClientError(text) { errorBox.textContent = text; errorBox.style.display = text ? 'block' : 'none'; }
-  function clearErrorHighlight() { if (errorLineHandle !== null) { editor.removeLineClass(errorLineHandle, 'background', 'cm-error-line'); errorLineHandle = null; } }
-  function setHint(text) { if (hintBody) hintBody.textContent = text; }
-  function setSearchStatus(text) { if (searchStatus) searchStatus.textContent = text || ''; }
-  function clearSearchHighlight() { if (currentSearchMarker) { currentSearchMarker.clear(); currentSearchMarker = null; } }
-  function normalizeSegment(raw) { return raw.replace(/[^A-Za-z0-9_-]/g, ''); }
-
-  function pathForCursor(doc, lineNumber) {
-    const lines = doc.getValue().split('\n');
-    const stack = [];
-    for (let i = 0; i < lineNumber && i < lines.length; i++) {
-      const raw = lines[i];
-      const indent = (raw.match(/^(\s*)/) || [, ''])[1].length;
-      const trimmed = raw.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const isListItem = /^-\s*/.test(trimmed);
-      const keyPart = isListItem ? trimmed.replace(/^-\s*/, '') : trimmed;
-      const effectiveIndent = indent + (isListItem ? 2 : 0);
-      const keyMatch = keyPart.match(/^([A-Za-z0-9_-]+):/);
-      if (!keyMatch) continue;
-      const key = normalizeSegment(keyMatch[1]);
-      while (stack.length && stack[stack.length - 1].indent >= effectiveIndent) stack.pop();
-      stack.push({ key, indent: effectiveIndent });
-    }
-    if (lineNumber < lines.length) {
-      const cl = lines[lineNumber];
-      const ci = (cl.match(/^(\s*)/) || [, ''])[1].length;
-      const ct = cl.trim();
-      const cei = ci + (/^-\s*/.test(ct) ? 2 : 0);
-      while (stack.length && stack[stack.length - 1].indent >= cei) stack.pop();
-    }
-    return stack.map(s => s.key);
-  }
-  function firstWordForLine(line) {
-    const t = line.trim();
-    if (!t || t.startsWith('#')) return null;
-    const m = t.replace(/^-\s*/, '').match(/^([A-Za-z0-9_-]+)/);
-    return m ? normalizeSegment(m[1]) : null;
-  }
-  function hintForLine(line, lineNumber) {
-    const ancestors = pathForCursor(editor, lineNumber).map(normalizeSegment).filter(Boolean);
-    const firstWord = firstWordForLine(line);
-    const candidates = [];
-    if (firstWord) for (let i = ancestors.length; i >= 0; i--) {
-      const joined = [...ancestors.slice(0, i), normalizeSegment(firstWord)].filter(Boolean).join('_');
-      if (joined) candidates.push(joined);
-    }
-    for (const key of candidates) if (key && safeHints[key]) return safeHints[key];
-    const wildcardKeys = Object.keys(safeHints).filter(k => k.includes('*'));
-    for (const c of candidates) for (const w of wildcardKeys) {
-      if (new RegExp('^' + w.replace(/\*/g, '.+') + '$').test(c)) return safeHints[w];
-    }
-    if (firstWord && safeHints[firstWord]) return safeHints[firstWord];
-    return null;
-  }
-  function validateYaml() {
-    const value = editor.getValue();
-    clearErrorHighlight();
-    try { jsyaml.load(value); showClientError(''); return true; }
-    catch (err) {
-      if (err && err.mark && typeof err.mark.line === 'number') errorLineHandle = editor.addLineClass(err.mark.line, 'background', 'cm-error-line');
-      showClientError(`YAML error: ${err.message}`); return false;
-    }
-  }
-  function updateHint() {
-    try {
-      const pos = editor.getCursor();
-      const hint = hintForLine(editor.getLine(pos.line) || '', pos.line);
-      setHint(hint || (pathForCursor(editor, pos.line).length === 0 ? defaultHint : 'No hint for this section yet.'));
-    } catch (e) { setHint(defaultHint); }
-  }
-  function searchInEditor(direction = 'next') {
-    const query = (findInput?.value || '').trim();
-    if (!query) { setSearchStatus('Enter text to find'); clearSearchHighlight(); return null; }
-    const doc = editor.getDoc(); const fullText = doc.getValue();
-    let startIndex = Math.max(0, doc.indexFromPos(doc.getCursor(direction === 'next' ? 'to' : 'from')));
-    let matchIndex = direction === 'prev'
-      ? (fullText.lastIndexOf(query, startIndex - 1) >= 0 ? fullText.lastIndexOf(query, startIndex - 1) : fullText.lastIndexOf(query))
-      : (fullText.indexOf(query, startIndex) >= 0 ? fullText.indexOf(query, startIndex) : fullText.indexOf(query));
-    if (matchIndex === -1) { setSearchStatus('No matches'); clearSearchHighlight(); return null; }
-    const from = doc.posFromIndex(matchIndex), to = doc.posFromIndex(matchIndex + query.length);
-    clearSearchHighlight(); currentSearchMarker = doc.markText(from, to, { className: 'search-highlight' });
-    doc.setSelection(from, to); editor.scrollIntoView({ from, to }); setSearchStatus(''); lastSearchDirection = direction;
-    return { from, to };
-  }
-  function replaceAllMatches() {
-    const query = (findInput?.value || '').trim();
-    if (!query) { setSearchStatus('Enter text to replace'); return; }
-    const doc = editor.getDoc(); const text = doc.getValue();
-    const occ = text.split(query).length - 1;
-    if (occ <= 0) { setSearchStatus('No matches'); return; }
-    doc.setValue(text.split(query).join(replaceInput?.value ?? '')); validateYaml();
-    setSearchStatus(`Replaced ${occ} occurrence${occ === 1 ? '' : 's'}`);
-  }
-
-  editor.on('cursorActivity', updateHint);
-  editor.on('changes', debounce(() => { editor.save(); validateYaml(); updateHint(); }, 200));
-  document.getElementById('find-next')?.addEventListener('click', () => searchInEditor('next'));
-  document.getElementById('find-prev')?.addEventListener('click', () => searchInEditor('prev'));
-  document.getElementById('replace-all')?.addEventListener('click', replaceAllMatches);
-  document.getElementById('replace-one')?.addEventListener('click', () => { if (editor.getDoc().getSelection() === (findInput?.value || '').trim() && findInput.value) { editor.getDoc().replaceSelection(replaceInput?.value ?? ''); editor.save(); validateYaml(); } else { searchInEditor('next'); } });
-  findInput?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchInEditor('next'); } });
-  document.querySelector('.config-editor')?.addEventListener('submit', (event) => { if (!validateYaml()) { event.preventDefault(); return; } editor.save(); });
-  setHint(defaultHint); validateYaml();
-
   // ---- Structured form editor (Alpine) ------------------------------------
   function configEditor() {
     return {
-      tab: 'forms',
       section: 'general',
       sections: [
         { id: 'general', label: 'General' }, { id: 'llm', label: 'LLM' }, { id: 'rag', label: 'RAG' },
@@ -782,12 +571,6 @@
       },
       toYaml() { return jsyaml.dump(this.buildCfg(), { indent: 2, lineWidth: 120, sortKeys: false, noRefs: true }); },
 
-      showForms() {
-        try { const obj = jsyaml.load(window.__cm.getValue()); this.cfg = obj || {}; this.normalize(); this.yamlError = ''; this.tab = 'forms'; }
-        catch (e) { this.yamlError = 'Fix YAML errors in Advanced before switching to Forms: ' + e.message; }
-      },
-      showAdvanced() { window.__cm.setValue(this.toYaml()); this.tab = 'advanced'; this.$nextTick(() => window.__cm.refresh()); },
-
       add(arr, item) { arr.push(typeof item === 'object' && item !== null ? JSON.parse(JSON.stringify(item)) : item); },
       rm(arr, i) { arr.splice(i, 1); },
       // ---- F6: seed documented defaults into NEW items (these ARE serialized) ----
@@ -796,16 +579,13 @@
       addModule() { this.cfg.modules.push({ name: 'new_module', enabled: true, path: '', mode: 'follow', pipeline: '', output_format: 'text', min_print_severity: 'WARNING', stale_after_minutes: null, llm: { enabled: false, context_prefix_lines: 0, context_suffix_lines: 0 }, alerts: { webhook: {}, mqtt: {} }, stream: { from_beginning: false, interval: 1.0 }, rag: { enabled: false, knowledge_sources: [] } }); },
 
       save() {
-        if (this.tab === 'forms') {
-          try { window.__cm.setValue(this.toYaml()); }
-          catch (e) { this.yamlError = 'Could not serialise config: ' + e.message; return; }
+        try {
+          document.getElementById('config-text').value = this.toYaml();
+        } catch (e) {
+          this.yamlError = 'Could not serialise config: ' + e.message; return;
         }
         const form = document.getElementById('config-form');
         if (form.requestSubmit) form.requestSubmit(); else form.submit();
-      },
-      reload() {
-        const f = document.getElementById('config-reload-form');
-        if (f.requestSubmit) f.requestSubmit(); else f.submit();
       },
     };
   }
