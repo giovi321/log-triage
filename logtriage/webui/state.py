@@ -30,6 +30,12 @@ class AppState:
     enrichment_worker: Any = None
     rag_monitor: Any = None                   # was _rag_monitor
 
+    # Reload callback registered by app.py: runs config_io.reload_from_disk and
+    # mirrors the result into app.py's module globals. Routers call this so a
+    # config-writing action takes effect everywhere. Falls back to a STATE-only
+    # reload if app.py hasn't registered one.
+    reload_callback: Any = None
+
     # Status dicts (mutated in place; readers may hold the reference)
     rag_monitor_status: Dict[str, Any] = field(default_factory=lambda: {
         "last_check": None,

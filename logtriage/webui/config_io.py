@@ -114,3 +114,43 @@ def _atomic_write(path: Path, text: str) -> None:
 def save_config_text(text: str) -> None:
     """Atomically persist new config YAML to the configured path."""
     _atomic_write(STATE.config_path, text)
+
+
+def add_ignore_regex_to_pipeline(pipeline_name, regex_value, *, reload) -> Optional[str]:
+    """Append an ignore regex to a pipeline's classifier, write config, reload.
+
+    ``reload`` is the no-arg reload callback (app.py passes _reload_from_disk so
+    its globals stay mirrored). Returns an error message, or None on success.
+    """
+    import yaml
+    from .regex_utils import _lint_regex_input
+
+    if not pipeline_name:
+        return "Issue has no pipeline; cannot add an ignore rule."
+    lint = _lint_regex_input(regex_value)
+    if lint:
+        return " ".join(lint)
+    try:
+        cfg_dict = yaml.safe_load(Path(STATE.config_path).read_text(encoding="utf-8")) or {}
+    except Exception as exc:
+        return f"Failed to read config: {exc}"
+
+    entry = next((p for p in (cfg_dict.get("pipelines") or []) if p.get("name") == pipeline_name), None)
+    if entry is None:
+        return "Pipeline not found in config; cannot add an ignore rule."
+
+    classifier = entry.setdefault("classifier", {})
+    ignore_list = classifier.get("ignore_regexes")
+    if not isinstance(ignore_list, list):
+        ignore_list = []
+        classifier["ignore_regexes"] = ignore_list
+    if regex_value not in ignore_list:
+        ignore_list.append(regex_value)
+
+    try:
+        save_config_text(yaml.safe_dump(cfg_dict, sort_keys=False))
+    except Exception as exc:
+        return f"Failed to write config: {exc}"
+
+    (reload or reload_from_disk)()
+    return None

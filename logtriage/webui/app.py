@@ -474,6 +474,11 @@ def _reload_from_disk() -> None:
     _mirror_state_to_globals()
 
 
+# Let extracted routers trigger the app-level reload (which mirrors globals)
+# without importing app.
+STATE.reload_callback = _reload_from_disk
+
+
 def _refresh_llm_defaults() -> None:
     """Rebuild llm_defaults via the config_io service, then mirror back."""
     global llm_defaults
@@ -581,246 +586,6 @@ async def _on_shutdown():
     if enrichment_worker is not None:
         enrichment_worker.stop()
 
-
-# ---------------------------------------------------------------------------
-# Triage queue (de-duplicated issues with cached LLM summaries)
-# ---------------------------------------------------------------------------
-
-@app.get("/issues", name="issues")
-async def issues_list(
-    request: Request,
-    module: Optional[str] = None,
-    status_filter: str = "active",
-    severity: Optional[str] = None,
-    q: Optional[str] = None,
-    message: Optional[str] = None,
-    error: Optional[str] = None,
-):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    if status_filter == "active":
-        statuses = list(ISSUE_ACTIVE_STATUSES)
-    elif status_filter in ("all", "", None):
-        statuses = None
-    else:
-        statuses = [status_filter]
-
-    severities = [severity] if severity else None
-    now = datetime.datetime.now(datetime.timezone.utc)
-    issues = get_issues(
-        module_name=module or None,
-        statuses=statuses,
-        severities=severities,
-        search=(q or None),
-        limit=150,
-        now=now,
-    )
-    sparklines = get_issue_sparklines(
-        [iss.id for iss in issues], buckets=24, bucket_seconds=3600, now=now
-    )
-    counts = issue_status_counts(module or None)
-    modules = sorted(_build_modules_from_config(), key=lambda m: m.name.lower())
-
-    return templates.TemplateResponse(
-        "issues.html",
-        {
-            "request": request,
-            "username": username,
-            "issues": issues,
-            "sparklines": sparklines,
-            "counts": counts,
-            "modules": modules,
-            "current_module": module or "",
-            "status_filter": status_filter or "active",
-            "severity_filter": severity or "",
-            "search": q or "",
-            "severity_choices": SEVERITY_CHOICES,
-            "status_choices": list(ISSUE_STATUSES),
-            "db_status": db_status,
-            "message": message,
-            "error": error,
-        },
-    )
-
-
-@app.get("/issues/{issue_id}", name="issue_detail")
-async def issue_detail(request: Request, issue_id: int, message: Optional[str] = None, error: Optional[str] = None):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    issue = get_issue_by_id(issue_id)
-    if issue is None:
-        return RedirectResponse(
-            url=app.url_path_for("issues") + "?error=Issue+not+found",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    spark_24h = get_issue_sparkline(issue_id, buckets=24, bucket_seconds=3600, now=now)
-    spark_14d = get_issue_sparkline(issue_id, buckets=14, bucket_seconds=86400, now=now)
-    occurrences = get_findings_for_issue(issue_id, limit=50)
-
-    provider_name = _select_provider_name(None)
-    sample_first = next((ln for ln in (issue.sample_excerpt or "").splitlines() if ln.strip()), "")
-    suggested_ignore = _suggest_regex_from_line(sample_first) if sample_first else ""
-
-    return templates.TemplateResponse(
-        "issue_detail.html",
-        {
-            "request": request,
-            "username": username,
-            "issue": issue,
-            "spark_24h": spark_24h,
-            "spark_14d": spark_14d,
-            "occurrences": occurrences,
-            "status_choices": list(ISSUE_STATUSES),
-            "db_status": db_status,
-            "can_analyze": bool(getattr(llm_defaults, "enabled", False) and provider_name),
-            "suggested_ignore": suggested_ignore,
-            "message": message,
-            "error": error,
-        },
-    )
-
-
-@app.post("/issues/{issue_id}/status", name="issue_set_status")
-async def issue_set_status(request: Request, issue_id: int, new_status: str = Form(...), redirect_to: str = Form("detail")):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    ok = False
-    try:
-        ok = update_issue_status(issue_id, new_status)
-    except Exception as exc:
-        add_notification("error", "Issue status update failed", str(exc))
-
-    if redirect_to == "list":
-        url = app.url_path_for("issues") + ("?message=Status+updated" if ok else "?error=Update+failed")
-    else:
-        url = app.url_path_for("issue_detail", issue_id=issue_id) + ("?message=Status+updated" if ok else "?error=Update+failed")
-    return RedirectResponse(url=url, status_code=status.HTTP_303_SEE_OTHER)
-
-
-@app.post("/issues/{issue_id}/analyze", name="issue_analyze")
-async def issue_analyze(request: Request, issue_id: int):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    issue = get_issue_by_id(issue_id)
-    if issue is None:
-        return RedirectResponse(url=app.url_path_for("issues") + "?error=Issue+not+found", status_code=status.HTTP_303_SEE_OTHER)
-
-    detail_url = app.url_path_for("issue_detail", issue_id=issue_id)
-
-    # Resolve a provider: the issue's module preference, else the global default.
-    modules = {m.name: m for m in _build_modules_from_config()}
-    module = modules.get(issue.module_name)
-    provider_name = None
-    if module is not None and getattr(module, "llm", None) is not None:
-        provider_name = module.llm.provider_name
-    provider_name = provider_name or _select_provider_name(None)
-    provider_cfg = llm_defaults.providers.get(provider_name) if provider_name else None
-    if provider_cfg is None:
-        return RedirectResponse(url=detail_url + "?error=No+LLM+provider+configured", status_code=status.HTTP_303_SEE_OTHER)
-
-    from ..enrichment import analyze_issue
-
-    temp_module_llm = ModuleLLMConfig(
-        enabled=True,
-        provider_name=provider_name,
-        min_severity=Severity.WARNING,
-        max_excerpt_lines=provider_cfg.max_excerpt_lines,
-    )
-    try:
-        wrote = analyze_issue(
-            issue, llm_defaults, temp_module_llm,
-            rag_client=rag_client, module_name=issue.module_name, force=True,
-        )
-        msg = "Analysis updated" if wrote else "No analysis produced"
-        return RedirectResponse(url=detail_url + f"?message={msg.replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
-    except Exception as exc:
-        add_notification("error", "Issue analysis failed", str(exc))
-        return RedirectResponse(url=detail_url + "?error=Analysis+failed", status_code=status.HTTP_303_SEE_OTHER)
-
-
-def _add_ignore_regex_to_pipeline(pipeline_name: Optional[str], regex_value: str) -> Optional[str]:
-    """Append an ignore regex to a pipeline's classifier, write config, reload.
-
-    Returns an error message string, or None on success.
-    """
-    global raw_config, settings, llm_defaults
-
-    if not pipeline_name:
-        return "Issue has no pipeline; cannot add an ignore rule."
-    lint = _lint_regex_input(regex_value)
-    if lint:
-        return " ".join(lint)
-    try:
-        cfg_dict = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    except Exception as exc:
-        return f"Failed to read config: {exc}"
-
-    entry = next((p for p in (cfg_dict.get("pipelines") or []) if p.get("name") == pipeline_name), None)
-    if entry is None:
-        return "Pipeline not found in config; cannot add an ignore rule."
-
-    classifier = entry.setdefault("classifier", {})
-    ignore_list = classifier.get("ignore_regexes")
-    if not isinstance(ignore_list, list):
-        ignore_list = []
-        classifier["ignore_regexes"] = ignore_list
-    if regex_value not in ignore_list:
-        ignore_list.append(regex_value)
-
-    try:
-        config_io.save_config_text(yaml.safe_dump(cfg_dict, sort_keys=False))
-    except Exception as exc:
-        return f"Failed to write config: {exc}"
-
-    _reload_from_disk()
-    return None
-
-
-@app.post("/issues/{issue_id}/ignore", name="issue_ignore")
-async def issue_ignore(request: Request, issue_id: int, regex_value: str = Form("")):
-    username = get_current_user(request, settings)
-    if not username:
-        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-
-    issue = get_issue_by_id(issue_id)
-    if issue is None:
-        return RedirectResponse(url=app.url_path_for("issues") + "?error=Issue+not+found", status_code=status.HTTP_303_SEE_OTHER)
-    detail_url = app.url_path_for("issue_detail", issue_id=issue_id)
-
-    if not db_status.get("connected"):
-        return RedirectResponse(url=detail_url + "?error=Database+not+connected", status_code=status.HTTP_303_SEE_OTHER)
-
-    regex_value = (regex_value or "").strip()
-    if not regex_value:
-        sample_first = next((ln for ln in (issue.sample_excerpt or "").splitlines() if ln.strip()), "")
-        regex_value = _suggest_regex_from_line(sample_first) if sample_first else ""
-    if not regex_value:
-        return RedirectResponse(url=detail_url + "?error=No+sample+to+build+an+ignore+rule", status_code=status.HTTP_303_SEE_OTHER)
-
-    err = _add_ignore_regex_to_pipeline(issue.pipeline_name, regex_value)
-    if err:
-        return RedirectResponse(url=detail_url + "?error=" + urllib.parse.quote(err), status_code=status.HTTP_303_SEE_OTHER)
-
-    try:
-        update_issue_status(issue_id, "false_positive")
-        delete_findings_matching_regex(regex_value, pipeline_name=issue.pipeline_name)
-    except Exception as exc:
-        add_notification("warning", "Ignore rule saved", f"but cleanup failed: {exc}")
-
-    return RedirectResponse(
-        url=app.url_path_for("issues") + "?message=Ignore+rule+added%2C+issue+suppressed",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
 
 
 def _render_config_editor(
@@ -956,8 +721,10 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_co
 # router split proceeds; each reads STATE/shared, never app.py.
 from .routers import auth as auth_router
 from .routers import system as system_router
+from .routers import issues as issues_router
 app.include_router(auth_router.router)
 app.include_router(system_router.router)
+app.include_router(issues_router.router)
 
 
 @app.get("/", name="dashboard")
