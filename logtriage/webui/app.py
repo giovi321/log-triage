@@ -1154,7 +1154,9 @@ async def dashboard(request: Request):
     )
     stats = get_module_stats(modules)
     page_rendered_at = datetime.datetime.now(datetime.timezone.utc)
-    ingestion_status = _derive_ingestion_status(modules, now=page_rendered_at)
+    ingestion_status = _derive_ingestion_status(
+        modules, now=page_rendered_at, freshness_minutes=settings.staleness_minutes
+    )
     notif_summary = notification_summary()
     
     # Get RAG status from monitor
@@ -1960,7 +1962,10 @@ async def regex_lab(
 
     modules = _build_modules_from_config()
     stats = get_module_stats(modules)
-    ingestion_status = _derive_ingestion_status(modules) if modules else None
+    ingestion_status = (
+        _derive_ingestion_status(modules, freshness_minutes=settings.staleness_minutes)
+        if modules else None
+    )
     module_obj = None
     if modules:
         if module:
@@ -2165,7 +2170,10 @@ async def ai_logs(
 
     modules = _build_modules_from_config()
     stats = get_module_stats(modules)
-    ingestion_status = _derive_ingestion_status(modules) if modules else None
+    ingestion_status = (
+        _derive_ingestion_status(modules, freshness_minutes=settings.staleness_minutes)
+        if modules else None
+    )
     safe_sample_source = _normalize_sample_source(sample_source)
     module_obj = None
     open_findings_count = None

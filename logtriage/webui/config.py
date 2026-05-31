@@ -29,6 +29,9 @@ class WebUISettings:
     admin_users: List[WebUser]
     trusted_proxies: List[str]
     session_max_age_hours: int
+    # Default minutes after which a module's log file is considered stale on the
+    # dashboard (per-module `stale_after_minutes` overrides this).
+    staleness_minutes: int = 60
     # Prometheus /metrics endpoint (still subject to allowed_ips). Default on.
     metrics_enabled: bool = True
     # Authentik (or any reverse proxy) forward-auth: trust an identity header,
@@ -58,6 +61,17 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
     metrics = web.get("metrics", {}) or {}
     fwd = web.get("forward_auth", {}) or {}
 
+    # Default staleness window: webui.staleness_minutes, falling back to the
+    # LOGTRIAGE_INGESTION_STALENESS_MINUTES env var, then 60.
+    import os
+    default_staleness = int(os.getenv("LOGTRIAGE_INGESTION_STALENESS_MINUTES", "60"))
+    try:
+        staleness_minutes = int(web.get("staleness_minutes", default_staleness))
+    except (TypeError, ValueError):
+        staleness_minutes = default_staleness
+    if staleness_minutes <= 0:
+        staleness_minutes = default_staleness
+
     return WebUISettings(
         enabled=bool(web.get("enabled", False)),
         host=str(web.get("host", "127.0.0.1")),
@@ -71,6 +85,7 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
         admin_users=admins,
         trusted_proxies=[str(ip) for ip in (web.get("trusted_proxies") or [])],
         session_max_age_hours=int(web.get("session_max_age_hours", 24)),
+        staleness_minutes=staleness_minutes,
         metrics_enabled=bool(metrics.get("enabled", True)),
         forward_auth_enabled=bool(fwd.get("enabled", False)),
         forward_auth_header=str(fwd.get("username_header", "X-authentik-username")),

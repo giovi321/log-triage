@@ -640,6 +640,11 @@ webui:
   # Session lifetime in hours (default: 24). Sessions older than this are rejected.
   session_max_age_hours: 24
 
+  # Default minutes after which a module's log file is considered "stale" on the
+  # dashboard ingestion indicator (default: 60). A per-module `stale_after_minutes`
+  # under that module overrides this default for that module.
+  staleness_minutes: 60
+
   # Prometheus metrics endpoint at /metrics (still subject to allowed_ips).
   metrics:
     enabled: true
