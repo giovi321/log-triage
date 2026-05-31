@@ -147,7 +147,21 @@ async def fetch_identity(request, settings):
     """
     if _client is None:
         raise RuntimeError("OIDC is not configured")
-    token = await _client.authorize_access_token(request)
+    try:
+        token = await _client.authorize_access_token(request)
+    except KeyError as exc:
+        # authlib raises KeyError('keys') from joserfc when the IdP's JWKS has no
+        # "keys" — i.e. the provider published an empty key set. With Authentik
+        # this means the provider has no Signing Key set, so it signs ID tokens
+        # with HS256 and /jwks/ is empty. Translate into an actionable message.
+        if "keys" in str(exc):
+            raise RuntimeError(
+                "The identity provider's JWKS endpoint returned no signing keys. "
+                "On Authentik, edit the provider and set a 'Signing Key' "
+                "(e.g. the self-signed certificate) so it signs ID tokens with "
+                "RS256 and publishes its public key."
+            ) from exc
+        raise
 
     # authlib puts the id_token claims under "userinfo" when openid scope + nonce
     # were used; otherwise hit the userinfo endpoint explicitly.

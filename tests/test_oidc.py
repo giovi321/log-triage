@@ -83,6 +83,28 @@ def test_configure_strips_whitespace_from_client_id_and_issuer():
     oidc_mod.configure(_settings(enabled=False))
 
 
+def test_fetch_identity_translates_empty_jwks_keyerror(monkeypatch):
+    """An empty IdP JWKS (KeyError('keys')) becomes an actionable RuntimeError.
+
+    Driven with asyncio.run so it needs no pytest-asyncio plugin.
+    """
+    import asyncio
+
+    if not oidc_mod.oidc_available():
+        pytest.skip("authlib not installed")
+    s = _settings(enabled=True, issuer="https://idp.example/app/o/lt/",
+                  client_id="lt", client_secret="sec")
+    oidc_mod.configure(s)
+
+    async def boom(_request):
+        raise KeyError("keys")
+
+    monkeypatch.setattr(oidc_mod.get_client(), "authorize_access_token", boom)
+    with pytest.raises(RuntimeError, match="Signing Key"):
+        asyncio.run(oidc_mod.fetch_identity(object(), s))
+    oidc_mod.configure(_settings(enabled=False))
+
+
 # ---- group → admin mapping ------------------------------------------------
 
 def test_admin_groups_parse():
