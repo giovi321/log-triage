@@ -108,38 +108,15 @@ def classify_regex_counter(
         if any(r.search(line) for r in ignore_res):
             continue
 
-        for r in pcfg.classifier_error_regexes:
-            if not r:
-                continue
-            for match in r.finditer(line):
-                excerpt = _build_excerpt(
-                    lines,
-                    offset,
-                    context_prefix_lines,
-                    context_suffix_lines,
-                    excerpt_limit,
-                    prefix_lines,
-                )
-                match_text = _format_match_text(match.group(0))
-                findings.append(
-                    Finding(
-                        file_path=file_path,
-                        pipeline_name=pipeline_name,
-                        finding_index=len(findings),
-                        severity=Severity.ERROR,
-                        message=f"Matched error pattern /{r.pattern}/ on \"{match_text}\"",
-                        line_start=current_line,
-                        line_end=current_line,
-                        rule_id=r.pattern,
-                        excerpt=excerpt,
-                    )
-                )
+        # The excerpt depends only on the line position, not on which pattern
+        # matched, so build it at most once per line and reuse it across every
+        # match on that line (a line with N matches built it N times before).
+        line_excerpt: List[str] | None = None
 
-        for r in pcfg.classifier_warning_regexes:
-            if not r:
-                continue
-            for match in r.finditer(line):
-                excerpt = _build_excerpt(
+        def _excerpt() -> List[str]:
+            nonlocal line_excerpt
+            if line_excerpt is None:
+                line_excerpt = _build_excerpt(
                     lines,
                     offset,
                     context_prefix_lines,
@@ -147,19 +124,29 @@ def classify_regex_counter(
                     excerpt_limit,
                     prefix_lines,
                 )
-                match_text = _format_match_text(match.group(0))
-                findings.append(
-                    Finding(
-                        file_path=file_path,
-                        pipeline_name=pipeline_name,
-                        finding_index=len(findings),
-                        severity=Severity.WARNING,
-                        message=f"Matched warning pattern /{r.pattern}/ on \"{match_text}\"",
-                        line_start=current_line,
-                        line_end=current_line,
-                        rule_id=r.pattern,
-                        excerpt=excerpt,
+            return line_excerpt
+
+        for severity, regexes, label in (
+            (Severity.ERROR, pcfg.classifier_error_regexes, "error"),
+            (Severity.WARNING, pcfg.classifier_warning_regexes, "warning"),
+        ):
+            for r in regexes:
+                if not r:
+                    continue
+                for match in r.finditer(line):
+                    match_text = _format_match_text(match.group(0))
+                    findings.append(
+                        Finding(
+                            file_path=file_path,
+                            pipeline_name=pipeline_name,
+                            finding_index=len(findings),
+                            severity=severity,
+                            message=f"Matched {label} pattern /{r.pattern}/ on \"{match_text}\"",
+                            line_start=current_line,
+                            line_end=current_line,
+                            rule_id=r.pattern,
+                            excerpt=list(_excerpt()),
+                        )
                     )
-                )
 
     return findings

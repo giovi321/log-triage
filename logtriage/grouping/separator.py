@@ -29,42 +29,31 @@ def group_by_separator(
     if not separator_re:
         return [lines] if lines else []
 
-    # Find all separator line indices
-    separator_indices = []
-    for i, line in enumerate(lines):
-        if separator_re.search(line):
-            separator_indices.append(i)
+    # Single pass: accumulate the current run, flushing (if non-empty) each time
+    # a separator line is hit. The separator line itself is not part of any run.
+    # `current` always holds the run since the most recent separator, so at the
+    # end it is exactly the tail after the last separator.
+    chunks: List[List[str]] = []
+    current: List[str] = []
+    saw_separator = False
 
-    if not separator_indices:
-        # No separators found, treat everything as one run
+    for line in lines:
+        if separator_re.search(line):
+            saw_separator = True
+            if current:
+                chunks.append(current)
+            current = []
+        else:
+            current.append(line)
+
+    if not saw_separator:
+        # No separators found, treat everything as one run.
         return [lines] if lines else []
 
     if only_last:
-        # Only process the last run (after the final separator)
-        last_separator_idx = separator_indices[-1]
-        if last_separator_idx + 1 < len(lines):
-            return [lines[last_separator_idx + 1:]]
-        else:
-            # Separator is the last line, return empty
-            return []
+        # The run after the final separator (empty if the separator is last).
+        return [current] if current else []
 
-    # Process all runs
-    chunks: List[List[str]] = []
-    
-    # First run (before first separator)
-    if separator_indices[0] > 0:
-        chunks.append(lines[:separator_indices[0]])
-    
-    # Middle runs (between separators)
-    for i in range(len(separator_indices) - 1):
-        start_idx = separator_indices[i] + 1
-        end_idx = separator_indices[i + 1]
-        if start_idx < end_idx:
-            chunks.append(lines[start_idx:end_idx])
-    
-    # Last run (after last separator)
-    last_separator_idx = separator_indices[-1]
-    if last_separator_idx + 1 < len(lines):
-        chunks.append(lines[last_separator_idx + 1:])
-
+    if current:
+        chunks.append(current)
     return chunks
