@@ -114,8 +114,16 @@ class RAGServiceClient:
         result = self._make_request("POST", "/update-knowledge")
         if result is None:
             raise Exception("Failed to update knowledge base")
-        
+
         logger.info("Knowledge base update initiated")
+
+    def reconcile_repos(self, repo_ids):
+        """Tell the service to drop any indexed repo not in ``repo_ids``."""
+        result = self._make_request("POST", "/reconcile-repos", json={"repo_ids": list(repo_ids)})
+        if result is None:
+            raise Exception("Failed to reconcile RAG repositories")
+        logger.info("RAG repo reconcile: removed %s", (result or {}).get("removed"))
+        return result
     
     def retrieve_for_finding(self, finding: Finding, module_name: str) -> Optional[RetrievalResult]:
         """Retrieve relevant documentation for a finding."""
@@ -183,7 +191,10 @@ class NoOpRAGClient:
     
     def update_knowledge_base(self):
         pass
-    
+
+    def reconcile_repos(self, repo_ids):
+        return {"removed": []}
+
     def retrieve_for_finding(self, finding: Finding, module_name: str) -> Optional[RetrievalResult]:
         return None
     

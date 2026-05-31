@@ -52,10 +52,21 @@ def refresh_rag_client() -> None:
             client = create_rag_client(url, fallback=True)
             STATE.rag_client = client
             if client.is_healthy():
+                import hashlib
                 modules = build_modules_safe()
+                keep_repo_ids = []
                 for module in modules:
                     if module.rag and module.rag.enabled:
                         client.add_module_config(module.name, module.rag)
+                        for source in module.rag.knowledge_sources:
+                            content = f"{source.repo_url}#{source.branch}"
+                            keep_repo_ids.append(hashlib.sha256(content.encode()).hexdigest()[:16])
+                # Tear down repos for knowledge sources that were removed from
+                # config so they stop showing (and indexing) on the dashboard.
+                try:
+                    client.reconcile_repos(keep_repo_ids)
+                except Exception as exc:
+                    logger.warning("RAG repo reconcile failed: %s", exc)
                 client.update_knowledge_base()
             else:
                 logger.warning("RAG service is not available; RAG disabled")

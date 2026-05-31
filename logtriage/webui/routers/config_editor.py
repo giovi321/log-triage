@@ -1,6 +1,8 @@
 """Settings editor routes: render the structured form, validate + save YAML."""
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import RedirectResponse
 
@@ -31,7 +33,7 @@ def _gate(request):
 
 
 @router.get("/config/edit", name="edit_config")
-async def edit_config(request: Request):
+async def edit_config(request: Request, message: Optional[str] = None, error: Optional[str] = None):
     denied = _gate(request)
     if denied is not None:
         return denied
@@ -40,7 +42,7 @@ async def edit_config(request: Request):
         text = STATE.config_path.read_text(encoding="utf-8")
     except Exception as e:
         text = f"Error reading {STATE.config_path}: {e}"
-    return render_config_editor(request, username, text)
+    return render_config_editor(request, username, text, message=message, error=error)
 
 
 @router.post("/config/edit", name="edit_config_post")

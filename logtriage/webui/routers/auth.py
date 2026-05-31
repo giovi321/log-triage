@@ -85,7 +85,7 @@ async def oidc_callback(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     _establish_session(request, username, is_admin)
-    return RedirectResponse(url=request.app.url_path_for("issues"), status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=request.app.url_path_for("dashboard"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/login", name="login_form_post")
@@ -98,7 +98,7 @@ async def login_post(request: Request, username: str = Form(...), password: str 
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     _establish_session(request, username, bool(getattr(user, "is_admin", False)))
-    return RedirectResponse(url=request.app.url_path_for("issues"), status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url=request.app.url_path_for("dashboard"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/logout")
@@ -202,17 +202,17 @@ async def user_create(
     denied = _require_admin_or_redirect(request)
     if denied is not None:
         return denied
-    account_url = request.app.url_path_for("account")
+    account_url = request.app.url_path_for("edit_config")
     if new_password != confirm_password:
-        return RedirectResponse(account_url + "?error=Passwords+do+not+match", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(account_url + "?error=Passwords+do+not+match#account", status_code=status.HTTP_303_SEE_OTHER)
     try:
         users_mod.create_user(new_username, new_password, is_admin=bool(is_admin))
     except ValueError as exc:
-        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as exc:
         add_notification("error", "User creation failed", str(exc))
-        return RedirectResponse(account_url + "?error=Could+not+create+user", status_code=status.HTTP_303_SEE_OTHER)
-    return RedirectResponse(account_url + "?message=User+created", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(account_url + "?error=Could+not+create+user#account", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(account_url + "?message=User+created#account", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/account/users/reset", name="user_reset_password")
@@ -220,14 +220,14 @@ async def user_reset_password(request: Request, target_username: str = Form(...)
     denied = _require_admin_or_redirect(request)
     if denied is not None:
         return denied
-    account_url = request.app.url_path_for("account")
+    account_url = request.app.url_path_for("edit_config")
     try:
         ok = users_mod.set_password(target_username, new_password)
     except ValueError as exc:
-        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
     except Exception:
         ok = False
-    msg = "?message=Password+reset" if ok else "?error=User+not+found"
+    msg = "?message=Password+reset#account" if ok else "?error=User+not+found#account"
     return RedirectResponse(account_url + msg, status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -237,14 +237,14 @@ async def user_delete(request: Request, target_username: str = Form(...)):
     if denied is not None:
         return denied
     username = get_current_user(request, STATE.settings)
-    account_url = request.app.url_path_for("account")
+    account_url = request.app.url_path_for("edit_config")
     if target_username == username:
-        return RedirectResponse(account_url + "?error=You+cannot+delete+your+own+account", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(account_url + "?error=You+cannot+delete+your+own+account#account", status_code=status.HTTP_303_SEE_OTHER)
     try:
         ok = users_mod.delete_user(target_username)
     except ValueError as exc:
-        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
     except Exception:
         ok = False
-    msg = "?message=User+deleted" if ok else "?error=User+not+found"
+    msg = "?message=User+deleted#account" if ok else "?error=User+not+found#account"
     return RedirectResponse(account_url + msg, status_code=status.HTTP_303_SEE_OTHER)

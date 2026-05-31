@@ -255,3 +255,19 @@ class KnowledgeManager:
     def get_repo_state(self, repo_id: str) -> Optional[RepoState]:
         """Get repository state."""
         return self.repositories.get(repo_id)
+
+    def remove_repo(self, repo_id: str) -> None:
+        """Forget a repository entirely: drop its in-memory state, its persisted
+        index-state entry, and its cached clone on disk.
+
+        Used when a knowledge source is removed from config so the repo stops
+        showing (and re-indexing) on the dashboard instead of lingering."""
+        state = self.repositories.pop(repo_id, None)
+        if repo_id in self._index_state:
+            self._index_state.pop(repo_id, None)
+            self._save_index_state()
+        if state is not None:
+            try:
+                shutil.rmtree(state.local_path, ignore_errors=True)
+            except Exception as exc:
+                logger.warning(f"Failed to remove cached clone for {repo_id}: {exc}")

@@ -179,6 +179,16 @@ def render_config_editor(request, username, config_text, *, error=None, message=
         except Exception:
             parsed_obj = None
     config_json = _json.dumps(parsed_obj if isinstance(parsed_obj, dict) else {})
+    # The Account tab embeds local-user management, so the editor needs the user
+    # list (admins only — Settings is already admin-gated).
+    user_list = []
+    try:
+        from .auth import current_user_is_admin
+        from . import users as users_mod
+        if current_user_is_admin(request, STATE.settings):
+            user_list = users_mod.list_users()
+    except Exception:
+        user_list = []
     return templates.TemplateResponse(
         "config_edit.html",
         {
@@ -189,6 +199,7 @@ def render_config_editor(request, username, config_text, *, error=None, message=
             "error": error,
             "message": message,
             "context_hints": current_hints,
+            "users": user_list,
         },
         status_code=status_code,
     )

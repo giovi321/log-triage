@@ -357,6 +357,37 @@ class RAGClient:
         
         return status
 
+    def prune_repositories(self, keep_repo_ids) -> List[str]:
+        """Remove every initialized repo whose id is not in ``keep_repo_ids``.
+
+        Deletes the repo's vector chunks, its knowledge-manager state and cached
+        clone, and any indexing-progress entry, so a knowledge source removed
+        from config disappears from the dashboard instead of lingering (and
+        continuing to index). Returns the list of removed repo ids.
+        """
+        keep = set(keep_repo_ids or [])
+        removed: List[str] = []
+        for repo_id in list(self.initialized_repos):
+            if repo_id in keep:
+                continue
+            try:
+                self.vector_store.delete_by_repo(repo_id)
+            except Exception as exc:
+                logger.warning("Failed to delete vectors for pruned repo %s: %s", repo_id, exc)
+            self.initialized_repos.discard(repo_id)
+            try:
+                self.knowledge_manager.remove_repo(repo_id)
+            except Exception as exc:
+                logger.warning("Failed to remove knowledge-manager state for %s: %s", repo_id, exc)
+            with self._progress_lock:
+                self._repo_progress.pop(repo_id, None)
+                if self._indexing_progress.get("current_repo_id") == repo_id:
+                    self._indexing_progress["current_repo_id"] = None
+            removed.append(repo_id)
+        if removed:
+            logger.info("Pruned %d unconfigured RAG repo(s): %s", len(removed), ", ".join(removed))
+        return removed
+
     def reindex_repository(self, repo_id: str, *, refresh: bool = True) -> None:
         if repo_id not in self.initialized_repos:
             raise ValueError(f"Unknown repo_id: {repo_id}")

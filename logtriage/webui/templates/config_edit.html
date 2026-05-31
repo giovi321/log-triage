@@ -24,7 +24,7 @@
   <div>
     <div class="tabbar section-subtabs">
       <template x-for="s in sections" :key="s.id">
-        <button type="button" :class="{active: section===s.id}" @click="section=s.id" x-text="s.label"></button>
+        <button type="button" :class="{active: section===s.id}" @click="setSection(s.id)" x-text="s.label"></button>
       </template>
     </div>
 
@@ -378,7 +378,7 @@
           <label class="fld"><span class="fld-label">Base path</span><input type="text" class="input-mono" x-model="cfg.webui.base_path"></label>
           <label class="fld"><span class="fld-label">Session cookie name</span><input type="text" class="input-mono" x-model="cfg.webui.session_cookie_name"></label>
           <label class="fld"><span class="fld-label">Session max age (h)</span><input type="number" min="1" x-model.number="cfg.webui.session_max_age_hours"></label>
-          <label class="fld"><span class="fld-label">Staleness window (min)</span><input type="number" min="1" x-model.number="cfg.webui.staleness_minutes" placeholder="60">
+          <label class="fld full"><span class="fld-label">Staleness window (min)</span><input type="number" min="1" x-model.number="cfg.webui.staleness_minutes" placeholder="60">
             <span class="fld-hint">Default minutes before a log is "stale" on the dashboard.</span></label>
           <label class="fld check"><input type="checkbox" x-model="cfg.webui.metrics.enabled"><span class="fld-label" style="text-transform:none;">Prometheus /metrics</span></label>
           <label class="fld full"><span class="fld-label">Secret key</span><input type="password" class="input-mono" x-model="cfg.webui.secret_key">
@@ -405,18 +405,99 @@
           <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.trusted_proxies, '')">+ Add proxy</button>
         </div>
         <div class="subsection">
-          <div class="sub-title">Users</div>
-          <p class="fld-hint">Local Web UI users are managed on the <a href="{{ url_for('account') }}">Account</a> page (stored in the database). Configure single sign-on below.</p>
+          <div class="sub-title">Users &amp; SSO</div>
+          <p class="fld-hint">Local Web UI accounts and single sign-on (OIDC) are configured in the <a href="#account" @click.prevent="setSection('account')">Account</a> tab.</p>
         </div>
       </div>
 
-      <!-- ---- SSO / OIDC ---- -->
+      <!-- OIDC moved to the Account tab -->
+
+
+      <!-- ---- Reverse-proxy forward-auth ---- -->
       <div class="form-section">
-        <div class="section-eyebrow">SINGLE SIGN-ON (OIDC)</div>
-        <p class="fld-hint" style="margin-top:0;">
+        <div class="section-eyebrow">REVERSE-PROXY FORWARD-AUTH</div>
+        <p class="fld-hint" style="margin-top:0;">Trust an identity header from a reverse proxy (e.g. Authentik) — only honoured when the request's direct peer is one of the <b>Trusted proxies</b> above.</p>
+        <div class="form-grid">
+          <label class="fld check"><input type="checkbox" x-model="cfg.webui.forward_auth.enabled"><span class="fld-label" style="text-transform:none;">Forward-auth enabled</span></label>
+          <label class="fld"><span class="fld-label">Username header</span><input type="text" class="input-mono" x-model="cfg.webui.forward_auth.username_header" placeholder="X-authentik-username"></label>
+          <label class="fld full"><span class="fld-label">Logout URL (optional)</span><input type="text" class="input-mono" x-model="cfg.webui.forward_auth.logout_url"></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- Account: local accounts + OIDC (admin-only; Settings is gated) ---- -->
+    <div x-show="section==='account'">
+      <!-- Local accounts (collapsible) -->
+      <details class="form-section" open>
+        <summary class="section-eyebrow" style="cursor:pointer;">LOCAL ACCOUNTS</summary>
+        <p class="fld-hint" style="margin-top:var(--s-2);">Local Web UI accounts are stored in the database (not <code class="mono">config.yaml</code>). Every user can change their own password from the <a href="{{ url_for('account') }}">Account</a> page; admins manage all accounts here. Changes here take effect immediately.</p>
+        {% if users %}
+        <table class="user-table">
+          <thead><tr><th>Username</th><th>Role</th><th>Created</th><th class="ua-actions">Actions</th></tr></thead>
+          <tbody>
+            {% for u in users %}
+            <tr>
+              <td class="mono">{{ u.username }}{% if u.username == username %} <span class="you-tag">you</span>{% endif %}</td>
+              <td>{% if u.is_admin %}<span class="tag">admin</span>{% else %}<span class="ua-dim">user</span>{% endif %}</td>
+              <td class="ua-dim">{{ u.created_at | localtime if u.created_at else '—' }}</td>
+              <td class="ua-actions">
+                <details class="ua-reset">
+                  <summary>Reset password</summary>
+                  <form method="post" action="{{ url_for('user_reset_password') }}" class="ua-inline">
+                    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+                    <input type="hidden" name="target_username" value="{{ u.username }}">
+                    <input type="password" name="new_password" minlength="8" placeholder="New password" required>
+                    <button type="submit" class="small">Set</button>
+                  </form>
+                </details>
+                {% if u.username != username %}
+                <form method="post" action="{{ url_for('user_delete') }}" class="ua-inline"
+                      onsubmit="return confirm('Delete user {{ u.username }}?');">
+                  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+                  <input type="hidden" name="target_username" value="{{ u.username }}">
+                  <button type="submit" class="small danger">Delete</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <p class="fld-hint">No local users yet.</p>
+        {% endif %}
+
+        <h3 class="ua-subhead">Add a user</h3>
+        <form method="post" action="{{ url_for('user_create') }}" class="account-form">
+          <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+          <label class="field">
+            <span class="field-label">Username</span>
+            <input type="text" name="new_username" autocomplete="off" required>
+          </label>
+          <label class="field">
+            <span class="field-label">Password</span>
+            <input type="password" name="new_password" minlength="8" autocomplete="new-password" required>
+          </label>
+          <label class="field">
+            <span class="field-label">Confirm password</span>
+            <input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
+          </label>
+          <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
+            <input type="checkbox" name="is_admin" value="1">
+            <span class="field-label" style="text-transform:none;">Administrator (can edit settings and manage users)</span>
+          </label>
+          <button type="submit">Create user</button>
+        </form>
+      </details>
+
+      <!-- Single sign-on / OIDC (collapsible) -->
+      <details class="form-section" open>
+        <summary class="section-eyebrow" style="cursor:pointer;">SINGLE SIGN-ON (OIDC)</summary>
+        <p class="fld-hint" style="margin-top:var(--s-2);">
           Authorization Code + PKCE via the <code class="mono">[oidc]</code> extra
           (<code class="mono">pip install '.[oidc]'</code>). Configure an OIDC/OAuth2
           application at your identity provider, then paste its credentials below.
+          OIDC settings are saved with the <b>Save changes</b> button below.
         </p>
 
         <!-- Redirect URI: read-only, copy-to-clipboard. Register this at the IdP. -->
@@ -460,18 +541,25 @@
           </div>
           <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.oidc.admin_groups, '')">+ Add admin group</button>
         </div>
-      </div>
+      </details>
 
-      <!-- ---- Reverse-proxy forward-auth ---- -->
-      <div class="form-section">
-        <div class="section-eyebrow">REVERSE-PROXY FORWARD-AUTH</div>
-        <p class="fld-hint" style="margin-top:0;">Trust an identity header from a reverse proxy (e.g. Authentik) — only honoured when the request's direct peer is one of the <b>Trusted proxies</b> above.</p>
-        <div class="form-grid">
-          <label class="fld check"><input type="checkbox" x-model="cfg.webui.forward_auth.enabled"><span class="fld-label" style="text-transform:none;">Forward-auth enabled</span></label>
-          <label class="fld"><span class="fld-label">Username header</span><input type="text" class="input-mono" x-model="cfg.webui.forward_auth.username_header" placeholder="X-authentik-username"></label>
-          <label class="fld full"><span class="fld-label">Logout URL (optional)</span><input type="text" class="input-mono" x-model="cfg.webui.forward_auth.logout_url"></label>
-        </div>
-      </div>
+      <style>
+        .account-form { display:grid; gap:var(--s-4); max-width:520px; margin-top:var(--s-4); }
+        .account-form .field { display:grid; gap:6px; }
+        .account-form .field-label { font-family:var(--font-mono); font-size:0.72rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-faint); }
+        .user-table { width:100%; border-collapse:collapse; margin-top:var(--s-4); font-size:0.9rem; }
+        .user-table th, .user-table td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+        .user-table th { font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-faint); }
+        .ua-actions { white-space:nowrap; }
+        .ua-dim { color:var(--text-dim); }
+        .you-tag { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--brand); border:1px solid var(--brand-dim); border-radius:var(--r-sm); padding:1px 5px; margin-left:4px; }
+        .ua-inline { display:inline-flex; gap:6px; align-items:center; margin:4px 0 0; }
+        .ua-inline input[type=password] { width:150px; }
+        .ua-reset summary { cursor:pointer; color:var(--text-dim); font-size:0.82rem; }
+        .ua-subhead { margin-top:var(--s-5); font-size:1rem; }
+        button.small { padding:5px 10px; font-size:0.8rem; }
+        button.danger { color:#ffc9cb; border-color:rgba(255,93,98,0.4); }
+      </style>
     </div>
   </div>
 
@@ -504,6 +592,7 @@
       sections: [
         { id: 'general', label: 'General' }, { id: 'llm', label: 'LLM' }, { id: 'rag', label: 'RAG' },
         { id: 'pipelines', label: 'Pipelines' }, { id: 'modules', label: 'Modules' }, { id: 'webui', label: 'Web UI' },
+        { id: 'account', label: 'Account' },
       ],
       levels: ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
       severities: ['WARNING', 'ERROR', 'CRITICAL'],
@@ -543,7 +632,19 @@
         try { raw = JSON.parse((document.getElementById('config-json-data') || {}).textContent || '{}') || {}; } catch (e) { raw = {}; }
         this.cfg = raw;
         this.normalize();
+        // Restore the active section from the URL hash so a refresh or a save
+        // round-trip (POST re-render) keeps you on the same tab instead of
+        // silently bouncing back to General.
+        const h = (window.location.hash || '').replace('#', '');
+        if (this.sections.some(s => s.id === h)) this.section = h;
+        window.addEventListener('hashchange', () => {
+          const hh = (window.location.hash || '').replace('#', '');
+          if (this.sections.some(s => s.id === hh)) this.section = hh;
+        });
       },
+      // Switch the active settings tab AND reflect it in the URL hash, so each
+      // tab is a real addressable location (survives refresh / back / save).
+      setSection(id) { this.section = id; try { window.location.hash = id; } catch (e) {} },
 
       // ---- F7 collapse togglers (undefined => open) ----
       togglePipe(i) { this.openPipe[i] = !(this.openPipe[i] !== false); },
@@ -693,6 +794,9 @@
           this.yamlError = 'Could not serialise config: ' + e.message; return;
         }
         const form = document.getElementById('config-form');
+        // Carry the active tab through the POST round-trip: the re-rendered page
+        // lands on /config/edit#<section> and init() restores the tab.
+        try { form.action = form.action.split('#')[0] + '#' + this.section; } catch (e) {}
         if (form.requestSubmit) form.requestSubmit(); else form.submit();
       },
     };

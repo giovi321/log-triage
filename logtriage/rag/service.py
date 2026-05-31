@@ -117,6 +117,10 @@ class ModuleConfigRequest(BaseModel):
 class RepoReindexRequest(BaseModel):
     refresh: bool = True
 
+
+class ReconcileReposRequest(BaseModel):
+    repo_ids: List[str]
+
 def configure_logging_from_config(cfg: dict) -> None:
     """Configure logging based on configuration dictionary."""
     configure_logging_from_dict(cfg)
@@ -433,6 +437,19 @@ async def reindex_repository(repo_id: str, payload: RepoReindexRequest, backgrou
 
     background_tasks.add_task(rag_client.reindex_repository, repo_id, refresh=refresh)
     return {"message": f"Repository reindex initiated in background", "repo_id": repo_id}
+
+
+@app.post("/reconcile-repos")
+async def reconcile_repos(payload: ReconcileReposRequest):
+    """Drop every indexed repo whose id isn't in the supplied keep-set.
+
+    Called after the web UI saves config so knowledge sources removed from a
+    module are torn down (vectors, clone, progress) instead of lingering on the
+    dashboard — even if the removal happened mid-index."""
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="RAG service not initialized")
+    removed = rag_client.prune_repositories(payload.repo_ids)
+    return {"removed": removed}
 
 @app.post("/module/{module_name}/config")
 async def update_module_config(module_name: str, config: ModuleConfigRequest):

@@ -28,69 +28,8 @@
   <div class="card" data-reveal style="--i:1">
     <div class="section-eyebrow">USER MANAGEMENT</div>
     <h2 style="margin-top:0;">Local users</h2>
-    {% if oidc_enabled %}
-      <p class="helper-text">SSO is enabled — most users sign in through your identity provider. Local accounts below are a break-glass path and aren't managed by the IdP. Admin rights for SSO users come from their OIDC groups (configured under Settings).</p>
-    {% else %}
-      <p class="helper-text">Local accounts that can sign in to the Web UI. Stored in the database, not in <code class="mono">config.yaml</code>.</p>
-    {% endif %}
-
-    {% if users %}
-    <table class="user-table">
-      <thead><tr><th>Username</th><th>Role</th><th>Created</th><th class="ua-actions">Actions</th></tr></thead>
-      <tbody>
-        {% for u in users %}
-        <tr>
-          <td class="mono">{{ u.username }}{% if u.username == username %} <span class="you-tag">you</span>{% endif %}</td>
-          <td>{% if u.is_admin %}<span class="tag">admin</span>{% else %}<span class="ua-dim">user</span>{% endif %}</td>
-          <td class="ua-dim">{{ u.created_at | localtime if u.created_at else '—' }}</td>
-          <td class="ua-actions">
-            <details class="ua-reset">
-              <summary>Reset password</summary>
-              <form method="post" action="{{ url_for('user_reset_password') }}" class="ua-inline">
-                <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-                <input type="hidden" name="target_username" value="{{ u.username }}">
-                <input type="password" name="new_password" minlength="8" placeholder="New password" required>
-                <button type="submit" class="small">Set</button>
-              </form>
-            </details>
-            {% if u.username != username %}
-            <form method="post" action="{{ url_for('user_delete') }}" class="ua-inline"
-                  onsubmit="return confirm('Delete user {{ u.username }}?');">
-              <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-              <input type="hidden" name="target_username" value="{{ u.username }}">
-              <button type="submit" class="small danger">Delete</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <p class="helper-text">No local users yet.</p>
-    {% endif %}
-
-    <h3 class="ua-subhead">Add a user</h3>
-    <form method="post" action="{{ url_for('user_create') }}" class="account-form">
-      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-      <label class="field">
-        <span class="field-label">Username</span>
-        <input type="text" name="new_username" autocomplete="off" required>
-      </label>
-      <label class="field">
-        <span class="field-label">Password</span>
-        <input type="password" name="new_password" minlength="8" autocomplete="new-password" required>
-      </label>
-      <label class="field">
-        <span class="field-label">Confirm password</span>
-        <input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
-      </label>
-      <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
-        <input type="checkbox" name="is_admin" value="1">
-        <span class="field-label" style="text-transform:none;">Administrator (can edit settings and manage users)</span>
-      </label>
-      <button type="submit">Create user</button>
-    </form>
+    <p class="helper-text">Local accounts and single sign-on are managed under
+      <a href="{{ url_for('edit_config') }}#account">Settings → Account</a>.</p>
   </div>
   {% endif %}
 </div>
