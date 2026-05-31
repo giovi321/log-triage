@@ -163,16 +163,29 @@ async def fetch_identity(request, settings):
             ) from exc
         raise
 
-    # authlib puts the id_token claims under "userinfo" when openid scope + nonce
-    # were used; otherwise hit the userinfo endpoint explicitly.
-    userinfo = token.get("userinfo") if isinstance(token, dict) else None
-    if not userinfo:
+    # authlib puts the ID-token claims under "userinfo". Those cover identity,
+    # but many IdPs only return group membership from the /userinfo endpoint, NOT
+    # in the ID token (e.g. Authentik unless the provider's "Include claims in
+    # id_token" is enabled). So start from the ID-token claims and merge the
+    # userinfo endpoint when the groups claim we need for admin isn't already
+    # present — otherwise admin is silently denied even though groups are
+    # configured and "sent".
+    claims: dict = {}
+    id_claims = token.get("userinfo") if isinstance(token, dict) else None
+    if isinstance(id_claims, dict):
+        claims.update(id_claims)
+
+    groups_claim = getattr(settings, "oidc_groups_claim", "groups")
+    admin_groups = getattr(settings, "oidc_admin_groups", None) or []
+    need_groups = bool(admin_groups) and groups_claim not in claims
+    if not claims or need_groups:
         try:
-            userinfo = await _client.userinfo(token=token)
+            endpoint_claims = await _client.userinfo(token=token)
+            if isinstance(endpoint_claims, dict):
+                claims.update(endpoint_claims)
         except Exception as exc:
             logger.warning("OIDC userinfo endpoint call failed: %s", exc)
-            userinfo = None
-    if not userinfo:
+    if not claims:
         logger.warning(
             "OIDC login produced no userinfo (token keys=%s). Check that the "
             "'openid' scope is granted and the provider returns an ID token.",
@@ -180,6 +193,7 @@ async def fetch_identity(request, settings):
         )
         return None, False
 
+    userinfo = claims
     claim = getattr(settings, "oidc_username_claim", "preferred_username")
     username = userinfo.get(claim) or userinfo.get("email") or userinfo.get("sub")
     if not username:
@@ -193,5 +207,14 @@ async def fetch_identity(request, settings):
         return None, False
 
     is_admin = _is_admin_from_groups(userinfo, settings)
+    if not is_admin and admin_groups:
+        # Explain *why* admin was denied so it's diagnosable from the logs:
+        # claim absent (groups not in id_token AND not from userinfo) vs a
+        # group-name mismatch.
+        logger.info(
+            "OIDC admin not granted for %r: claim %r=%r, admin_groups=%s, claims_present=%s",
+            str(username), groups_claim, userinfo.get(groups_claim),
+            list(admin_groups), sorted(userinfo.keys()),
+        )
     logger.info("OIDC login resolved username=%r admin=%s", str(username), is_admin)
     return str(username), is_admin
