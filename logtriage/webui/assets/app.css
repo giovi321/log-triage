@@ -259,15 +259,6 @@ header.topbar {
 
 .brand { display: flex; align-items: center; gap: var(--s-3); min-width: 0; }
 .brand .logo { height: 30px; width: auto; object-fit: contain; }
-.brand .wordmark {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.12rem;
-  letter-spacing: 0.04em;
-  color: var(--text);
-  text-transform: lowercase;
-}
-.brand .wordmark b { color: var(--brand); font-weight: 700; }
 
 .version-badge {
   display: inline-flex; align-items: center; gap: var(--s-2);

@@ -5,7 +5,8 @@
     <title>{% block title %}log-triage{% endblock %} · log-triage</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <link rel="icon" href="{{ url_for('assets', path='logo.svg') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('assets', path='favicon.svg') }}">
+    <link rel="alternate icon" href="{{ url_for('assets', path='favicon.ico') }}">
     <!-- Apply the saved theme before first paint (default: light) to avoid a flash -->
     <script>
       (function () {
@@ -23,8 +24,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <img src="{{ url_for('assets', path='logo.svg') }}" alt="" class="logo" loading="lazy" onerror="this.style.display='none'">
-      <span class="wordmark">log<b>·</b>triage</span>
+      <img src="{{ url_for('assets', path='logo.svg') }}" alt="log-triage" class="logo" loading="lazy">
       {% if app_version %}
         <span class="version-badge" aria-label="Application version {{ app_version }}">
           <span class="version-dot" aria-hidden="true"></span>
