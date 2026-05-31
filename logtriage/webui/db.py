@@ -311,11 +311,38 @@ if Base is not None:
             return self.sample_excerpt.splitlines() if self.sample_excerpt else []
 
 
+    class UserRecord(Base):
+        """A local Web UI user (used when OIDC/forward-auth is not the IdP).
+
+        Replaces the old ``webui.admin_users`` YAML list as the source of truth;
+        existing config users are seeded into this table once on first run.
+        """
+        __tablename__ = "webui_users"
+
+        id = Column(Integer, primary_key=True)
+        username = Column(String(128), unique=True, index=True, nullable=False)
+        password_hash = Column(String(256), nullable=False)
+        is_admin = Column(Boolean, nullable=False, default=True)
+        created_at = Column(
+            DateTime(timezone=True),
+            nullable=False,
+            default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        )
+        updated_at = Column(
+            DateTime(timezone=True),
+            nullable=True,
+            default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        )
+
+
 else:  # pragma: no cover - used when sqlalchemy is absent
     class FindingRecord:
         pass
 
     class IssueRecord:
+        pass
+
+    class UserRecord:
         pass
 
 

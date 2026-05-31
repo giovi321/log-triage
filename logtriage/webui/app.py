@@ -194,7 +194,7 @@ db_status: Dict[str, Any] = {
 SEVERITY_CHOICES = ["CRITICAL", "ERROR", "WARNING"]
 
 
-def _init_database(raw: Dict[str, Any]):
+def _init_database(raw: Dict[str, Any], web_settings: "Optional[WebUISettings]" = None):
     db_cfg = raw.get("database") or {}
     url = db_cfg.get("url")
     db_status.update({"configured": bool(url), "connected": False, "error": None, "url": url})
@@ -203,6 +203,16 @@ def _init_database(raw: Dict[str, Any]):
     try:
         setup_database(url)
         db_status["connected"] = True
+        # One-time migration of legacy config users into the DB user table.
+        admin_users = getattr(web_settings, "admin_users", None)
+        if admin_users:
+            try:
+                from .users import seed_users_from_config
+                seeded = seed_users_from_config(admin_users)
+                if seeded:
+                    logger.info("Seeded %d local user(s) from config into the database", seeded)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Could not seed users from config: %s", exc)
     except Exception as exc:
         db_status["error"] = str(exc)
 
@@ -300,7 +310,7 @@ def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
         raw = {}
 
     web_settings = parse_webui_settings(raw)
-    _init_database(raw)
+    _init_database(raw, web_settings)
     return web_settings, raw, cfg_path
 
 
@@ -1884,7 +1894,7 @@ async def edit_config_post(
     try:
         raw_config = load_config(CONFIG_PATH)
         settings = parse_webui_settings(raw_config)
-        _init_database(raw_config)
+        _init_database(raw_config, settings)
         _refresh_llm_defaults()
         _refresh_rag_client()
     except Exception as exc:
@@ -1924,7 +1934,7 @@ async def reload_config(request: Request):
         new_raw = load_config(CONFIG_PATH)
         raw_config = new_raw
         settings = parse_webui_settings(new_raw)
-        _init_database(new_raw)
+        _init_database(new_raw, settings)
         _refresh_llm_defaults()
         _refresh_rag_client()
     except Exception as e:

@@ -35,6 +35,21 @@ def get_user(settings: WebUISettings, username: str):
 
 
 def authenticate_user(settings: WebUISettings, username: str, password: str):
+    """Authenticate a local user.
+
+    Prefers the DB-backed user table (the source of truth); falls back to the
+    legacy ``webui.admin_users`` config list when the DB is unavailable or the
+    user only exists in config (e.g. before the one-time seed has run).
+    """
+    try:
+        from .users import verify_credentials
+        db_user = verify_credentials(username, password)
+        if db_user is not None:
+            return db_user
+    except Exception:
+        # DB not configured / import issue → fall through to config users.
+        pass
+
     user = get_user(settings, username)
     if not user:
         return None
