@@ -659,6 +659,21 @@ webui:
     username_header: X-authentik-username
     # logout_url: https://auth.example.com/application/o/logtriage/end-session/
 
+  # OIDC single sign-on (Authorization Code + PKCE, via the [oidc] extra:
+  # `pip install '.[oidc]'`). The IdP owns identity; on success a normal session
+  # is created keyed on `username_claim`. Local password login stays available
+  # as a break-glass path unless `exclusive: true`. The redirect/callback URL to
+  # register at the IdP is:  <base-url>/auth/callback
+  oidc:
+    enabled: false
+    # issuer: https://auth.example.com/application/o/logtriage/   # discovery base
+    # client_id: logtriage
+    # client_secret: CHANGE_ME
+    scopes: openid email profile
+    username_claim: preferred_username   # claim used as the log-triage username
+    # logout_url: https://auth.example.com/application/o/logtriage/end-session/
+    exclusive: false                      # true = hide local password login
+
   # Access control
   allowed_ips:  # Restrict access to specific IP addresses (empty = allow all)
     - 192.168.1.1

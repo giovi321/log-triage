@@ -33,6 +33,7 @@ setup(
             "itsdangerous>=2.1",
         ],
         "alerts": ["paho-mqtt>=1.6"],
+        "oidc": ["authlib>=1.3", "httpx>=0.24"],
         "rag": [
             "sentence-transformers>=2.2.0",
             "faiss-cpu>=1.7.0",

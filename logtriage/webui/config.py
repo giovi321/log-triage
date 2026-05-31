@@ -39,6 +39,17 @@ class WebUISettings:
     forward_auth_enabled: bool = False
     forward_auth_header: str = "X-authentik-username"
     forward_auth_logout_url: Optional[str] = None
+    # OIDC Authorization Code + PKCE (via authlib). When enabled, the login page
+    # offers "Sign in with SSO"; local password login stays available as a
+    # break-glass path unless oidc_exclusive is set.
+    oidc_enabled: bool = False
+    oidc_issuer: Optional[str] = None            # discovery base (…/.well-known/openid-configuration)
+    oidc_client_id: Optional[str] = None
+    oidc_client_secret: Optional[str] = None
+    oidc_scopes: str = "openid email profile"
+    oidc_username_claim: str = "preferred_username"
+    oidc_logout_url: Optional[str] = None
+    oidc_exclusive: bool = False                 # hide local password login when True
 
 
 def load_full_config(config_path: Path) -> Dict[str, Any]:
@@ -60,6 +71,7 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
 
     metrics = web.get("metrics", {}) or {}
     fwd = web.get("forward_auth", {}) or {}
+    oidc = web.get("oidc", {}) or {}
 
     # Default staleness window: webui.staleness_minutes, falling back to the
     # LOGTRIAGE_INGESTION_STALENESS_MINUTES env var, then 60.
@@ -90,6 +102,14 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
         forward_auth_enabled=bool(fwd.get("enabled", False)),
         forward_auth_header=str(fwd.get("username_header", "X-authentik-username")),
         forward_auth_logout_url=(str(fwd["logout_url"]) if fwd.get("logout_url") else None),
+        oidc_enabled=bool(oidc.get("enabled", False)),
+        oidc_issuer=(str(oidc["issuer"]) if oidc.get("issuer") else None),
+        oidc_client_id=(str(oidc["client_id"]) if oidc.get("client_id") else None),
+        oidc_client_secret=(str(oidc["client_secret"]) if oidc.get("client_secret") else None),
+        oidc_scopes=str(oidc.get("scopes", "openid email profile")),
+        oidc_username_claim=str(oidc.get("username_claim", "preferred_username")),
+        oidc_logout_url=(str(oidc["logout_url"]) if oidc.get("logout_url") else None),
+        oidc_exclusive=bool(oidc.get("exclusive", False)),
     )
 
 

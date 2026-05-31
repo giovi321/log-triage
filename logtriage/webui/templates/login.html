@@ -8,19 +8,27 @@
       <span class="section-eyebrow">SECURE ACCESS · MISSION CONTROL</span>
     </div>
     <h2 class="login-title">Sign in to log<b>·</b>triage</h2>
-    <p class="helper-text">Authenticate with a Web UI admin user defined in <code class="mono">config.yaml</code>.</p>
-    <form method="post" action="{{ url_for('login_form') }}" class="login-form">
-      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-      <label class="field">
-        <span class="field-label">Username</span>
-        <input type="text" name="username" autocomplete="username" required autofocus>
-      </label>
-      <label class="field">
-        <span class="field-label">Password</span>
-        <input type="password" name="password" autocomplete="current-password" required>
-      </label>
-      <button type="submit" class="login-submit">Authenticate →</button>
-    </form>
+
+    {% if oidc_enabled %}
+    <a href="{{ url_for('login_oidc') }}" class="login-submit sso-btn" role="button">Sign in with SSO →</a>
+    {% endif %}
+
+    {% if not (oidc_enabled and oidc_exclusive) %}
+      {% if oidc_enabled %}<div class="login-sep"><span>or use a local account</span></div>{% endif %}
+      <p class="helper-text">Authenticate with a local Web UI user (managed under <a href="{{ url_for('account') }}">Account</a>).</p>
+      <form method="post" action="{{ url_for('login_form') }}" class="login-form">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+        <label class="field">
+          <span class="field-label">Username</span>
+          <input type="text" name="username" autocomplete="username" required autofocus>
+        </label>
+        <label class="field">
+          <span class="field-label">Password</span>
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="login-submit">Authenticate →</button>
+      </form>
+    {% endif %}
   </div>
 </div>
 
@@ -38,5 +46,8 @@
   .field { display: grid; gap: 6px; }
   .field-label { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); }
   .login-submit { width: 100%; padding: 12px; font-size: 0.95rem; margin-top: var(--s-2); }
+  .sso-btn { display: block; text-align: center; text-decoration: none; margin-top: var(--s-4); box-sizing: border-box; }
+  .login-sep { display: flex; align-items: center; gap: var(--s-3); margin: var(--s-5) 0 var(--s-2); color: var(--text-faint); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .login-sep::before, .login-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 </style>
 {% endblock %}

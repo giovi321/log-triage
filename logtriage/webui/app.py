@@ -319,6 +319,12 @@ llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 rag_client: Optional[RAGClient] = None
 context_hints = _load_context_hints()
 
+from . import oidc as oidc_mod
+try:
+    oidc_mod.configure(settings)
+except Exception as exc:  # pragma: no cover - defensive
+    logger.warning("OIDC configuration failed: %s", exc)
+
 if not getattr(settings, "secret_key", None) or settings.secret_key == "CHANGE_ME":
     logger.warning("WebUI secret_key is not set (or still CHANGE_ME). Please set webui.secret_key in config.yaml to a strong random value.")
 
@@ -1116,12 +1122,58 @@ async def csrf_middleware(request: Request, call_next):
 app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_cookie=settings.session_cookie_name)
 
 
+def _login_context(request: Request, error=None):
+    return {
+        "request": request,
+        "error": error,
+        "username": get_current_user(request, settings),
+        "oidc_enabled": bool(getattr(settings, "oidc_enabled", False) and oidc_mod.is_configured()),
+        "oidc_exclusive": bool(getattr(settings, "oidc_exclusive", False)),
+    }
+
+
 @app.get("/login", name="login_form")
 async def login_form(request: Request):
-    return templates.TemplateResponse(
-        "login.html",
-        {"request": request, "error": None, "username": get_current_user(request, settings)},
-    )
+    return templates.TemplateResponse("login.html", _login_context(request))
+
+
+@app.get("/login/oidc", name="login_oidc")
+async def login_oidc(request: Request):
+    """Begin the OIDC Authorization Code + PKCE flow."""
+    if not oidc_mod.is_configured():
+        return RedirectResponse(
+            url=app.url_path_for("login_form") + "?error=OIDC+is+not+configured",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    redirect_uri = str(request.url_for("oidc_callback"))
+    try:
+        return await oidc_mod.authorize_redirect(request, redirect_uri)
+    except Exception as exc:
+        add_notification("error", "OIDC login failed", str(exc))
+        return RedirectResponse(
+            url=app.url_path_for("login_form") + "?error=OIDC+login+could+not+start",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+
+@app.get("/auth/callback", name="oidc_callback")
+async def oidc_callback(request: Request):
+    """Complete the OIDC flow: validate the token and establish a session."""
+    if not oidc_mod.is_configured():
+        return RedirectResponse(url=app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    try:
+        username = await oidc_mod.fetch_identity(request, settings)
+    except Exception as exc:
+        add_notification("error", "OIDC callback failed", str(exc))
+        username = None
+    if not username:
+        return templates.TemplateResponse(
+            "login.html",
+            _login_context(request, error="SSO sign-in failed."),
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    request.session["session_token"] = create_session_token(username, settings.secret_key)
+    return RedirectResponse(url=app.url_path_for("dashboard"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @app.post("/login", name="login_form_post")
@@ -1134,11 +1186,7 @@ async def login_post(
     if not user:
         return templates.TemplateResponse(
             "login.html",
-            {
-                "request": request,
-                "error": "Invalid credentials",
-                "username": None,
-            },
+            _login_context(request, error="Invalid credentials"),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     token = create_session_token(username, settings.secret_key)
@@ -1897,6 +1945,7 @@ async def edit_config_post(
         _init_database(raw_config, settings)
         _refresh_llm_defaults()
         _refresh_rag_client()
+        oidc_mod.configure(settings)
     except Exception as exc:
         add_notification("error", "Configuration reload failed", str(exc))
         return _render_config_editor(
@@ -1937,6 +1986,7 @@ async def reload_config(request: Request):
         _init_database(new_raw, settings)
         _refresh_llm_defaults()
         _refresh_rag_client()
+        oidc_mod.configure(settings)
     except Exception as e:
         add_notification("error", "Config reload failed", str(e))
         return _render_config_editor(
