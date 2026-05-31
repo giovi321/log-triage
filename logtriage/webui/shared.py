@@ -135,3 +135,24 @@ def build_modules_from_config() -> List[ModuleConfig]:
     except Exception as exc:
         add_notification("error", "Module configuration error", str(exc))
         return []
+
+
+def select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
+    """Resolve the LLM provider for a module: its own, else the global default."""
+    llm_defaults = STATE.llm_defaults
+    if module_obj and getattr(module_obj, "llm", None) and module_obj.llm.provider_name:
+        return module_obj.llm.provider_name
+    if llm_defaults and llm_defaults.default_provider:
+        return llm_defaults.default_provider
+    if llm_defaults and llm_defaults.providers:
+        return next(iter(llm_defaults.providers.keys()))
+    return None
+
+
+def suggest_regex_from_line(line: str) -> str:
+    """Naive ignore-regex suggestion: escape, then generalize digits/hex runs."""
+    import re
+    escaped = re.escape(line.strip())
+    escaped = re.sub(r"\d+", r"\\d+", escaped)
+    escaped = re.sub(r"[A-Fa-f0-9]{6,}", r"[A-Fa-f0-9]+", escaped)
+    return escaped

@@ -156,6 +156,8 @@ from .shared import (
     normalize_sample_source as _normalize_sample_source,
     sample_source_label as _sample_source_label,
     build_modules_from_config as _build_modules_from_config,
+    select_provider_name as _select_provider_name,
+    suggest_regex_from_line as _suggest_regex_from_line,
 )
 
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
@@ -2154,17 +2156,6 @@ async def api_log_lines(
     })
 
 
-def _select_provider_name(module_obj: Optional[ModuleConfig]) -> Optional[str]:
-    if module_obj and getattr(module_obj, "llm", None):
-        if module_obj.llm.provider_name:
-            return module_obj.llm.provider_name
-    if llm_defaults.default_provider:
-        return llm_defaults.default_provider
-    if llm_defaults.providers:
-        return next(iter(llm_defaults.providers.keys()))
-    return None
-
-
 def _finding_excerpt_preview(finding, max_lines: int) -> str:
     excerpt_lines = (getattr(finding, "excerpt", "") or "").splitlines()
     if max_lines > 0:
@@ -3298,14 +3289,6 @@ def _filter_finding_tail(
                 filtered.append(section)
 
     return filtered
-
-
-def _suggest_regex_from_line(line: str) -> str:
-    # Naive regex suggestion: escape special chars, generalize digits/hex blocks
-    escaped = re.escape(line.strip())
-    escaped = re.sub(r"\d+", r"\\d+", escaped)
-    escaped = re.sub(r"[A-Fa-f0-9]{6,}", r"[A-Fa-f0-9]+", escaped)
-    return escaped
 
 
 @app.post("/regex/test", name="regex_test")
