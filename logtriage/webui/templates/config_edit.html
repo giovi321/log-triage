@@ -340,9 +340,9 @@
                         <!-- F4: scan repo for docs -->
                         <span class="row" style="gap:var(--s-2);">
                           <button type="button" class="secondary btn-sm"
-                                  :disabled="!ks.repo_url || (scanState[i+'-'+k] && scanState[i+'-'+k].state==='scanning')"
+                                  :disabled="!ks.repo_url || isScanning(i, k)"
                                   @click="scanDocs(i, k)"
-                                  x-text="(scanState[i+'-'+k] && scanState[i+'-'+k].state==='scanning') ? 'Scanning…' : 'Scan for docs'"></button>
+                                  x-text="isScanning(i, k) ? 'Scanning…' : 'Scan for docs'"></button>
                           <template x-if="scanState[i+'-'+k] && scanState[i+'-'+k].state==='ok'">
                             <span class="scan-note">
                               <span x-text="scanState[i+'-'+k].message"></span>
@@ -585,6 +585,16 @@
         } catch (e) {
           this.providerTest[i] = { state: 'err', message: 'Request failed', detail: String(e) };
         }
+      },
+
+      // True while a scan for source (i,k) is in flight. Going through a method
+      // keeps the :disabled / x-text expressions from reading an undefined
+      // scanState[key] inline — in a nested x-for that dead dependency stopped
+      // the binding from re-evaluating, so the button stayed greyed even after
+      // a repo URL was typed.
+      isScanning(i, k) {
+        const s = this.scanState[i + '-' + k];
+        return !!(s && s.state === 'scanning');
       },
 
       // ---- F4: scan a repo for documentation; replace include_paths on success ----
