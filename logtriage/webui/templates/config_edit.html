@@ -532,12 +532,16 @@
           <div class="sub-title">Admin access (by group)</div>
           <p class="fld-hint" style="margin-top:0;">Users in any of these IdP groups get admin rights (edit settings, manage users). Leave empty to grant no SSO user admin. Local accounts carry their own admin flag.</p>
           <div class="form-grid">
-            <label class="fld"><span class="fld-label">Groups claim</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.groups_claim" placeholder="groups"></label>
+            <label class="fld"><span class="fld-label">Groups claim</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.groups_claim" placeholder="groups">
+              <span class="fld-hint">The <b>claim name</b> that carries the user's group list — usually <code class="mono">groups</code>. This is <b>not</b> a group name.</span></label>
           </div>
+          <div class="sub-title" style="margin-top:var(--s-3);">Admin groups</div>
+          <p class="fld-hint" style="margin-top:0;">The <b>group name(s)</b> (as they appear in the claim above) that grant admin — e.g. <code class="mono">logtriage-admins</code>.</p>
           <div class="chip-rows" style="margin-top:var(--s-2);">
             <template x-for="(g, i) in cfg.webui.oidc.admin_groups" :key="i">
               <div class="chip-row"><input type="text" class="input-mono" x-model="cfg.webui.oidc.admin_groups[i]" placeholder="logtriage-admins"><button type="button" class="ghost btn-sm rm" @click="rm(cfg.webui.oidc.admin_groups, i)">✕</button></div>
             </template>
+            <template x-if="!cfg.webui.oidc.admin_groups.length"><div class="empty-hint">No admin groups configured — no SSO user will be granted admin.</div></template>
           </div>
           <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.oidc.admin_groups, '')">+ Add admin group</button>
         </div>
