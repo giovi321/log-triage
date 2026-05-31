@@ -26,8 +26,15 @@ router = APIRouter()
 
 
 @router.get("/api/rag/status")
-async def get_rag_status():
-    """Get RAG service status for AJAX calls."""
+async def get_rag_status(request: Request):
+    """Get RAG service status for AJAX calls (authenticated).
+
+    Returns operator-facing infra detail (repo URLs, commit hashes, chunk counts)
+    that the dashboard displays — this is intentional for a signed-in operator;
+    the security fix is requiring authentication, since this was previously open.
+    """
+    if not get_current_user(request, STATE.settings):
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
     monitor_data = get_rag_monitor_status()
 
     if monitor_data["detailed_status"] is None:
@@ -86,7 +93,9 @@ async def get_rag_status():
 
 
 @router.get("/api/rag/progress", name="rag_progress")
-async def get_rag_progress():
+async def get_rag_progress(request: Request):
+    if not get_current_user(request, STATE.settings):
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
     monitor_data = get_rag_monitor_status()
     rag_client = STATE.rag_client
     if rag_client is None or not hasattr(rag_client, "_make_request"):

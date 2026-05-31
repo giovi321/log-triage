@@ -73,3 +73,11 @@ def test_oidc_login_redirects_when_not_configured(client):
     r = client.get("/login/oidc", follow_redirects=False)
     assert r.status_code == 303
     assert "/login" in r.headers["location"]
+
+
+def test_rag_status_endpoints_require_auth(client):
+    # These AJAX endpoints expose operator infra detail; they must be 401 for an
+    # unauthenticated caller (previously they were open).
+    for path in ("/api/rag/status", "/api/rag/progress"):
+        r = client.get(path)
+        assert r.status_code == 401, path
