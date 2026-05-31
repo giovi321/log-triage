@@ -1,0 +1,137 @@
+"""Cross-cutting Web UI helpers shared by app.py and the route modules.
+
+Everything here is import-safe (no side effects beyond building the Jinja
+environment) and reads live runtime config from ``STATE`` rather than capturing
+module globals, so it stays correct across config reloads. app.py imports these
+back so its own in-file references keep working during the router split.
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import secrets
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from fastapi import Request
+from fastapi.templating import Jinja2Templates
+
+from ..version import __version__
+from ..config import build_modules
+from ..models import ModuleConfig
+from ..notifications import add_notification
+from .state import STATE
+
+BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent.parent
+ASSETS_DIR = BASE_DIR / "assets"
+ASSETS_DIR.mkdir(exist_ok=True)
+SAMPLE_LOG_DIR = ROOT_DIR / "samples"
+
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.globals.update({"app_version": __version__})
+
+
+def format_local_timestamp(value: Optional[datetime.datetime]) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (int, float)):
+        try:
+            ts = datetime.datetime.fromtimestamp(float(value), tz=datetime.timezone.utc)
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            return str(value)
+    if isinstance(value, str):
+        try:
+            raw = value.strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            ts = datetime.datetime.fromisoformat(raw)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=datetime.timezone.utc)
+            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        except Exception:
+            return value
+    ts = value
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=datetime.timezone.utc)
+    return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
+templates.env.filters["localtime"] = format_local_timestamp
+
+
+def ensure_csrf_token(request: Request) -> str:
+    token = request.session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        request.session["csrf_token"] = token
+    return str(token)
+
+
+def load_context_hints() -> Dict[str, str]:
+    """Load config-editor context hints, repairing common JSON escape issues."""
+    fallback = {
+        "root": "Top-level sections mirror the README. Move the cursor to a section to see details."
+    }
+    for path in (BASE_DIR / "context_hints.json", ASSETS_DIR / "context_hints.json"):
+        try:
+            if not path.exists():
+                continue
+            raw = path.read_text(encoding="utf-8")
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                data = json.loads(raw.replace("\\.", "\\\\."))
+            if isinstance(data, dict):
+                data.setdefault("root", fallback["root"])
+                return data
+        except Exception:
+            continue
+    return fallback
+
+
+def available_sample_logs() -> List[Dict[str, Any]]:
+    if not SAMPLE_LOG_DIR.exists():
+        return []
+    entries: List[Dict[str, Any]] = []
+    for path in sorted(SAMPLE_LOG_DIR.iterdir()):
+        if not path.is_file():
+            continue
+        label = path.stem.replace("_", " ").title()
+        entries.append({"value": f"sample:{path.stem}", "label": label, "path": path})
+    return entries
+
+
+def sample_source_options() -> List[Dict[str, str]]:
+    options: List[Dict[str, str]] = [
+        {"value": "tail", "label": "Log tail (live)"},
+        {"value": "errors", "label": "Identified errors"},
+    ]
+    for entry in available_sample_logs():
+        options.append({
+            "value": entry.get("value"),
+            "label": f"Sample log: {entry.get('label', 'unknown')}",
+        })
+    return options
+
+
+def normalize_sample_source(value: str) -> str:
+    allowed = {opt.get("value") for opt in sample_source_options()}
+    return value if value in allowed else "tail"
+
+
+def sample_source_label(value: str) -> str:
+    for opt in sample_source_options():
+        if opt.get("value") == value:
+            return opt.get("label", value)
+    return "Log tail (live)"
+
+
+def build_modules_from_config() -> List[ModuleConfig]:
+    """Build ModuleConfig objects from the live config in STATE."""
+    try:
+        return build_modules(STATE.raw_config, STATE.llm_defaults)
+    except Exception as exc:
+        add_notification("error", "Module configuration error", str(exc))
+        return []

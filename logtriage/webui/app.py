@@ -139,51 +139,26 @@ from .regex_utils import (
 
 app = FastAPI(title="log-triage Web UI")
 
-BASE_DIR = Path(__file__).resolve().parent
-ROOT_DIR = BASE_DIR.parent.parent
-ASSETS_DIR = BASE_DIR / "assets"
-ASSETS_DIR.mkdir(exist_ok=True)
-SAMPLE_LOG_DIR = ROOT_DIR / "samples"
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-templates.env.globals.update({"app_version": __version__})
+# Cross-cutting helpers + Jinja env now live in shared.py (read STATE, reload-safe).
+# Keep the old private names as aliases so app.py's many in-file references and
+# the existing tests that patch them keep working during the router split.
+from .shared import (
+    BASE_DIR,
+    ROOT_DIR,
+    ASSETS_DIR,
+    SAMPLE_LOG_DIR,
+    templates,
+    format_local_timestamp as _format_local_timestamp,
+    ensure_csrf_token as _ensure_csrf_token,
+    load_context_hints as _load_context_hints,
+    available_sample_logs as _available_sample_logs,
+    sample_source_options as _sample_source_options,
+    normalize_sample_source as _normalize_sample_source,
+    sample_source_label as _sample_source_label,
+    build_modules_from_config as _build_modules_from_config,
+)
+
 app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
-
-
-def _format_local_timestamp(value: Optional[datetime.datetime]) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, (int, float)):
-        try:
-            ts = datetime.datetime.fromtimestamp(float(value), tz=datetime.timezone.utc)
-            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-        except Exception:
-            return str(value)
-    if isinstance(value, str):
-        try:
-            raw = value.strip()
-            if raw.endswith("Z"):
-                raw = raw[:-1] + "+00:00"
-            ts = datetime.datetime.fromisoformat(raw)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=datetime.timezone.utc)
-            return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-        except Exception:
-            return value
-    ts = value
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=datetime.timezone.utc)
-    return ts.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
-
-
-templates.env.filters["localtime"] = _format_local_timestamp
-
-
-def _ensure_csrf_token(request: Request) -> str:
-    token = request.session.get("csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        request.session["csrf_token"] = token
-    return str(token)
 
 
 db_status: Dict[str, Any] = {
@@ -219,86 +194,6 @@ def _init_database(raw: Dict[str, Any], web_settings: "Optional[WebUISettings]" 
         db_status["error"] = str(exc)
 
 
-def _load_context_hints() -> Dict[str, str]:
-    """Load context hints for the config editor.
-    We try a couple of locations and also repair common escape issues
-    (like unescaped `\\.` in regex examples inside JSON strings).
-    """
-    candidates = [
-        BASE_DIR / "context_hints.json",
-        ASSETS_DIR / "context_hints.json",
-    ]
-
-    for path in candidates:
-        try:
-            if not path.exists():
-                continue
-            raw = path.read_text(encoding="utf-8")
-            # The JSON file should be valid as-is; only apply escape fix if needed
-            try:
-                data = json.loads(raw)
-            except json.JSONDecodeError:
-                # Fix common invalid escape in JSON like `\.` (used in regex examples)
-                # which otherwise triggers `Invalid \escape` errors.
-                raw_fixed = raw.replace("\\.", "\\\\.")
-                data = json.loads(raw_fixed)
-            if isinstance(data, dict):
-                data.setdefault(
-                    "root",
-                    "Top-level sections mirror the README. Move the cursor to a section to see details.",
-                )
-                return data
-        except Exception:
-            continue
-
-    # Fallback: generic root hint only
-    return {
-        "root": "Top-level sections mirror the README. Move the cursor to a section to see details."
-    }
-
-
-def _available_sample_logs() -> List[Dict[str, Any]]:
-    if not SAMPLE_LOG_DIR.exists():
-        return []
-
-    entries: List[Dict[str, Any]] = []
-    for path in sorted(SAMPLE_LOG_DIR.iterdir()):
-        if not path.is_file():
-            continue
-        label = path.stem.replace("_", " ").title()
-        entries.append(
-            {"value": f"sample:{path.stem}", "label": label, "path": path}
-        )
-    return entries
-
-
-def _sample_source_options() -> List[Dict[str, str]]:
-    options: List[Dict[str, str]] = [
-        {"value": "tail", "label": "Log tail (live)"},
-        {"value": "errors", "label": "Identified errors"},
-    ]
-    for entry in _available_sample_logs():
-        options.append(
-            {
-                "value": entry.get("value"),
-                "label": f"Sample log: {entry.get('label', 'unknown')}",
-            }
-        )
-    return options
-
-
-def _normalize_sample_source(value: str) -> str:
-    allowed = {opt.get("value") for opt in _sample_source_options()}
-    return value if value in allowed else "tail"
-
-
-def _sample_source_label(value: str) -> str:
-    for opt in _sample_source_options():
-        if opt.get("value") == value:
-            return opt.get("label", value)
-    return "Log tail (live)"
-
-
 def _load_settings_and_config() -> tuple[WebUISettings, Dict[str, Any], Path]:
     cfg_path_str = os.environ.get("LOGTRIAGE_CONFIG", "config.yaml")
     cfg_path = Path(cfg_path_str).resolve()
@@ -320,6 +215,18 @@ settings, raw_config, CONFIG_PATH = _load_settings_and_config()
 llm_defaults: GlobalLLMConfig = build_llm_config(raw_config)
 rag_client: Optional[RAGClient] = None
 context_hints = _load_context_hints()
+
+# Seed STATE before anything reads it (e.g. shared.build_modules_from_config,
+# called from the initial _refresh_rag_client() below). _sync_state() is defined
+# later, so do the initial seed inline here.
+STATE.settings = settings
+STATE.raw_config = raw_config
+STATE.config_path = CONFIG_PATH
+STATE.llm_defaults = llm_defaults
+STATE.rag_client = rag_client
+STATE.context_hints = context_hints
+STATE.db_status = db_status
+STATE.rag_monitor_status = rag_monitor_status
 
 from . import oidc as oidc_mod
 try:
@@ -597,14 +504,6 @@ def _refresh_rag_client() -> None:
         logger.info("RAG service client not available, RAG functionality disabled")
         rag_client = None
     _sync_state()
-
-
-def _build_modules_from_config() -> List[ModuleConfig]:
-    try:
-        return build_modules(raw_config, llm_defaults)
-    except Exception as exc:
-        add_notification("error", "Module configuration error", str(exc))
-        return []
 
 
 # Initialize RAG client after function definition
