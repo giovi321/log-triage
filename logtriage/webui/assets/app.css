@@ -303,6 +303,14 @@ header.topbar {
   box-shadow: 0 0 10px var(--brand-glow);
   border-radius: var(--r-pill);
 }
+/* Secondary (setup) nav items read as quieter than the primary workflow. */
+.topnav-links a.nav-secondary { font-size: 0.86rem; color: var(--text-faint); }
+.topnav-links a.nav-secondary:hover { color: var(--text); }
+.topnav-links a.nav-secondary.active { color: var(--brand-bright); }
+/* Divider between the primary workflow group and the setup group. */
+.topnav-sep { width: 1px; align-self: stretch; margin: 6px 8px; background: var(--line); }
+/* Pushes Account / Sign out to the right edge. */
+.topnav-spacer { flex: 1 1 auto; min-width: var(--s-3); }
 
 .theme-toggle {
   display: inline-flex; align-items: center; justify-content: center;

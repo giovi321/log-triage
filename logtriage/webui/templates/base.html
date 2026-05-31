@@ -41,12 +41,16 @@
         {% set edit_config_url = request.app.url_path_for('edit_config') %}
         {% set regex_lab_url = request.app.url_path_for('regex_lab') %}
         {% set account_url = request.app.url_path_for('account') %}
-        <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Overview</a>
+        {# Primary workflow: triage-first, the daily path #}
         <a href="{{ issues_url }}" class="{% if current_path.startswith(issues_url) %}active{% endif %}">Triage</a>
+        <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Overview</a>
         <a href="{{ ai_logs_url }}" class="{% if current_path.startswith(ai_logs_url) %}active{% endif %}">Logs</a>
-        <a href="{{ edit_config_url }}" class="{% if current_path.startswith(edit_config_url) %}active{% endif %}">Config</a>
-        <a href="{{ regex_lab_url }}" class="{% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
-        <a href="{{ account_url }}" class="{% if current_path.startswith(account_url) %}active{% endif %}">Account</a>
+        <span class="topnav-sep" aria-hidden="true"></span>
+        {# Setup / configuration, grouped together and visually secondary #}
+        <a href="{{ edit_config_url }}" class="nav-secondary {% if current_path.startswith(edit_config_url) %}active{% endif %}">Settings</a>
+        <a href="{{ regex_lab_url }}" class="nav-secondary {% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
+        <span class="topnav-spacer"></span>
+        <a href="{{ account_url }}" class="nav-secondary {% if current_path.startswith(account_url) %}active{% endif %}">Account</a>
         <a href="{{ url_for('logout') }}" class="ghost-link">Sign out</a>
       {% else %}
         <a href="{{ url_for('login_form') }}" class="active">Sign in</a>
