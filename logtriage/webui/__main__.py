@@ -53,10 +53,13 @@ def main():
     
     host = settings.host
     port = settings.port
-    base_path = settings.base_path
+    # root_path is only meaningful for a real reverse-proxy sub-path (e.g.
+    # "/logtriage"). A bare "/" must become "" — otherwise Starlette prefixes
+    # every generated URL with it, producing doubled-slash paths like "//issues".
+    root_path = (settings.base_path or "").rstrip("/")
     logger.info(f"Starting WebUI on {host}:{port}")
-    
-    uvicorn.run(app, host=host, port=port, root_path=base_path)
+
+    uvicorn.run(app, host=host, port=port, root_path=root_path)
 
 
 if __name__ == "__main__":
