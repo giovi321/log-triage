@@ -63,6 +63,26 @@ def test_configure_builds_client_when_authlib_present():
     assert oidc_mod.is_configured() is False
 
 
+def test_configure_strips_whitespace_from_client_id_and_issuer():
+    """A trailing space pasted from the IdP console must not reach the client.
+
+    Authentik rejects a client_id with stray whitespace as "missing or invalid",
+    so configure() trims issuer/client_id/secret before building the client.
+    """
+    if not oidc_mod.oidc_available():
+        pytest.skip("authlib not installed")
+    s = _settings(
+        enabled=True, issuer="  https://idp.example/app/o/lt/  ",
+        client_id="  lt\n", client_secret="  sec  ",
+    )
+    assert oidc_mod.configure(s) is True
+    client = oidc_mod.get_client()
+    assert client.client_id == "lt"
+    assert client.client_secret == "sec"
+    # Tear down so global client state doesn't leak into other tests.
+    oidc_mod.configure(_settings(enabled=False))
+
+
 # ---- group → admin mapping ------------------------------------------------
 
 def test_admin_groups_parse():

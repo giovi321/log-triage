@@ -50,9 +50,14 @@ def configure(settings) -> bool:
         _oauth = _client = _configured_key = None
         return False
 
-    issuer = getattr(settings, "oidc_issuer", None)
-    client_id = getattr(settings, "oidc_client_id", None)
+    # Strip stray whitespace/newlines that creep in when client_id/issuer are
+    # pasted from the IdP console — a trailing space makes the IdP reject the
+    # client_id ("missing or invalid") for a value that looks correct.
+    issuer = (getattr(settings, "oidc_issuer", None) or "").strip() or None
+    client_id = (getattr(settings, "oidc_client_id", None) or "").strip() or None
     client_secret = getattr(settings, "oidc_client_secret", None)
+    if isinstance(client_secret, str):
+        client_secret = client_secret.strip()
     if not issuer or not client_id:
         logger.warning("OIDC enabled but issuer/client_id missing; OIDC disabled.")
         _oauth = _client = _configured_key = None
@@ -88,7 +93,9 @@ def configure(settings) -> bool:
     _oauth = oauth
     _client = oauth.create_client("oidc")
     _configured_key = key
-    logger.info("OIDC client configured for issuer %s", issuer)
+    # Log the client_id (not secret) so a mismatch with the IdP is diagnosable
+    # from the service logs without guesswork.
+    logger.info("OIDC client configured for issuer %s (client_id=%s)", issuer, client_id)
     return True
 
 
