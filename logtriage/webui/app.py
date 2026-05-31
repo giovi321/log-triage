@@ -414,11 +414,11 @@ def stop_rag_monitor():
     logger.info("RAG monitoring thread stopped")
 
 
-def get_rag_monitor_status() -> Dict[str, Any]:
-    """Get current RAG monitor status."""
-    if _rag_monitor is None:
-        return rag_monitor_status.copy()
-    return _rag_monitor.get_status()
+from .live import (
+    get_rag_monitor_status,
+    fetch_rag_progress as _fetch_rag_progress,
+    build_live_snapshot as _build_live_snapshot,
+)
 
 
 def get_settings() -> WebUISettings:
@@ -549,32 +549,6 @@ def _maybe_start_worker() -> None:
     _sync_state()
 
 
-def _fetch_rag_progress():
-    if rag_client is None or not hasattr(rag_client, "_make_request"):
-        return None
-    try:
-        return rag_client._make_request("GET", "/progress", max_retries=0)
-    except Exception:
-        return None
-
-
-def _build_live_snapshot() -> Dict[str, Any]:
-    """Snapshot of changing state for the SSE stream (runs in a thread executor)."""
-    snap = db_snapshot()
-    monitor = get_rag_monitor_status()
-    snap["rag"] = {
-        "available": bool(monitor.get("rag_available")),
-        "ready": bool(monitor.get("rag_ready")),
-        "progress": _fetch_rag_progress() if monitor.get("rag_available") else None,
-    }
-    wstatus = enrichment_worker.status if enrichment_worker is not None else {"running": False, "total_analyzed": 0}
-    snap["worker"] = {
-        "running": bool(wstatus.get("running")),
-        "total_analyzed": wstatus.get("total_analyzed", 0),
-    }
-    return snap
-
-
 async def _events_poll_loop():
     """Poll the DB/RAG for changes and broadcast a snapshot when it changes."""
     loop = asyncio.get_event_loop()
@@ -624,51 +598,6 @@ async def _on_shutdown():
     global enrichment_worker
     if enrichment_worker is not None:
         enrichment_worker.stop()
-
-
-@app.get("/events", name="events")
-async def events_stream(request: Request):
-    """Server-Sent Events stream of live snapshots (issues, findings, RAG, worker)."""
-    if not get_current_user(request, settings):
-        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
-
-    queue = event_hub.subscribe()
-
-    async def gen():
-        loop = asyncio.get_event_loop()
-        try:
-            snap = await loop.run_in_executor(None, _build_live_snapshot)
-            snap["type"] = "snapshot"
-            yield sse_format(snap)
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    ev = await asyncio.wait_for(queue.get(), timeout=15.0)
-                    yield sse_format(ev)
-                except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"
-        finally:
-            event_hub.unsubscribe(queue)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
-    )
-
-
-@app.get("/metrics", name="metrics")
-async def metrics_endpoint(request: Request):
-    """Prometheus metrics. Unauthenticated (for scraping) but still behind the
-    allowed_ips middleware; disable via webui.metrics.enabled: false."""
-    if not getattr(settings, "metrics_enabled", True):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-    from .metrics import render_metrics
-
-    wstatus = enrichment_worker.status if enrichment_worker is not None else {}
-    text = render_metrics(worker_status=wstatus)
-    return Response(content=text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -1052,7 +981,9 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, session_co
 # Extracted route modules (auth/account/SSO). More groups will move here as the
 # router split proceeds; each reads STATE/shared, never app.py.
 from .routers import auth as auth_router
+from .routers import system as system_router
 app.include_router(auth_router.router)
+app.include_router(system_router.router)
 
 
 @app.get("/", name="dashboard")
