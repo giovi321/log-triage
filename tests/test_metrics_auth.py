@@ -9,7 +9,9 @@ from logtriage.models import Finding, Severity
 from logtriage.webui import db
 from logtriage.webui.metrics import render_metrics
 from logtriage.webui.config import parse_webui_settings
-from logtriage.webui.auth import resolve_proxy_user, get_current_user
+from logtriage.webui.auth import (
+    resolve_proxy_user, get_current_user, create_session_token, current_user_is_admin,
+)
 
 
 def _finding(text, line):
@@ -95,3 +97,39 @@ def test_get_current_user_none_when_no_session_and_no_proxy():
     s = _settings(enabled=False)
     req = _request("10.0.0.1", {}, session={})
     assert get_current_user(req, s) is None
+
+
+# ---- admin RBAC -----------------------------------------------------------
+
+def _session_for(username, *, is_admin, is_admin_user=None, secret="k"):
+    return {
+        "session_token": create_session_token(username, secret),
+        "is_admin": is_admin,
+        "is_admin_user": is_admin_user if is_admin_user is not None else username,
+    }
+
+
+def test_current_user_is_admin_true_for_admin_session():
+    s = _settings(enabled=False)
+    req = _request("1.2.3.4", {}, session=_session_for("alice", is_admin=True))
+    assert current_user_is_admin(req, s) is True
+
+
+def test_current_user_is_admin_false_for_non_admin_session():
+    s = _settings(enabled=False)
+    req = _request("1.2.3.4", {}, session=_session_for("bob", is_admin=False))
+    assert current_user_is_admin(req, s) is False
+
+
+def test_admin_flag_ignored_when_paired_to_other_user():
+    # A forged is_admin flag for a different identity must not elevate the user.
+    s = _settings(enabled=False)
+    sess = _session_for("attacker", is_admin=True, is_admin_user="someone_else")
+    req = _request("1.2.3.4", {}, session=sess)
+    assert current_user_is_admin(req, s) is False
+
+
+def test_current_user_is_admin_false_when_unauthenticated():
+    s = _settings(enabled=False)
+    req = _request("1.2.3.4", {}, session={"is_admin": True, "is_admin_user": "ghost"})
+    assert current_user_is_admin(req, s) is False

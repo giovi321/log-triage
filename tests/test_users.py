@@ -63,3 +63,24 @@ def test_authenticate_user_prefers_db(database):
     settings = types.SimpleNamespace(admin_users=[], secret_key="k")
     assert authenticate_user(settings, "alice", "supersecret") is not None
     assert authenticate_user(settings, "alice", "nope") is None
+
+
+def test_first_user_is_forced_admin(database):
+    # Even when asked for a non-admin, the very first account must be admin so a
+    # fresh install isn't locked out of admin-only surfaces.
+    u = users.create_user("alice", "supersecret", is_admin=False)
+    assert u.is_admin is True
+    # Subsequent users honour the requested flag.
+    v = users.create_user("bob", "supersecret", is_admin=False)
+    assert v.is_admin is False
+    assert users.count_admins() == 1
+
+
+def test_cannot_delete_last_admin(database):
+    users.create_user("admin", "supersecret", is_admin=True)   # forced admin (first)
+    users.create_user("bob", "supersecret", is_admin=False)
+    assert users.count_admins() == 1
+    with pytest.raises(ValueError, match="last remaining admin"):
+        users.delete_user("admin")
+    # A non-admin can still be deleted.
+    assert users.delete_user("bob") is True

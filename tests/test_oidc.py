@@ -61,3 +61,38 @@ def test_configure_builds_client_when_authlib_present():
     # Disabling tears the client down again.
     assert oidc_mod.configure(_settings(enabled=False)) is False
     assert oidc_mod.is_configured() is False
+
+
+# ---- group → admin mapping ------------------------------------------------
+
+def test_admin_groups_parse():
+    s = _settings(groups_claim="roles", admin_groups=["lt-admins", "ops"])
+    assert s.oidc_groups_claim == "roles"
+    assert s.oidc_admin_groups == ["lt-admins", "ops"]
+
+
+def test_admin_groups_default_empty():
+    s = parse_webui_settings({"webui": {"secret_key": "k"}})
+    assert s.oidc_groups_claim == "groups"
+    assert s.oidc_admin_groups == []
+
+
+def test_is_admin_from_groups_list_claim():
+    s = _settings(groups_claim="groups", admin_groups=["lt-admins"])
+    assert oidc_mod._is_admin_from_groups({"groups": ["users", "lt-admins"]}, s) is True
+    assert oidc_mod._is_admin_from_groups({"groups": ["users"]}, s) is False
+
+
+def test_is_admin_from_groups_space_string_claim():
+    s = _settings(groups_claim="groups", admin_groups=["lt-admins"])
+    assert oidc_mod._is_admin_from_groups({"groups": "users lt-admins"}, s) is True
+
+
+def test_is_admin_from_groups_no_admin_groups_configured():
+    s = _settings(admin_groups=[])
+    assert oidc_mod._is_admin_from_groups({"groups": ["anything"]}, s) is False
+
+
+def test_is_admin_from_groups_missing_claim():
+    s = _settings(admin_groups=["lt-admins"])
+    assert oidc_mod._is_admin_from_groups({"sub": "x"}, s) is False

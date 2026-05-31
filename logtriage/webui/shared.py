@@ -32,6 +32,21 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals.update({"app_version": __version__})
 
 
+def _tmpl_is_admin(request) -> bool:
+    """Jinja helper: is the current request's user an admin? Used to gate
+    admin-only nav links and controls in templates."""
+    try:
+        from .auth import current_user_is_admin
+        return current_user_is_admin(request, STATE.settings)
+    except Exception:
+        return False
+
+
+# Available in every template as ``user_is_admin(request)`` (named to avoid
+# colliding with per-route context keys like the account page's ``is_admin``).
+templates.env.globals.update({"user_is_admin": _tmpl_is_admin})
+
+
 def format_local_timestamp(value: Optional[datetime.datetime]) -> str:
     if value is None:
         return ""

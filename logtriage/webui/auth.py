@@ -126,3 +126,25 @@ def require_login(
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     return username
+
+
+def current_user_is_admin(request: Request, settings: WebUISettings) -> bool:
+    """Whether the current request's user has admin rights.
+
+    Admin status is decided at login and stored in the session as ``is_admin``
+    (local login → UserRecord.is_admin; OIDC → group membership; forward-auth →
+    non-admin by default). The flag is only honoured when it is paired with the
+    same username the session token authenticates, so a stale/forged flag for a
+    different identity is ignored.
+    """
+    username = get_current_user(request, settings)
+    if not username:
+        return False
+    flag = request.session.get("is_admin")
+    flag_user = request.session.get("is_admin_user")
+    return bool(flag) and flag_user == username
+
+
+def require_admin(request: Request, settings: WebUISettings) -> bool:
+    """Return True if the user is an admin; False otherwise (caller redirects/403s)."""
+    return current_user_is_admin(request, settings)

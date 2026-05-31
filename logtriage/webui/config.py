@@ -50,6 +50,14 @@ class WebUISettings:
     oidc_username_claim: str = "preferred_username"
     oidc_logout_url: Optional[str] = None
     oidc_exclusive: bool = False                 # hide local password login when True
+    # Group-based admin: the token claim carrying the user's groups, and the set
+    # of group names that grant admin. Empty admin_groups → no OIDC user is admin.
+    oidc_groups_claim: str = "groups"
+    oidc_admin_groups: List[str] = None          # set in __post_init__ to []
+
+    def __post_init__(self):
+        if self.oidc_admin_groups is None:
+            self.oidc_admin_groups = []
 
 
 def load_full_config(config_path: Path) -> Dict[str, Any]:
@@ -110,6 +118,8 @@ def parse_webui_settings(raw: Dict[str, Any]) -> WebUISettings:
         oidc_username_claim=str(oidc.get("username_claim", "preferred_username")),
         oidc_logout_url=(str(oidc["logout_url"]) if oidc.get("logout_url") else None),
         oidc_exclusive=bool(oidc.get("exclusive", False)),
+        oidc_groups_claim=str(oidc.get("groups_claim", "groups")),
+        oidc_admin_groups=[str(g).strip() for g in (oidc.get("admin_groups") or []) if str(g).strip()],
     )
 
 

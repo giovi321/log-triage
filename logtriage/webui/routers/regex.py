@@ -12,7 +12,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-from ..auth import get_current_user
+from ..auth import get_current_user, current_user_is_admin
 from ..db import get_module_stats, get_recent_findings_for_module
 from ..ingestion_status import _derive_ingestion_status
 from ..regex_utils import (
@@ -100,6 +100,8 @@ async def regex_lab(
     username = get_current_user(request, STATE.settings)
     if not username:
         return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("issues") + "?error=Admin+access+required", status_code=status.HTTP_303_SEE_OTHER)
 
     stored_state = _get_regex_state(request)
     module = module or stored_state.get("module")
@@ -184,6 +186,8 @@ async def regex_test(
     username = get_current_user(request, STATE.settings)
     if not username:
         return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("issues") + "?error=Admin+access+required", status_code=status.HTTP_303_SEE_OTHER)
 
     modules = build_modules_from_config()
     safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
@@ -259,6 +263,8 @@ async def regex_suggest(
     username = get_current_user(request, STATE.settings)
     if not username:
         return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("issues") + "?error=Admin+access+required", status_code=status.HTTP_303_SEE_OTHER)
 
     modules = build_modules_from_config()
     safe_sample_source = sample_source if sample_source in {"errors", "tail"} else "tail"
@@ -357,6 +363,8 @@ async def regex_save(
     username = get_current_user(request, STATE.settings)
     if not username:
         return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("issues") + "?error=Admin+access+required", status_code=status.HTTP_303_SEE_OTHER)
 
     modules = build_modules_from_config()
     module_obj = next((m for m in modules if m.name == module), None)

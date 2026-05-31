@@ -108,6 +108,11 @@ def create_user(username: str, password: str, is_admin: bool = True) -> LocalUse
     if get_user(username) is not None:
         raise ValueError(f"User '{username}' already exists.")
 
+    # The very first user is always an admin, so a fresh install is never locked
+    # out of the admin-only surfaces (config editor, user management).
+    if count_users() == 0:
+        is_admin = True
+
     sess = db.get_session()
     if sess is None:
         raise RuntimeError("Database is not configured.")
@@ -155,10 +160,31 @@ def set_password(username: str, new_password: str) -> bool:
         sess.close()
 
 
+def count_admins() -> int:
+    sess = db.get_session()
+    if sess is None:
+        return 0
+    try:
+        from sqlalchemy import func
+        return int(
+            sess.query(func.count(db.UserRecord.id))
+            .filter(db.UserRecord.is_admin.is_(True))
+            .scalar() or 0
+        )
+    except Exception:
+        return 0
+    finally:
+        sess.close()
+
+
 def delete_user(username: str) -> bool:
-    """Delete a user. Refuses to remove the last remaining user (lockout guard)."""
+    """Delete a user. Refuses to remove the last remaining user, or the last
+    admin (either would lock everyone out of the admin-only surfaces)."""
     if count_users() <= 1:
         raise ValueError("Cannot delete the last remaining user.")
+    target = get_user(username)
+    if target is not None and target.is_admin and count_admins() <= 1:
+        raise ValueError("Cannot delete the last remaining admin.")
     sess = db.get_session()
     if sess is None:
         return False

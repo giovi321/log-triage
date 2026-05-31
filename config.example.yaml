@@ -669,10 +669,14 @@ webui:
     # issuer: https://auth.example.com/application/o/logtriage/   # discovery base
     # client_id: logtriage
     # client_secret: CHANGE_ME
-    scopes: openid email profile
+    scopes: openid email profile          # include `groups` if mapping admins by group
     username_claim: preferred_username   # claim used as the log-triage username
     # logout_url: https://auth.example.com/application/o/logtriage/end-session/
     exclusive: false                      # true = hide local password login
+    # Admin access by IdP group: users in any `admin_groups` entry get admin
+    # rights (edit settings, manage users). Empty list = no SSO user is admin.
+    groups_claim: groups                  # token claim carrying the user's groups
+    admin_groups: []                      # e.g. [logtriage-admins]
 
   # Access control
   allowed_ips:  # Restrict access to specific IP addresses (empty = allow all)

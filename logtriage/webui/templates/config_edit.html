@@ -7,6 +7,8 @@
   .config-editor button[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; filter: saturate(0.4); }
   .section-subtabs { gap: 2px; margin-bottom: var(--s-4); }
   .section-subtabs button { font-size: 0.82rem; padding: 7px 11px; }
+  .copy-row { display: flex; align-items: center; gap: var(--s-2); }
+  .copy-row input[readonly] { background: var(--bg-inset); cursor: text; }
 </style>
 
 <div class="card" data-reveal x-data="configEditor()" x-init="init()">
@@ -413,20 +415,50 @@
         <div class="section-eyebrow">SINGLE SIGN-ON (OIDC)</div>
         <p class="fld-hint" style="margin-top:0;">
           Authorization Code + PKCE via the <code class="mono">[oidc]</code> extra
-          (<code class="mono">pip install '.[oidc]'</code>). Register this redirect URL at your IdP:
-          <code class="mono" x-text="oidcRedirectUrl"></code>
+          (<code class="mono">pip install '.[oidc]'</code>). Configure an OIDC/OAuth2
+          application at your identity provider, then paste its credentials below.
         </p>
-        <div class="form-grid">
-          <label class="fld check"><input type="checkbox" x-model="cfg.webui.oidc.enabled"><span class="fld-label" style="text-transform:none;">OIDC enabled</span></label>
-          <label class="fld check"><input type="checkbox" x-model="cfg.webui.oidc.exclusive"><span class="fld-label" style="text-transform:none;">Hide local password login</span></label>
-          <label class="fld full"><span class="fld-label">Issuer (discovery base URL)</span>
-            <input type="text" class="input-mono" x-model="cfg.webui.oidc.issuer" placeholder="https://auth.example.com/application/o/logtriage/">
-            <span class="fld-hint">Without the <code class="mono">/.well-known/openid-configuration</code> suffix.</span></label>
-          <label class="fld"><span class="fld-label">Client ID</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.client_id"></label>
-          <label class="fld"><span class="fld-label">Client secret</span><input type="password" class="input-mono" x-model="cfg.webui.oidc.client_secret"></label>
-          <label class="fld"><span class="fld-label">Scopes</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.scopes" placeholder="openid email profile"></label>
-          <label class="fld"><span class="fld-label">Username claim</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.username_claim" placeholder="preferred_username"></label>
-          <label class="fld full"><span class="fld-label">Logout URL (optional)</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.logout_url" placeholder="https://auth.example.com/.../end-session/"></label>
+
+        <!-- Redirect URI: read-only, copy-to-clipboard. Register this at the IdP. -->
+        <div class="fld full" style="margin-bottom:var(--s-3);">
+          <span class="fld-label">Redirect URI (register this at your IdP)</span>
+          <div class="copy-row">
+            <input type="text" class="input-mono" readonly x-ref="oidcRedirect" :value="oidcRedirectUrl"
+                   onclick="this.select()" style="flex:1;">
+            <button type="button" class="secondary btn-sm" @click="copyOidcRedirect($refs.oidcRedirect)"
+                    x-text="oidcCopied ? 'Copied' : 'Copy'"></button>
+          </div>
+        </div>
+
+        <div class="subsection">
+          <div class="sub-title">Connection</div>
+          <div class="form-grid">
+            <label class="fld check"><input type="checkbox" x-model="cfg.webui.oidc.enabled"><span class="fld-label" style="text-transform:none;">OIDC enabled</span></label>
+            <label class="fld check"><input type="checkbox" x-model="cfg.webui.oidc.exclusive"><span class="fld-label" style="text-transform:none;">Hide local password login</span></label>
+            <label class="fld full"><span class="fld-label">Issuer (discovery base URL)</span>
+              <input type="text" class="input-mono" x-model="cfg.webui.oidc.issuer" placeholder="https://auth.example.com/application/o/logtriage/">
+              <span class="fld-hint">The base URL only — <code class="mono">/.well-known/openid-configuration</code> is appended automatically.</span></label>
+            <label class="fld"><span class="fld-label">Client ID</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.client_id"></label>
+            <label class="fld"><span class="fld-label">Client secret</span><input type="password" class="input-mono" x-model="cfg.webui.oidc.client_secret"></label>
+            <label class="fld"><span class="fld-label">Scopes</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.scopes" placeholder="openid email profile">
+              <span class="fld-hint">Include <code class="mono">groups</code> if you map admins by group.</span></label>
+            <label class="fld"><span class="fld-label">Username claim</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.username_claim" placeholder="preferred_username"></label>
+            <label class="fld full"><span class="fld-label">Logout URL (optional)</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.logout_url" placeholder="https://auth.example.com/.../end-session/"></label>
+          </div>
+        </div>
+
+        <div class="subsection">
+          <div class="sub-title">Admin access (by group)</div>
+          <p class="fld-hint" style="margin-top:0;">Users in any of these IdP groups get admin rights (edit settings, manage users). Leave empty to grant no SSO user admin. Local accounts carry their own admin flag.</p>
+          <div class="form-grid">
+            <label class="fld"><span class="fld-label">Groups claim</span><input type="text" class="input-mono" x-model="cfg.webui.oidc.groups_claim" placeholder="groups"></label>
+          </div>
+          <div class="chip-rows" style="margin-top:var(--s-2);">
+            <template x-for="(g, i) in cfg.webui.oidc.admin_groups" :key="i">
+              <div class="chip-row"><input type="text" class="input-mono" x-model="cfg.webui.oidc.admin_groups[i]" placeholder="logtriage-admins"><button type="button" class="ghost btn-sm rm" @click="rm(cfg.webui.oidc.admin_groups, i)">✕</button></div>
+            </template>
+          </div>
+          <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.oidc.admin_groups, '')">+ Add admin group</button>
         </div>
       </div>
 
@@ -475,11 +507,24 @@
       ],
       levels: ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
       severities: ['WARNING', 'ERROR', 'CRITICAL'],
-      cfg: {}, providers: [], loggers: [], yamlError: '',
+      cfg: {}, providers: [], loggers: [], yamlError: '', oidcCopied: false,
 
       // OIDC redirect/callback URL to register at the IdP (derived from the
       // browser origin; never serialized).
       get oidcRedirectUrl() { return window.location.origin + '/auth/callback'; },
+      copyOidcRedirect(el) {
+        try {
+          el.select();
+          const text = el.value;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text);
+          } else {
+            document.execCommand('copy');
+          }
+          this.oidcCopied = true;
+          setTimeout(() => { this.oidcCopied = false; }, 1500);
+        } catch (e) { /* selection still lets the user copy manually */ }
+      },
 
       // ---- transient UI state (NEVER serialized to YAML; kept OUTSIDE cfg) ----
       moduleTabs: [
@@ -582,6 +627,7 @@
         c.webui.metrics = c.webui.metrics || {};
         c.webui.forward_auth = c.webui.forward_auth || {};
         c.webui.oidc = c.webui.oidc || {};
+        c.webui.oidc.admin_groups = c.webui.oidc.admin_groups || [];
         this.providers = Object.entries(c.llm.providers).map(([name, v]) => ({ name, ...(v || {}) }));
         this.loggers = Object.entries(c.logging.loggers || {}).map(([name, level]) => ({ name, level }));
         c.pipelines.forEach(p => {

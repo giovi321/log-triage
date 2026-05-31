@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ..auth import authenticate_user, create_session_token, get_current_user
+from ..auth import authenticate_user, create_session_token, get_current_user, current_user_is_admin
 from ...notifications import add_notification
 from ..state import STATE
 from ..shared import templates
@@ -54,24 +54,32 @@ async def login_oidc(request: Request):
         )
 
 
+def _establish_session(request: Request, username: str, is_admin: bool) -> None:
+    """Sign the user in: set the session token + the admin flag (paired to the
+    username so it can't be reused for a different identity)."""
+    request.session["session_token"] = create_session_token(username, STATE.settings.secret_key)
+    request.session["is_admin"] = bool(is_admin)
+    request.session["is_admin_user"] = username
+
+
 @router.get("/auth/callback", name="oidc_callback")
 async def oidc_callback(request: Request):
     """Complete the OIDC flow: validate the token and establish a session."""
     if not oidc_mod.is_configured():
         return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
     try:
-        username = await oidc_mod.fetch_identity(request, STATE.settings)
+        username, is_admin = await oidc_mod.fetch_identity(request, STATE.settings)
     except Exception as exc:
         add_notification("error", "OIDC callback failed", str(exc))
-        username = None
+        username, is_admin = None, False
     if not username:
         return templates.TemplateResponse(
             "login.html",
             _login_context(request, error="SSO sign-in failed."),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-    request.session["session_token"] = create_session_token(username, STATE.settings.secret_key)
-    return RedirectResponse(url=request.app.url_path_for("dashboard"), status_code=status.HTTP_303_SEE_OTHER)
+    _establish_session(request, username, is_admin)
+    return RedirectResponse(url=request.app.url_path_for("issues"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/login", name="login_form_post")
@@ -83,8 +91,8 @@ async def login_post(request: Request, username: str = Form(...), password: str 
             _login_context(request, error="Invalid credentials"),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-    request.session["session_token"] = create_session_token(username, STATE.settings.secret_key)
-    return RedirectResponse(url=request.app.url_path_for("dashboard"), status_code=status.HTTP_303_SEE_OTHER)
+    _establish_session(request, username, bool(getattr(user, "is_admin", False)))
+    return RedirectResponse(url=request.app.url_path_for("issues"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/logout")
@@ -96,19 +104,35 @@ async def logout(request: Request):
 # ---- account / user management --------------------------------------------
 
 def _account_context(request, username, *, error=None, message=None):
-    try:
-        user_list = users_mod.list_users()
-    except Exception:
-        user_list = []
+    is_admin = current_user_is_admin(request, STATE.settings)
+    user_list = []
+    if is_admin:
+        try:
+            user_list = users_mod.list_users()
+        except Exception:
+            user_list = []
     return {
         "request": request,
         "username": username,
         "error": error,
         "message": message,
         "users": user_list,
+        "is_admin": is_admin,
         "oidc_enabled": bool(getattr(STATE.settings, "oidc_enabled", False)),
         "db_status": STATE.db_status,
     }
+
+
+def _require_admin_or_redirect(request):
+    """Return a redirect Response if the caller isn't an admin, else None."""
+    if not get_current_user(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(
+            url=request.app.url_path_for("account") + "?error=Admin+access+required",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return None
 
 
 @router.get("/account", name="account")
@@ -167,15 +191,16 @@ async def user_create(
     new_username: str = Form(...),
     new_password: str = Form(...),
     confirm_password: str = Form(...),
+    is_admin: str = Form(""),
 ):
-    username = get_current_user(request, STATE.settings)
-    if not username:
-        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    denied = _require_admin_or_redirect(request)
+    if denied is not None:
+        return denied
     account_url = request.app.url_path_for("account")
     if new_password != confirm_password:
         return RedirectResponse(account_url + "?error=Passwords+do+not+match", status_code=status.HTTP_303_SEE_OTHER)
     try:
-        users_mod.create_user(new_username, new_password, is_admin=True)
+        users_mod.create_user(new_username, new_password, is_admin=bool(is_admin))
     except ValueError as exc:
         return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}", status_code=status.HTTP_303_SEE_OTHER)
     except Exception as exc:
@@ -186,9 +211,9 @@ async def user_create(
 
 @router.post("/account/users/reset", name="user_reset_password")
 async def user_reset_password(request: Request, target_username: str = Form(...), new_password: str = Form(...)):
-    username = get_current_user(request, STATE.settings)
-    if not username:
-        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    denied = _require_admin_or_redirect(request)
+    if denied is not None:
+        return denied
     account_url = request.app.url_path_for("account")
     try:
         ok = users_mod.set_password(target_username, new_password)
@@ -202,9 +227,10 @@ async def user_reset_password(request: Request, target_username: str = Form(...)
 
 @router.post("/account/users/delete", name="user_delete")
 async def user_delete(request: Request, target_username: str = Form(...)):
+    denied = _require_admin_or_redirect(request)
+    if denied is not None:
+        return denied
     username = get_current_user(request, STATE.settings)
-    if not username:
-        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
     account_url = request.app.url_path_for("account")
     if target_username == username:
         return RedirectResponse(account_url + "?error=You+cannot+delete+your+own+account", status_code=status.HTTP_303_SEE_OTHER)

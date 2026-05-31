@@ -45,10 +45,12 @@
         <a href="{{ issues_url }}" class="{% if current_path.startswith(issues_url) %}active{% endif %}">Triage</a>
         <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Overview</a>
         <a href="{{ ai_logs_url }}" class="{% if current_path.startswith(ai_logs_url) %}active{% endif %}">Logs</a>
+        {% if user_is_admin(request) %}
         <span class="topnav-sep" aria-hidden="true"></span>
-        {# Setup / configuration, grouped together and visually secondary #}
+        {# Setup / configuration (admin-only), grouped together and visually secondary #}
         <a href="{{ edit_config_url }}" class="nav-secondary {% if current_path.startswith(edit_config_url) %}active{% endif %}">Settings</a>
         <a href="{{ regex_lab_url }}" class="nav-secondary {% if current_path.startswith(regex_lab_url) %}active{% endif %}">Regex Lab</a>
+        {% endif %}
         <span class="topnav-spacer"></span>
         <a href="{{ account_url }}" class="nav-secondary {% if current_path.startswith(account_url) %}active{% endif %}">Account</a>
         <a href="{{ url_for('logout') }}" class="ghost-link">Sign out</a>

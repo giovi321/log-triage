@@ -107,12 +107,32 @@ async def authorize_redirect(request, redirect_uri: str):
     return await _client.authorize_redirect(request, redirect_uri)
 
 
-async def fetch_identity(request, settings) -> Optional[str]:
-    """Complete the callback and return the username, or None on failure.
+def _is_admin_from_groups(userinfo, settings) -> bool:
+    """True iff the user's groups claim intersects the configured admin groups.
+
+    Returns False when no admin groups are configured, the claim is absent, or
+    the claim isn't a list/space-delimited string of group names.
+    """
+    admin_groups = set(getattr(settings, "oidc_admin_groups", None) or [])
+    if not admin_groups:
+        return False
+    claim = getattr(settings, "oidc_groups_claim", "groups")
+    raw = userinfo.get(claim)
+    if isinstance(raw, str):
+        groups = set(raw.split())
+    elif isinstance(raw, (list, tuple)):
+        groups = {str(g) for g in raw}
+    else:
+        return False
+    return bool(groups & admin_groups)
+
+
+async def fetch_identity(request, settings):
+    """Complete the callback and return ``(username, is_admin)`` or ``(None, False)``.
 
     Validates the authorization code → token exchange and the ID token (authlib
     verifies the signature against the IdP JWKS and checks nonce/state), then
-    pulls the configured username claim.
+    pulls the configured username claim and resolves admin from the groups claim.
     """
     if _client is None:
         raise RuntimeError("OIDC is not configured")
@@ -124,8 +144,10 @@ async def fetch_identity(request, settings) -> Optional[str]:
         except Exception:
             userinfo = None
     if not userinfo:
-        return None
+        return None, False
 
     claim = getattr(settings, "oidc_username_claim", "preferred_username")
     username = userinfo.get(claim) or userinfo.get("email") or userinfo.get("sub")
-    return str(username) if username else None
+    if not username:
+        return None, False
+    return str(username), _is_admin_from_groups(userinfo, settings)
