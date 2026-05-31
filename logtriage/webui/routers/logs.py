@@ -25,12 +25,15 @@ from ..db import (
     delete_findings_for_module,
     delete_findings_matching_regex,
     get_finding_by_id,
+    get_issues,
+    get_issue_sparklines,
     get_module_stats,
     get_next_finding_index,
     get_recent_findings_for_module,
     store_finding,
     update_finding_llm_data,
     update_finding_severity,
+    ISSUE_ACTIVE_STATUSES,
 )
 from ..ingestion_status import _derive_ingestion_status
 from ..regex_utils import _lint_regex_input
@@ -402,6 +405,7 @@ async def ai_logs(
     tail_filter: str = "all",
     issue_filter: str = "all",
     sample_source: str = "tail",
+    view: str = "raw",
     message: Optional[str] = None,
     error: Optional[str] = None,
 ):
@@ -489,6 +493,21 @@ async def ai_logs(
 
     regex_presets: List[Dict[str, str]] = []
 
+    # Grouped view: collapse the module's matching lines into one row per
+    # deduplicated issue (count + cached LLM one-liner), reusing the triage data.
+    view_mode = "grouped" if view == "grouped" else "raw"
+    grouped_issues = []
+    grouped_sparklines = {}
+    if view_mode == "grouped" and module_obj and STATE.db_status.get("connected"):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        grouped_issues = get_issues(
+            module_name=module_obj.name, statuses=list(ISSUE_ACTIVE_STATUSES),
+            limit=200, now=now,
+        )
+        grouped_sparklines = get_issue_sparklines(
+            [i.id for i in grouped_issues], buckets=24, bucket_seconds=3600, now=now
+        )
+
     return templates.TemplateResponse(
         "ai_logs.html",
         {
@@ -510,6 +529,9 @@ async def ai_logs(
             "stats": stats,
             "ingestion_status": ingestion_status,
             "open_findings_count": open_findings_count,
+            "view_mode": view_mode,
+            "grouped_issues": grouped_issues,
+            "grouped_sparklines": grouped_sparklines,
         },
     )
 

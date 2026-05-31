@@ -76,11 +76,12 @@
   {% if current_module %}
   <div class="context-toggle" style="display:inline-flex; margin-bottom:var(--s-3);">
     <span class="chip-group" role="group" aria-label="Log view mode">
-      <a href="{{ url_for('issues') }}?module={{ current_module.name }}" style="text-decoration:none;"><button type="button">Grouped (issues)</button></a>
-      <button type="button" class="active" disabled>Raw lines</button>
+      <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}&view=grouped&sample_source={{ sample_source }}" style="text-decoration:none;"><button type="button" {% if view_mode == 'grouped' %}class="active"{% endif %}>Grouped (issues)</button></a>
+      <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}&view=raw&sample_source={{ sample_source }}" style="text-decoration:none;"><button type="button" {% if view_mode != 'grouped' %}class="active"{% endif %}>Raw lines</button></a>
     </span>
+    <a href="{{ url_for('issues') }}?module={{ current_module.name }}" class="mono" style="font-size:0.78rem; align-self:center; margin-left:var(--s-3);">Full triage →</a>
   </div>
-  <span class="faint" style="font-size:0.78rem; margin-left:var(--s-2);">You're viewing every matching line. Switch to <b>Grouped</b> to collapse repeats into one AI-summarized issue per problem.</span>
+  <span class="faint" style="font-size:0.78rem; margin-left:var(--s-2);">{% if view_mode == 'grouped' %}Repeats are collapsed into one AI-summarized issue per problem.{% else %}You're viewing every matching line. Switch to <b>Grouped</b> to collapse repeats.{% endif %}</span>
   {% endif %}
   <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
     <form method="get" action="{{ url_for('ai_logs') }}" style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
@@ -142,6 +143,33 @@
     <p class="muted">No modules configured yet.</p>
   {% elif not current_module %}
     <p class="muted">Select a module to view its logs.</p>
+  {% elif view_mode == 'grouped' %}
+      {% if not db_status.connected %}
+        <p class="muted">Database not connected — grouped view requires a configured database.</p>
+      {% elif not grouped_issues %}
+        <p class="muted">No active issues for this module. 🎉 <a href="{{ url_for('ai_logs') }}?module={{ current_module.name }}&view=raw&sample_source={{ sample_source }}">View raw lines →</a></p>
+      {% else %}
+        <p class="helper-text" style="margin-top:0;">{{ grouped_issues|length }} deduplicated issue(s) — each row is one problem, however many lines it spans.</p>
+        <div class="grouped-logs">
+          {% for issue in grouped_issues %}
+          <div class="issue-row">
+            <span class="status-badge sev-{{ issue.severity }}">{{ issue.severity }}</span>
+            <div style="min-width:0;">
+              <div class="issue-title"><a href="{{ url_for('issue_detail', issue_id=issue.id) }}">{{ issue.title }}</a></div>
+              {% if issue.llm_content and issue.llm_analyzed_fingerprint == issue.fingerprint %}
+                <div class="issue-summary">{{ issue.llm_content }}</div>
+              {% else %}
+                <div class="issue-summary faint">Not analyzed yet — open to run analysis.</div>
+              {% endif %}
+            </div>
+            <div style="text-align:right; white-space:nowrap;">
+              <span class="issue-count">{{ issue.occurrence_count }}<span class="faint" style="font-size:0.7rem; font-weight:400;"> seen</span></span>
+              <div class="faint mono" style="font-size:0.72rem;">{{ issue.last_seen | localtime }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% endif %}
   {% else %}
       <div class="log-actions" style="margin-bottom:0.6rem;">
         <div class="selection-box">
