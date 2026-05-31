@@ -8,18 +8,6 @@ from logtriage.models import Finding, Severity
 from logtriage.webui import db
 
 
-@pytest.fixture()
-def database(tmp_path):
-    url = f"sqlite:///{(tmp_path / 'test.db').as_posix()}"
-    # reset any prior global engine, then set up a fresh one
-    db._engine = None
-    db._db_url = None
-    db.setup_database(url)
-    yield url
-    db._engine = None
-    db._db_url = None
-
-
 def _finding(line_text, *, sev=Severity.ERROR, line=1, rule=r"\bERROR\b", ts=None, pipeline="ha"):
     return Finding(
         file_path=Path("/var/log/x.log"),

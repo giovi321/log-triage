@@ -11,17 +11,6 @@ from logtriage import enrichment
 from logtriage.llm_client import _anthropic_system_field
 
 
-@pytest.fixture()
-def database(tmp_path):
-    url = f"sqlite:///{(tmp_path / 'test.db').as_posix()}"
-    db._engine = None
-    db._db_url = None
-    db.setup_database(url)
-    yield url
-    db._engine = None
-    db._db_url = None
-
-
 def _store_issue(database):
     finding = Finding(
         file_path=Path("/var/log/x.log"),

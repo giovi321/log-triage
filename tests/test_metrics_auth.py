@@ -12,17 +12,6 @@ from logtriage.webui.config import parse_webui_settings
 from logtriage.webui.auth import resolve_proxy_user, get_current_user
 
 
-@pytest.fixture()
-def database(tmp_path):
-    url = f"sqlite:///{(tmp_path / 'test.db').as_posix()}"
-    db._engine = None
-    db._db_url = None
-    db.setup_database(url)
-    yield url
-    db._engine = None
-    db._db_url = None
-
-
 def _finding(text, line):
     return Finding(
         file_path=Path("/var/log/x.log"), pipeline_name="ha", finding_index=0,
