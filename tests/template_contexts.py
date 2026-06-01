@@ -82,8 +82,8 @@ def build_pages() -> list:
         _NS(username="ops", created_at=now, is_admin=True),
     ]
     page("account.html", username="admin", users=preview_users,
-         is_admin=True, oidc_enabled=True, db_status=db_status, error=None, message=None,
-         _path="/account")
+         is_admin=True, can_change_password=True, oidc_enabled=True, db_status=db_status,
+         error=None, message=None, _path="/account")
 
     # ---- config editor ----------------------------------------------------
     sample_cfg = (
@@ -148,6 +148,9 @@ def build_pages() -> list:
     }
     page("config_edit.html",
          username="admin", config_text=sample_cfg, config_json=json.dumps(sample_cfg_obj),
+         users_json=json.dumps([{"username": "admin", "is_admin": True},
+                                {"username": "ops", "is_admin": False}]),
+         can_change_password=True,
          context_hints={"root": "Top-level sections mirror the README. "
                                 "Move the cursor to a section to see details."},
          error=None, message=None, _path="/config/edit")

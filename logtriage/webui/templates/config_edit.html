@@ -425,74 +425,89 @@
       </div>
     </div>
 
-    <!-- ---- Account: local accounts + OIDC (admin-only; Settings is gated) ---- -->
+    <!-- ---- Account: my password + local accounts + OIDC (admin-only; Settings is gated) ---- -->
     <div x-show="section==='account'">
-      <!-- Local accounts (collapsible) -->
-      <details class="form-section" open>
-        <summary class="section-eyebrow" style="cursor:pointer;">LOCAL ACCOUNTS</summary>
-        <p class="fld-hint" style="margin-top:var(--s-2);">Local Web UI accounts are stored in the database (not <code class="mono">config.yaml</code>). Every user can change their own password from the <a href="{{ url_for('account') }}">Account</a> page; admins manage all accounts here. Changes here take effect immediately.</p>
-        {% if users %}
-        <table class="user-table">
+      <div class="tabbar section-subtabs in-card">
+        {% if can_change_password %}
+        <button type="button" :class="{active: acctTab==='password'}" @click="acctTab='password'">My password</button>
+        {% endif %}
+        <button type="button" :class="{active: acctTab==='local'}" @click="acctTab='local'">Local accounts</button>
+        <button type="button" :class="{active: acctTab==='oidc'}" @click="acctTab='oidc'">Single sign-on</button>
+      </div>
+
+      {% if can_change_password %}
+      <!-- My password (self-service for the signed-in admin) -->
+      <div x-show="acctTab==='password'">
+        <div class="section-eyebrow">MY PASSWORD</div>
+        <p class="fld-hint" style="margin-top:var(--s-2);">Change the password for <b>{{ username }}</b> (your own account). Existing sessions stay active until their cookies expire.</p>
+        <form method="post" action="{{ url_for('change_password') }}" class="account-form" data-ajax data-reset>
+          <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+          <label class="field"><span class="field-label">Current password</span>
+            <input type="password" name="current_password" autocomplete="current-password" required></label>
+          <label class="field"><span class="field-label">New password</span>
+            <input type="password" name="new_password" minlength="8" autocomplete="new-password" required></label>
+          <label class="field"><span class="field-label">Confirm new password</span>
+            <input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required></label>
+          <button type="submit">Save new password</button>
+        </form>
+      </div>
+      {% endif %}
+
+      <!-- Local accounts -->
+      <div x-show="acctTab==='local'">
+        <div class="section-eyebrow">LOCAL ACCOUNTS</div>
+        <p class="fld-hint" style="margin-top:var(--s-2);">Local Web UI accounts are stored in the database (not <code class="mono">config.yaml</code>). Admins manage all accounts here; changes take effect immediately.</p>
+        <table class="user-table" x-show="users.length">
           <thead><tr><th>Username</th><th>Role</th><th>Created</th><th class="ua-actions">Actions</th></tr></thead>
           <tbody>
-            {% for u in users %}
-            <tr>
-              <td class="mono">{{ u.username }}{% if u.username == username %} <span class="you-tag">you</span>{% endif %}</td>
-              <td>{% if u.is_admin %}<span class="tag">admin</span>{% else %}<span class="ua-dim">user</span>{% endif %}</td>
-              <td class="ua-dim">{{ u.created_at | localtime if u.created_at else '—' }}</td>
-              <td class="ua-actions">
-                <details class="ua-reset">
-                  <summary>Reset password</summary>
-                  <form method="post" action="{{ url_for('user_reset_password') }}" class="ua-inline">
-                    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-                    <input type="hidden" name="target_username" value="{{ u.username }}">
-                    <input type="password" name="new_password" minlength="8" placeholder="New password" required>
-                    <button type="submit" class="small">Set</button>
-                  </form>
-                </details>
-                {% if u.username != username %}
-                <form method="post" action="{{ url_for('user_delete') }}" class="ua-inline"
-                      onsubmit="return confirm('Delete user {{ u.username }}?');">
-                  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-                  <input type="hidden" name="target_username" value="{{ u.username }}">
-                  <button type="submit" class="small danger">Delete</button>
-                </form>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
+            <template x-for="u in users" :key="u.username">
+              <tr>
+                <td class="mono"><span x-text="u.username"></span><template x-if="u.username === currentUser"><span class="you-tag">you</span></template></td>
+                <td><template x-if="u.is_admin"><span class="tag">admin</span></template><template x-if="!u.is_admin"><span class="ua-dim">user</span></template></td>
+                <td class="ua-dim">—</td>
+                <td class="ua-actions">
+                  <details class="ua-reset" x-data="{ pw: '' }">
+                    <summary>Reset password</summary>
+                    <div class="ua-inline">
+                      <input type="password" minlength="8" placeholder="New password" x-model="pw">
+                      <button type="button" class="small" @click="resetPassword(u.username, pw).then(ok => { if (ok) pw = ''; })">Set</button>
+                    </div>
+                  </details>
+                  <template x-if="u.username !== currentUser">
+                    <button type="button" class="small danger" @click="deleteUser(u.username)">Delete</button>
+                  </template>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
-        {% else %}
-          <p class="fld-hint">No local users yet.</p>
-        {% endif %}
+        <template x-if="!users.length"><p class="fld-hint">No local users yet.</p></template>
 
         <h3 class="ua-subhead">Add a user</h3>
-        <form method="post" action="{{ url_for('user_create') }}" class="account-form">
-          <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+        <form class="account-form" @submit.prevent="createUser()">
           <label class="field">
             <span class="field-label">Username</span>
-            <input type="text" name="new_username" autocomplete="off" required>
+            <input type="text" autocomplete="off" x-model="newUser.username" required>
           </label>
           <label class="field">
             <span class="field-label">Password</span>
-            <input type="password" name="new_password" minlength="8" autocomplete="new-password" required>
+            <input type="password" minlength="8" autocomplete="new-password" x-model="newUser.password" required>
           </label>
           <label class="field">
             <span class="field-label">Confirm password</span>
-            <input type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
+            <input type="password" minlength="8" autocomplete="new-password" x-model="newUser.confirm" required>
           </label>
           <label class="field" style="flex-direction:row; align-items:center; gap:8px;">
-            <input type="checkbox" name="is_admin" value="1">
+            <input type="checkbox" x-model="newUser.is_admin">
             <span class="field-label" style="text-transform:none;">Administrator (can edit settings and manage users)</span>
           </label>
-          <button type="submit">Create user</button>
+          <button type="submit" :disabled="creatingUser" x-text="creatingUser ? 'Creating…' : 'Create user'"></button>
         </form>
-      </details>
+      </div>
 
-      <!-- Single sign-on / OIDC (collapsible) -->
-      <details class="form-section" open>
-        <summary class="section-eyebrow" style="cursor:pointer;">SINGLE SIGN-ON (OIDC)</summary>
+      <!-- Single sign-on / OIDC -->
+      <div x-show="acctTab==='oidc'">
+        <div class="section-eyebrow">SINGLE SIGN-ON (OIDC)</div>
         <p class="fld-hint" style="margin-top:var(--s-2);">
           Authorization Code + PKCE via the <code class="mono">[oidc]</code> extra
           (<code class="mono">pip install '.[oidc]'</code>). Configure an OIDC/OAuth2
@@ -545,7 +560,7 @@
           </div>
           <button type="button" class="secondary btn-sm add-row" @click="add(cfg.webui.oidc.admin_groups, '')">+ Add admin group</button>
         </div>
-      </details>
+      </div>
 
       <style>
         .account-form { display:grid; gap:var(--s-4); max-width:520px; margin-top:var(--s-4); }
@@ -567,16 +582,11 @@
     </div>
   </div>
 
-  <!-- Hidden form: the structured forms above serialize to YAML into this
-       textarea on Save and POST it to edit_config_post (atomic write + .bak). -->
-  <form method="post" action="{{ url_for('edit_config_post') }}" id="config-form" style="display:none;">
-    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-    <textarea id="config-text" name="config_text">{{ config_text }}</textarea>
-  </form>
-
   <!-- ============================ SAVE BAR ============================ -->
+  <!-- The structured forms serialize to YAML and POST in the background
+       (atomic write + .bak); success/failure is surfaced as a toast. -->
   <div class="save-bar">
-    <button type="button" @click="save()">Save changes</button>
+    <button type="button" @click="save()" :disabled="saving" x-text="saving ? 'Saving…' : 'Save changes'"></button>
     <button type="button" class="ghost" @click="window.location.href='{{ url_for('dashboard') }}'">Cancel</button>
     <span class="spacer"></span>
     <a class="mono" style="font-size:0.82rem;" href="{{ url_for('regex_lab') }}">Open Regex Lab →</a>
@@ -584,6 +594,7 @@
 </div>
 
 <script type="application/json" id="config-json-data">{{ config_json | safe }}</script>
+<script type="application/json" id="users-json-data">{{ users_json | safe }}</script>
 {% endblock %}
 
 {% block scripts %}
@@ -601,6 +612,21 @@
       levels: ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
       severities: ['WARNING', 'ERROR', 'CRITICAL'],
       cfg: {}, providers: [], loggers: [], yamlError: '', oidcCopied: false,
+
+      // ---- Account tab: self password + local-user management (admin) ----
+      acctTab: '{{ "password" if can_change_password else "local" }}',
+      users: [],                         // reactive local-user list (seeded in init)
+      currentUser: {{ username | tojson }},
+      newUser: { username: '', password: '', confirm: '', is_admin: false },
+      creatingUser: false,
+      saving: false,                     // disables the Save button while in flight
+      csrf: {{ request.session.get('csrf_token', '') | tojson }},
+      acctUrls: {
+        createUser: '{{ url_for("user_create") }}',
+        resetUser: '{{ url_for("user_reset_password") }}',
+        deleteUser: '{{ url_for("user_delete") }}',
+        saveConfig: '{{ url_for("edit_config_post") }}',
+      },
 
       // OIDC redirect/callback URL to register at the IdP (derived from the
       // browser origin; never serialized).
@@ -636,6 +662,8 @@
         try { raw = JSON.parse((document.getElementById('config-json-data') || {}).textContent || '{}') || {}; } catch (e) { raw = {}; }
         this.cfg = raw;
         this.normalize();
+        // Seed the reactive local-user list for the Account tab.
+        try { this.users = JSON.parse((document.getElementById('users-json-data') || {}).textContent || '[]') || []; } catch (e) { this.users = []; }
         // A <select> whose <option>s are built by x-for has no options in the
         // DOM yet on first paint, so x-model can't preselect the saved value —
         // the "Default provider" dropdown then shows "(none)" and can write an
@@ -649,9 +677,9 @@
           const sel = document.getElementById('cfg-llm-default-provider');
           if (sel) sel.value = loadedDefaultProvider;
         });
-        // Restore the active section from the URL hash so a refresh or a save
-        // round-trip (POST re-render) keeps you on the same tab instead of
-        // silently bouncing back to General.
+        // Restore the active section from the URL hash so a refresh keeps you
+        // on the same tab instead of silently bouncing back to General. (Saving
+        // is now a background POST, so the page no longer reloads on save.)
         const h = (window.location.hash || '').replace('#', '');
         if (this.sections.some(s => s.id === h)) this.section = h;
         window.addEventListener('hashchange', () => {
@@ -804,17 +832,81 @@
       addPipeline() { this.cfg.pipelines.push({ name: 'new_pipeline', match: { filename_regex: '.*' }, classifier: { type: 'regex_counter', error_regexes: [], warning_regexes: [], ignore_regexes: [] }, grouping: { type: 'whole_file' } }); },
       addModule() { this.cfg.modules.push({ name: 'new_module', enabled: true, path: '', mode: 'follow', pipeline: '', output_format: 'text', min_print_severity: 'WARNING', stale_after_minutes: null, llm: { enabled: false, context_prefix_lines: 0, context_suffix_lines: 0 }, alerts: { webhook: {}, mqtt: {} }, stream: { from_beginning: false, interval: 1.0 }, rag: { enabled: false, knowledge_sources: [] } }); },
 
-      save() {
+      // ---- Account tab: background POST helpers (toast feedback, no reload) ----
+      async postForm(url, data) {
+        const body = new URLSearchParams();
+        body.append('csrf_token', this.csrf);
+        Object.entries(data).forEach(([k, v]) => body.append(k, v));
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'X-Requested-With': 'fetch' },
+          body,
+        });
+        try { return await res.json(); } catch (e) { return { ok: res.ok, error: 'Unexpected response.' }; }
+      },
+      async createUser() {
+        if (this.newUser.password !== this.newUser.confirm) { window.showToast('Passwords do not match.', 'error'); return; }
+        if ((this.newUser.password || '').length < 8) { window.showToast('Password must be at least 8 characters.', 'error'); return; }
+        this.creatingUser = true;
         try {
-          document.getElementById('config-text').value = this.toYaml();
+          const j = await this.postForm(this.acctUrls.createUser, {
+            new_username: this.newUser.username,
+            new_password: this.newUser.password,
+            confirm_password: this.newUser.confirm,
+            is_admin: this.newUser.is_admin ? '1' : '',
+          });
+          if (j.ok) {
+            window.showToast(j.message || 'User created.', 'success');
+            if (Array.isArray(j.users)) this.users = j.users;
+            this.newUser = { username: '', password: '', confirm: '', is_admin: false };
+          } else {
+            window.showToast(j.error || 'Could not create user.', 'error');
+          }
+        } catch (e) { window.showToast('Request failed: ' + e, 'error'); }
+        finally { this.creatingUser = false; }
+      },
+      async resetPassword(username, pw) {
+        if (!pw || pw.length < 8) { window.showToast('Password must be at least 8 characters.', 'error'); return false; }
+        try {
+          const j = await this.postForm(this.acctUrls.resetUser, { target_username: username, new_password: pw });
+          if (j.ok) { window.showToast(j.message || 'Password reset.', 'success'); return true; }
+          window.showToast(j.error || 'Could not reset password.', 'error');
+          return false;
+        } catch (e) { window.showToast('Request failed: ' + e, 'error'); return false; }
+      },
+      async deleteUser(username) {
+        if (!window.confirm('Delete user ' + username + '?')) return;
+        try {
+          const j = await this.postForm(this.acctUrls.deleteUser, { target_username: username });
+          if (j.ok) {
+            window.showToast(j.message || 'User deleted.', 'success');
+            if (Array.isArray(j.users)) this.users = j.users;
+          } else {
+            window.showToast(j.error || 'Could not delete user.', 'error');
+          }
+        } catch (e) { window.showToast('Request failed: ' + e, 'error'); }
+      },
+
+      async save() {
+        let yamlText;
+        try {
+          yamlText = this.toYaml();
         } catch (e) {
-          this.yamlError = 'Could not serialise config: ' + e.message; return;
+          this.yamlError = 'Could not serialise config: ' + e.message;
+          window.showToast(this.yamlError, 'error');
+          return;
         }
-        const form = document.getElementById('config-form');
-        // Carry the active tab through the POST round-trip: the re-rendered page
-        // lands on /config/edit#<section> and init() restores the tab.
-        try { form.action = form.action.split('#')[0] + '#' + this.section; } catch (e) {}
-        if (form.requestSubmit) form.requestSubmit(); else form.submit();
+        this.yamlError = '';
+        this.saving = true;
+        try {
+          const j = await this.postForm(this.acctUrls.saveConfig, { config_text: yamlText });
+          if (j.ok) window.showToast(j.message || 'Configuration saved.', 'success');
+          else window.showToast(j.error || 'Save failed.', 'error');
+        } catch (e) {
+          window.showToast('Save failed: ' + e, 'error');
+        } finally {
+          this.saving = false;
+        }
       },
     };
   }

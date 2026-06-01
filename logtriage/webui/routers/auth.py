@@ -5,12 +5,12 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from ..auth import authenticate_user, create_session_token, get_current_user, current_user_is_admin
 from ...notifications import add_notification
 from ..state import STATE
-from ..shared import templates
+from ..shared import templates, wants_json, user_has_local_password
 from .. import oidc as oidc_mod
 from .. import users as users_mod
 
@@ -124,21 +124,19 @@ def _account_context(request, username, *, error=None, message=None):
         "message": message,
         "users": user_list,
         "is_admin": is_admin,
+        # SSO-provided accounts have no local password row to change.
+        "can_change_password": user_has_local_password(username),
         "oidc_enabled": bool(getattr(STATE.settings, "oidc_enabled", False)),
         "db_status": STATE.db_status,
     }
 
 
-def _require_admin_or_redirect(request):
-    """Return a redirect Response if the caller isn't an admin, else None."""
-    if not get_current_user(request, STATE.settings):
-        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
-    if not current_user_is_admin(request, STATE.settings):
-        return RedirectResponse(
-            url=request.app.url_path_for("account") + "?error=Admin+access+required",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-    return None
+def _users_payload():
+    """JSON-serialisable local-user list for AJAX responses (Account tab table)."""
+    try:
+        return [{"username": u.username, "is_admin": bool(u.is_admin)} for u in users_mod.list_users()]
+    except Exception:
+        return []
 
 
 @router.get("/account", name="account")
@@ -161,8 +159,11 @@ async def change_password(
     username = get_current_user(request, STATE.settings)
     if not username:
         return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    ajax = wants_json(request)
 
     def _err(msg, code=status.HTTP_400_BAD_REQUEST):
+        if ajax:
+            return JSONResponse({"ok": False, "error": msg}, status_code=code)
         return templates.TemplateResponse(
             "account.html", _account_context(request, username, error=msg), status_code=code
         )
@@ -182,13 +183,37 @@ async def change_password(
     except Exception as exc:
         return _err(f"Failed to update password: {exc}", code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    msg = "Password updated. Existing sessions stay active until their cookies expire."
+    if ajax:
+        return JSONResponse({"ok": True, "message": msg})
     return templates.TemplateResponse(
-        "account.html",
-        _account_context(
-            request, username,
-            message="Password updated. Existing sessions stay active until their cookies expire.",
-        ),
+        "account.html", _account_context(request, username, message=msg)
     )
+
+
+def _admin_gate(request):
+    """Admin check for user-management endpoints. Returns a Response (JSON for
+    AJAX, redirect otherwise) when denied, else None."""
+    if not get_current_user(request, STATE.settings):
+        if wants_json(request):
+            return JSONResponse({"ok": False, "error": "Not signed in."}, status_code=status.HTTP_401_UNAUTHORIZED)
+        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        if wants_json(request):
+            return JSONResponse({"ok": False, "error": "Admin access required."}, status_code=status.HTTP_403_FORBIDDEN)
+        return RedirectResponse(
+            url=request.app.url_path_for("account") + "?error=Admin+access+required",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    return None
+
+
+def _account_redirect(request, *, message=None, error=None):
+    """Redirect back to the Settings → Account tab with a flash query param."""
+    account_url = request.app.url_path_for("edit_config")
+    if message:
+        return RedirectResponse(account_url + f"?message={message.replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(account_url + f"?error={(error or '').replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.post("/account/users/create", name="user_create")
@@ -199,52 +224,75 @@ async def user_create(
     confirm_password: str = Form(...),
     is_admin: str = Form(""),
 ):
-    denied = _require_admin_or_redirect(request)
+    denied = _admin_gate(request)
     if denied is not None:
         return denied
-    account_url = request.app.url_path_for("edit_config")
+    ajax = wants_json(request)
+
+    def _done(*, message=None, error=None, code=status.HTTP_400_BAD_REQUEST):
+        if ajax:
+            if error:
+                return JSONResponse({"ok": False, "error": error}, status_code=code)
+            return JSONResponse({"ok": True, "message": message, "users": _users_payload()})
+        return _account_redirect(request, message=message, error=error)
+
     if new_password != confirm_password:
-        return RedirectResponse(account_url + "?error=Passwords+do+not+match#account", status_code=status.HTTP_303_SEE_OTHER)
+        return _done(error="Passwords do not match.")
     try:
         users_mod.create_user(new_username, new_password, is_admin=bool(is_admin))
     except ValueError as exc:
-        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
+        return _done(error=str(exc))
     except Exception as exc:
         add_notification("error", "User creation failed", str(exc))
-        return RedirectResponse(account_url + "?error=Could+not+create+user#account", status_code=status.HTTP_303_SEE_OTHER)
-    return RedirectResponse(account_url + "?message=User+created#account", status_code=status.HTTP_303_SEE_OTHER)
+        return _done(error="Could not create user.", code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return _done(message="User created.")
 
 
 @router.post("/account/users/reset", name="user_reset_password")
 async def user_reset_password(request: Request, target_username: str = Form(...), new_password: str = Form(...)):
-    denied = _require_admin_or_redirect(request)
+    denied = _admin_gate(request)
     if denied is not None:
         return denied
-    account_url = request.app.url_path_for("edit_config")
+    ajax = wants_json(request)
     try:
         ok = users_mod.set_password(target_username, new_password)
+        error = None
     except ValueError as exc:
-        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
+        ok, error = False, str(exc)
     except Exception:
-        ok = False
-    msg = "?message=Password+reset#account" if ok else "?error=User+not+found#account"
-    return RedirectResponse(account_url + msg, status_code=status.HTTP_303_SEE_OTHER)
+        ok, error = False, "Could not reset password."
+    if ajax:
+        if ok:
+            return JSONResponse({"ok": True, "message": "Password reset."})
+        return JSONResponse({"ok": False, "error": error or "User not found."}, status_code=status.HTTP_400_BAD_REQUEST)
+    if ok:
+        return _account_redirect(request, message="Password reset")
+    return _account_redirect(request, error=error or "User not found")
 
 
 @router.post("/account/users/delete", name="user_delete")
 async def user_delete(request: Request, target_username: str = Form(...)):
-    denied = _require_admin_or_redirect(request)
+    denied = _admin_gate(request)
     if denied is not None:
         return denied
+    ajax = wants_json(request)
     username = get_current_user(request, STATE.settings)
-    account_url = request.app.url_path_for("edit_config")
     if target_username == username:
-        return RedirectResponse(account_url + "?error=You+cannot+delete+your+own+account#account", status_code=status.HTTP_303_SEE_OTHER)
+        msg = "You cannot delete your own account."
+        if ajax:
+            return JSONResponse({"ok": False, "error": msg}, status_code=status.HTTP_400_BAD_REQUEST)
+        return _account_redirect(request, error="You cannot delete your own account")
     try:
         ok = users_mod.delete_user(target_username)
+        error = None
     except ValueError as exc:
-        return RedirectResponse(account_url + f"?error={str(exc).replace(' ', '+')}#account", status_code=status.HTTP_303_SEE_OTHER)
+        ok, error = False, str(exc)
     except Exception:
-        ok = False
-    msg = "?message=User+deleted#account" if ok else "?error=User+not+found#account"
-    return RedirectResponse(account_url + msg, status_code=status.HTTP_303_SEE_OTHER)
+        ok, error = False, "User not found."
+    if ajax:
+        if ok:
+            return JSONResponse({"ok": True, "message": "User deleted.", "users": _users_payload()})
+        return JSONResponse({"ok": False, "error": error or "User not found."}, status_code=status.HTTP_400_BAD_REQUEST)
+    if ok:
+        return _account_redirect(request, message="User deleted")
+    return _account_redirect(request, error=error or "User not found")

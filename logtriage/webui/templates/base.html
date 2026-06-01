@@ -42,9 +42,9 @@
         {% set regex_lab_url = request.app.url_path_for('regex_lab') %}
         {% set regex_generate_url = request.app.url_path_for('regex_generate_form') %}
         {% set account_url = request.app.url_path_for('account') %}
-        {# Primary workflow: triage-first, the daily path #}
-        <a href="{{ issues_url }}" class="{% if current_path.startswith(issues_url) %}active{% endif %}">Triage</a>
+        {# Primary workflow: Overview first, then the Triage queue #}
         <a href="{{ dashboard_url }}" class="{% if current_path == dashboard_url %}active{% endif %}">Overview</a>
+        <a href="{{ issues_url }}" class="{% if current_path.startswith(issues_url) %}active{% endif %}">Triage</a>
         <a href="{{ ai_logs_url }}" class="{% if current_path.startswith(ai_logs_url) %}active{% endif %}">Logs</a>
         {% if user_is_admin(request) %}
         <span class="topnav-sep" aria-hidden="true"></span>
@@ -54,7 +54,11 @@
         <a href="{{ regex_generate_url }}" class="nav-secondary {% if current_path.startswith(regex_generate_url) %}active{% endif %}">Suggest Regex</a>
         {% endif %}
         <span class="topnav-spacer"></span>
+        {# Admins manage their account under Settings → Account; non-admins (who
+           don't see Settings) keep a dedicated Account link for password change. #}
+        {% if not user_is_admin(request) %}
         <a href="{{ account_url }}" class="nav-secondary {% if current_path.startswith(account_url) %}active{% endif %}">Account</a>
+        {% endif %}
         <a href="{{ url_for('logout') }}" class="ghost-link">Sign out</a>
       {% else %}
         <a href="{{ url_for('login_form') }}" class="active">Sign in</a>
@@ -66,18 +70,18 @@
   </header>
 
   <main class="container">
+    {# Server-rendered flash messages are surfaced as toasts on load (see the
+       toast script at the end of <body>) so they match in-page AJAX feedback. #}
     {% if message or error %}
-      <div class="flash-region" aria-live="polite" data-reveal>
-        {% if message %}
-          <div class="flash-banner success" role="status">{{ message }}</div>
-        {% endif %}
-        {% if error %}
-          <div class="flash-banner error" role="alert">{{ error }}</div>
-        {% endif %}
-      </div>
+      <div id="flash-data" hidden
+           {% if message %}data-success="{{ message }}"{% endif %}
+           {% if error %}data-error="{{ error }}"{% endif %}></div>
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Toast region: in-page success/error notifications (AJAX + flash) -->
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false"></div>
 
   <footer class="site-footer">
     <span>log-triage · rule-based triage with grounded LLM analysis ·
@@ -102,17 +106,68 @@
       btn.addEventListener('click', () => apply(current() === 'dark' ? 'light' : 'dark'));
     })();
 
-    // Auto-dismiss flash banners
+    // ---- Toast notifications -------------------------------------------------
+    // window.showToast(message, type) — type: 'success' (default) | 'error'.
+    // Stacks toasts in the bottom-right region; auto-dismiss + click-to-close.
     (function () {
-      const banners = document.querySelectorAll('.flash-banner');
-      if (!banners.length) return;
-      setTimeout(() => {
-        banners.forEach((b) => {
-          b.classList.add('hide');
-          setTimeout(() => b.remove(), 400);
-        });
-      }, 4800);
+      const region = document.getElementById('toast-region');
+      window.showToast = function (message, type) {
+        if (!region || !message) return;
+        const isErr = type === 'error';
+        const el = document.createElement('div');
+        el.className = 'toast ' + (isErr ? 'error' : 'success');
+        el.setAttribute('role', isErr ? 'alert' : 'status');
+        el.textContent = message;
+        region.appendChild(el);
+        requestAnimationFrame(() => el.classList.add('show'));
+        const remove = () => {
+          el.classList.remove('show');
+          el.classList.add('hide');
+          setTimeout(() => el.remove(), 350);
+        };
+        const timer = setTimeout(remove, isErr ? 6500 : 4200);
+        el.addEventListener('click', () => { clearTimeout(timer); remove(); });
+      };
+
+      // Surface server-rendered flash messages as toasts on load.
+      const fd = document.getElementById('flash-data');
+      if (fd) {
+        if (fd.dataset.success) window.showToast(fd.dataset.success, 'success');
+        if (fd.dataset.error) window.showToast(fd.dataset.error, 'error');
+      }
     })();
+
+    // ---- Generic AJAX form submit -------------------------------------------
+    // Any <form data-ajax> posts in the background and shows a toast instead of
+    // reloading. Add data-reset to clear fields on success. The endpoint must
+    // return JSON {ok, message} / {ok:false, error} when X-Requested-With=fetch.
+    document.addEventListener('submit', async function (e) {
+      const form = e.target;
+      if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-ajax')) return;
+      e.preventDefault();
+      const btn = form.querySelector('button[type=submit], button:not([type])');
+      const label = btn ? btn.textContent : '';
+      if (btn) { btn.disabled = true; btn.dataset.busy = '1'; }
+      try {
+        const res = await fetch(form.action, {
+          method: (form.method || 'POST').toUpperCase(),
+          headers: { 'X-Requested-With': 'fetch' },
+          body: new URLSearchParams(new FormData(form)),
+        });
+        let data;
+        try { data = await res.json(); } catch (_) { data = { ok: res.ok }; }
+        if (data.ok) {
+          window.showToast(data.message || 'Done.', 'success');
+          if (form.hasAttribute('data-reset')) form.reset();
+        } else {
+          window.showToast(data.error || 'Request failed.', 'error');
+        }
+      } catch (err) {
+        window.showToast('Request failed: ' + err, 'error');
+      } finally {
+        if (btn) { btn.disabled = false; delete btn.dataset.busy; btn.textContent = label; }
+      }
+    });
   </script>
   {% block scripts %}{% endblock %}
 </body>

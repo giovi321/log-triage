@@ -84,6 +84,44 @@ def ensure_csrf_token(request: Request) -> str:
     return str(token)
 
 
+def wants_json(request: Request) -> bool:
+    """True when the request is an in-page AJAX call that expects JSON back.
+
+    The frontend sets ``X-Requested-With: fetch`` on background form posts; the
+    endpoints branch on this to return JSON (toast feedback, no reload) while
+    keeping their classic HTML/redirect behaviour for direct browser submits.
+    """
+    return (request.headers.get("x-requested-with") or "").lower() == "fetch"
+
+
+def user_has_local_password(username: Optional[str]) -> bool:
+    """Whether this user has a local password row that can be changed.
+
+    Local accounts live in the DB user table; OIDC and reverse-proxy identities
+    do not, so they have no password to change. Used to hide the change-password
+    UI for SSO-provided accounts.
+    """
+    if not username:
+        return False
+    try:
+        from . import users as users_mod
+        return users_mod.get_user(username) is not None
+    except Exception:
+        return False
+
+
+def users_json_payload() -> str:
+    """JSON array of local users for the settings Account tab (Alpine-rendered)."""
+    rows = []
+    try:
+        from . import users as users_mod
+        for u in users_mod.list_users():
+            rows.append({"username": u.username, "is_admin": bool(u.is_admin)})
+    except Exception:
+        rows = []
+    return json.dumps(rows)
+
+
 def load_context_hints() -> Dict[str, str]:
     """Load config-editor context hints, repairing common JSON escape issues."""
     fallback = {
@@ -180,15 +218,8 @@ def render_config_editor(request, username, config_text, *, error=None, message=
             parsed_obj = None
     config_json = _json.dumps(parsed_obj if isinstance(parsed_obj, dict) else {})
     # The Account tab embeds local-user management, so the editor needs the user
-    # list (admins only — Settings is already admin-gated).
-    user_list = []
-    try:
-        from .auth import current_user_is_admin
-        from . import users as users_mod
-        if current_user_is_admin(request, STATE.settings):
-            user_list = users_mod.list_users()
-    except Exception:
-        user_list = []
+    # list (admins only — Settings is already admin-gated). It is rendered
+    # reactively from JSON so add/reset/delete update in place without a reload.
     return templates.TemplateResponse(
         "config_edit.html",
         {
@@ -199,7 +230,9 @@ def render_config_editor(request, username, config_text, *, error=None, message=
             "error": error,
             "message": message,
             "context_hints": current_hints,
-            "users": user_list,
+            "users_json": users_json_payload(),
+            # Hide the "My password" sub-tab for SSO-provided accounts.
+            "can_change_password": user_has_local_password(username),
         },
         status_code=status_code,
     )

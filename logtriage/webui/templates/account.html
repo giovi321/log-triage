@@ -5,8 +5,9 @@
   <div class="card" data-reveal style="--i:0">
     <div class="section-eyebrow">CREDENTIALS</div>
     <h2 style="margin-top:0;">Change your password</h2>
+    {% if can_change_password %}
     <p class="helper-text">Updates the stored bcrypt hash for <b>{{ username }}</b>.</p>
-    <form method="post" action="{{ url_for('change_password') }}" class="account-form">
+    <form method="post" action="{{ url_for('change_password') }}" class="account-form" data-ajax data-reset>
       <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <label class="field">
         <span class="field-label">Current password</span>
@@ -22,6 +23,11 @@
       </label>
       <button type="submit">Save new password</button>
     </form>
+    {% else %}
+    <p class="helper-text">Your account (<b>{{ username }}</b>) is managed by your single sign-on
+      provider, so there is no local password to change here. Update your password with your
+      identity provider instead.</p>
+    {% endif %}
   </div>
 
   {% if is_admin %}

@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 try:
     import yaml
@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover
 from ...notifications import add_notification
 from ..auth import get_current_user, current_user_is_admin
 from ..state import STATE
-from ..shared import render_config_editor
+from ..shared import render_config_editor, wants_json
 from .. import config_io
 
 router = APIRouter()
@@ -51,38 +51,37 @@ async def edit_config_post(request: Request, config_text: str = Form(...)):
     if denied is not None:
         return denied
     username = get_current_user(request, STATE.settings)
+    ajax = wants_json(request)
+
+    def _fail(msg: str, code: int):
+        """Return JSON for AJAX saves; re-render the editor for direct posts."""
+        if ajax:
+            return JSONResponse({"ok": False, "error": msg}, status_code=code)
+        return render_config_editor(request, username, config_text, error=msg, status_code=code)
 
     if yaml is None:
-        return render_config_editor(
-            request, username, config_text,
-            error="YAML support is not available (missing PyYAML dependency).",
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        return _fail(
+            "YAML support is not available (missing PyYAML dependency).",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
     try:
         yaml.safe_load(config_text)
     except Exception as e:
         add_notification("error", "Configuration validation failed", str(e))
-        return render_config_editor(
-            request, username, config_text,
-            error=f"YAML error: {e}", status_code=status.HTTP_400_BAD_REQUEST,
-        )
+        return _fail(f"YAML error: {e}", status.HTTP_400_BAD_REQUEST)
 
     try:
         config_io.save_config_text(config_text)
     except Exception as e:
-        return render_config_editor(
-            request, username, config_text,
-            error=f"Write error: {e}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+        return _fail(f"Write error: {e}", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     try:
         (STATE.reload_callback or config_io.reload_from_disk)()
     except Exception as exc:
         add_notification("error", "Configuration reload failed", str(exc))
-        return render_config_editor(
-            request, username, config_text,
-            error=f"Reload failed: {exc}", status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+        return _fail(f"Reload failed: {exc}", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    if ajax:
+        return JSONResponse({"ok": True, "message": "Configuration saved."})
     return render_config_editor(request, username, config_text, message="Configuration saved.")
