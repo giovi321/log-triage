@@ -100,6 +100,65 @@ class KnowledgeManager:
         content = f"{repo_url}#{branch}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
+    @staticmethod
+    def _is_missing_branch_error(exc: Exception) -> bool:
+        """True when a git clone failed because the requested branch is absent
+        (e.g. 'fatal: Remote branch main not found in upstream origin')."""
+        text = str(exc).lower()
+        return "remote branch" in text and "not found" in text
+
+    @staticmethod
+    def _remote_default_branch(repo_url: str) -> Optional[str]:
+        """Best-effort lookup of a remote's default branch via
+        ``git ls-remote --symref <url> HEAD``. Returns e.g. 'master', or None."""
+        try:
+            out = git.Git().ls_remote("--symref", repo_url, "HEAD")
+        except Exception as exc:
+            logger.warning(f"Could not determine default branch for {repo_url}: {exc}")
+            return None
+        for line in out.splitlines():
+            line = line.strip()
+            # Format: "ref: refs/heads/master<TAB>HEAD"
+            if line.startswith("ref:"):
+                parts = line.replace("\t", " ").split()
+                if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
+                    return parts[1].rsplit("/", 1)[-1]
+        return None
+
+    def _clone_repo(self, repo_url: str, local_path: Path, requested_branch: Optional[str]) -> "git.Repo":
+        """Clone ``repo_url`` into ``local_path`` at depth 1.
+
+        Falls back to the remote's default branch when the requested branch
+        doesn't exist — a very common mismatch, since the config defaults the
+        branch to ``main`` while many repos still default to ``master``.
+        """
+        def _clone(branch: Optional[str]) -> "git.Repo":
+            kwargs: Dict[str, Any] = {"depth": 1}
+            if branch:
+                kwargs["branch"] = branch
+            return git.Repo.clone_from(repo_url, local_path, **kwargs)
+
+        try:
+            return _clone(requested_branch)
+        except git.exc.GitCommandError as exc:
+            if not self._is_missing_branch_error(exc):
+                raise
+            # Clear any partial clone before retrying.
+            shutil.rmtree(local_path, ignore_errors=True)
+            default_branch = self._remote_default_branch(repo_url)
+            if default_branch and default_branch != requested_branch:
+                msg = (f"Branch '{requested_branch}' not found in {repo_url}; "
+                       f"using the repository's default branch '{default_branch}'.")
+                logger.warning(msg)
+                add_notification("warning", "Knowledge source branch not found", msg)
+                try:
+                    return _clone(default_branch)
+                except git.exc.GitCommandError:
+                    shutil.rmtree(local_path, ignore_errors=True)
+            # Last resort: let git check out whatever the remote HEAD points to.
+            logger.warning(f"Cloning {repo_url} at its default HEAD (no explicit branch)")
+            return _clone(None)
+
     def add_knowledge_source(self, config: KnowledgeSourceConfig) -> str:
         """Add a knowledge source and return repo ID."""
         repo_id = self._get_repo_id(config.repo_url, config.branch)
@@ -110,20 +169,26 @@ class KnowledgeManager:
             
             if local_path.exists():
                 logger.debug(f"Repository already exists at {local_path}, updating...")
-                # Update existing repository
+                # Update existing repository. Check out the branch this clone is
+                # actually on rather than config.branch — the clone may have
+                # fallen back to the remote default when config.branch was absent.
                 repo = git.Repo(local_path)
                 repo.remotes.origin.fetch()
-                repo.git.checkout(config.branch)
+                try:
+                    effective_branch = repo.active_branch.name
+                except Exception:
+                    effective_branch = config.branch
+                repo.git.checkout(effective_branch)
                 repo.remotes.origin.pull()
             else:
                 logger.debug(f"Cloning new repository to {local_path}")
-                # Clone new repository
-                repo = git.Repo.clone_from(
-                    config.repo_url, 
-                    local_path,
-                    branch=config.branch,
-                    depth=1
-                )
+                # Clone new repository (falls back to the remote's default branch
+                # when the configured branch — default "main" — doesn't exist).
+                repo = self._clone_repo(config.repo_url, local_path, config.branch)
+                try:
+                    effective_branch = repo.active_branch.name
+                except Exception:
+                    effective_branch = config.branch
                 # Disable git hooks for security
                 hooks_dir = local_path / ".git" / "hooks"
                 if hooks_dir.exists():
@@ -144,7 +209,7 @@ class KnowledgeManager:
             state = RepoState(
                 repo_id=repo_id,
                 url=config.repo_url,
-                branch=config.branch,
+                branch=effective_branch,
                 local_path=local_path,
                 last_commit_hash=commit_hash,
                 last_commit_at=commit_at,
