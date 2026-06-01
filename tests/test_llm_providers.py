@@ -42,6 +42,30 @@ class _FakeResp:
         return False
 
 
+def test_anthropic_sends_only_temperature_not_both(monkeypatch):
+    # Some Anthropic models 400 if temperature and top_p are both present.
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResp({
+            "model": "claude-haiku",
+            "content": [{"type": "text", "text": "ok"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        })
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(llm_client, "_resolve_api_key", lambda p: "k")
+    provider = _provider(provider_type="anthropic", api_base="https://api.anthropic.com/v1")
+    llm_client._call_anthropic(provider, {
+        "model": "claude-haiku",
+        "messages": [{"role": "user", "content": "hi"}],
+        "temperature": 0.0, "top_p": 1.0, "max_tokens": 16,
+    })
+    assert captured["body"]["temperature"] == 0.0
+    assert "top_p" not in captured["body"]
+
+
 def test_call_ollama_normalizes_response(monkeypatch):
     captured = {}
 

@@ -33,9 +33,17 @@ from .llm_client import _call_llm
 logger = logging.getLogger(__name__)
 
 VALID_KINDS = ("ignore", "error", "warning")
-DEFAULT_FAMILY_CAP = 80          # max distinct line-families sent to the LLM
+DEFAULT_FAMILY_CAP = 120         # max distinct line-families sent to the LLM
 DEFAULT_EXAMPLE_LINES = 3        # matched examples shown per candidate
 _MAX_LINE_CHARS = 500
+
+# Output-token budget for this feature. Deliberately NOT taken from the provider's
+# triage-tuned max_output_tokens: regex generation needs room for many short
+# patterns, so we scale the budget with the number of families (one pattern each)
+# within a sane floor/ceiling.
+_REGEX_MIN_OUTPUT_TOKENS = 2000
+_REGEX_MAX_OUTPUT_TOKENS = 4000
+_REGEX_TOKENS_PER_FAMILY = 40
 
 
 @dataclass
@@ -407,14 +415,20 @@ def generate_from_loglines(
 
     representatives, total_families, omitted = _dedupe_families(clean_lines, problem_rx, cap=family_cap)
 
+    # Feature-owned generation params — independent of the provider's triage
+    # config (temperature/top_p/max_output_tokens/max_excerpt_lines). Regex
+    # generation wants determinism (temperature 0) and enough output room for one
+    # short pattern per family; top_p is omitted so it never collides with
+    # temperature (some Anthropic models reject both).
+    out_tokens = min(
+        _REGEX_MAX_OUTPUT_TOKENS,
+        max(_REGEX_MIN_OUTPUT_TOKENS, len(representatives) * _REGEX_TOKENS_PER_FAMILY),
+    )
     payload = {
         "model": provider.model,
         "messages": _build_messages(representatives, kind),
-        "temperature": getattr(provider, "temperature", 0.0) or 0.0,
-        "top_p": getattr(provider, "top_p", 1.0),
-        # Floor the budget so a low provider default can't truncate the list
-        # mid-answer (a common cause of unparseable output on chatty modules).
-        "max_tokens": max(getattr(provider, "max_output_tokens", None) or 0, 2000),
+        "temperature": 0,
+        "max_tokens": out_tokens,
     }
 
     try:

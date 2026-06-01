@@ -216,9 +216,11 @@ def _call_anthropic(provider: LLMProviderConfig, payload: dict) -> dict:
         anthropic_payload["system"] = _anthropic_system_field(
             system_content, payload.get("cache_system", False)
         )
+    # Some Anthropic models reject temperature and top_p together
+    # ("cannot both be specified"); send only one, preferring temperature.
     if "temperature" in payload:
         anthropic_payload["temperature"] = payload["temperature"]
-    if "top_p" in payload:
+    elif "top_p" in payload:
         anthropic_payload["top_p"] = payload["top_p"]
 
     url = _anthropic_messages_url(provider.api_base)
