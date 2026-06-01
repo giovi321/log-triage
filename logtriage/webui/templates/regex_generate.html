@@ -79,6 +79,10 @@
     <p class="helper-text" style="margin-top:var(--s-3); color:#ffc9cb;">{{ error }}</p>
   {% endif %}
 
+  {% if result and not result.candidates and result.provider %}
+    <p class="gen-meta">Ran via <strong>{{ result.provider }}</strong>{% if result.model %} / {{ result.model }}{% endif %} — this is the provider the page used for this run.</p>
+  {% endif %}
+
   {% if result and result.candidates %}
     <p class="gen-meta">
       Analyzed <strong>{{ result.lines_sampled }}</strong> lines
