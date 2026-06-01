@@ -147,24 +147,32 @@ def _build_messages(representatives: List[dict], kind: str) -> List[dict]:
         for i, rep in enumerate(representatives, 1)
     )
 
+    # The role is intentionally narrow and repeated in the user turn: weaker /
+    # local models otherwise treat a block of logs as "please summarize these"
+    # and return prose instead of patterns.
     system = (
-        "You write Python `re` regular expressions (used with re.IGNORECASE) that match log lines. "
-        "Generalize volatile tokens (numbers, ids, UUIDs, IPs, timestamps, hex digests, file paths) "
-        "using character classes or \\S+ / \\d+, but KEEP the stable, distinguishing words so each "
-        "pattern stays specific. One pattern per distinct family; never an over-broad catch-all such "
-        f"as `.*`. Given the log lines below, {intent}\n\n"
-        "OUTPUT FORMAT — follow exactly:\n"
-        "- Write each pattern on its OWN line, prefixed literally with `REGEX: `.\n"
-        "- After the pattern you MAY add ` # ` followed by a short reason.\n"
-        "- Write backslashes literally (e.g. \\d+, \\S+) — do NOT JSON-escape them.\n"
-        "- Output nothing else: no JSON, no markdown fences, no commentary.\n"
-        "Example:\n"
-        "REGEX: connection refused to \\S+ # cannot reach a dependency\n"
-        "REGEX: \\bFATAL\\b .* unhandled # fatal crash"
+        "You are a tool that converts log lines into Python `re` regular expressions. "
+        "You output ONLY lines that begin with `REGEX:`. You never summarize, explain, "
+        "or describe the logs. You never write prose, headings, lists, or markdown."
     )
     user = (
-        "Here is a sample of log lines. Each is prefixed with a number and how many times its "
-        "family occurred in the sample:\n\n" + listing
+        f"Task: from the log lines below, {intent}\n\n"
+        "Rules:\n"
+        "- Generalize volatile tokens (numbers, ids, UUIDs, IPs, timestamps, hex digests, "
+        "file paths) with \\d+, \\S+, or character classes, but KEEP the stable, "
+        "distinguishing words so each pattern stays specific.\n"
+        "- One pattern per distinct family. Never an over-broad catch-all such as `.*`.\n"
+        "- Write backslashes literally (e.g. \\d+, \\S+).\n\n"
+        "Output format — EXACTLY this and NOTHING else, one line per pattern:\n"
+        "REGEX: <pattern> # <short reason>\n"
+        "(the ` # reason` part is optional)\n\n"
+        "Example of a valid answer:\n"
+        "REGEX: connection refused to \\S+ # cannot reach a dependency\n"
+        "REGEX: \\bFATAL\\b.*unhandled # fatal crash\n\n"
+        "Do NOT write a summary, analysis, explanation, headings, bullet points, or markdown. "
+        "Output only REGEX: lines.\n\n"
+        "Log lines:\n" + listing + "\n\n"
+        "Now output ONLY the REGEX: lines:"
     )
     return [
         {"role": "system", "content": system},
@@ -389,8 +397,9 @@ def generate_from_loglines(
         # Distinguish "the model proposed nothing" (fine) from "we couldn't parse
         # the reply" (actionable) so the UI message is honest.
         err = None if _looks_like_empty_result(content) else (
-            "Could not parse any regex patterns from the model's reply. "
-            "Try a smaller sample size or a more capable model."
+            "No regex patterns found in the model's reply (see it below). The model likely "
+            "summarized the logs instead of returning REGEX: lines — try a more capable / "
+            "instruction-following model, or a smaller sample."
         )
         return GenerationResult(
             candidates=[], lines_sampled=len(clean_lines), families=total_families,
