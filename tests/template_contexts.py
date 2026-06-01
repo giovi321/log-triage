@@ -186,6 +186,7 @@ def build_pages() -> list:
         ],
         lines_sampled=1000, families=42, families_omitted=0,
         provider="ollama-local", model="qwen2.5", error=None,
+        raw_response="REGEX: Unable to connect to MQTT broker \\S+ # broker unreachable\nREGEX: Traceback",
     )
     page("regex_generate.html",
          username="admin", modules=modules, current_module=modules[0], regex_kind="error",

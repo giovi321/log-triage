@@ -68,6 +68,10 @@ class GenerationResult:
     provider: Optional[str] = None
     model: Optional[str] = None
     error: Optional[str] = None
+    raw_response: Optional[str] = None  # the model's raw reply, for diagnosing parse failures
+
+
+_MAX_RAW_RESPONSE_CHARS = 20000
 
 
 def _clean(line: str) -> str:
@@ -378,6 +382,7 @@ def generate_from_loglines(
     message = (response.get("choices") or [{}])[0].get("message", {})
     content = (message.get("content") or "").strip()
     model = response.get("model", provider.model)
+    raw_response = content[:_MAX_RAW_RESPONSE_CHARS] or None
 
     parsed = _parse_candidates(content)
     if not parsed:
@@ -390,6 +395,7 @@ def generate_from_loglines(
         return GenerationResult(
             candidates=[], lines_sampled=len(clean_lines), families=total_families,
             families_omitted=omitted, provider=provider.name, model=model, error=err,
+            raw_response=raw_response,
         )
 
     candidates: List[RegexCandidate] = []
@@ -421,4 +427,5 @@ def generate_from_loglines(
         families_omitted=omitted,
         provider=provider.name,
         model=model,
+        raw_response=raw_response,
     )

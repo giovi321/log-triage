@@ -21,6 +21,10 @@
   .pill-warn { display:inline-block; font-size:0.7rem; padding:1px 7px; border-radius:var(--r-pill); background:rgba(245,99,99,0.12); color:#ffc9cb; border:1px solid rgba(245,99,99,0.4); }
   .pill-ok { display:inline-block; font-size:0.7rem; padding:1px 7px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--brand-bright); border:1px solid var(--accent-line); }
   .row-invalid { opacity:0.55; }
+  .raw-reply { margin-top:var(--s-4); border:1px solid var(--line); border-radius:var(--r-md); background:var(--bg-inset); }
+  .raw-reply summary { cursor:pointer; padding:0.55rem 0.7rem; color:var(--text-dim); font-size:0.85rem; }
+  .raw-reply[open] summary { border-bottom:1px solid var(--line); }
+  .raw-reply-pre { margin:0; padding:0.7rem; max-height:340px; overflow:auto; white-space:pre-wrap; word-break:break-word; font-family:var(--font-mono); font-size:0.78rem; color:var(--text); }
 </style>
 <div class="card" data-reveal>
   <div class="section-eyebrow">PATTERN WORKBENCH</div>
@@ -127,6 +131,13 @@
     </table>
   {% elif result and not result.error %}
     <p class="helper-text" style="margin-top:var(--s-3);">The LLM proposed no patterns for this sample. Try a larger sample or a different kind.</p>
+  {% endif %}
+
+  {% if result and result.raw_response %}
+    <details class="raw-reply" {% if result.error %}open{% endif %}>
+      <summary>Model reply ({{ result.provider }}{% if result.model %} / {{ result.model }}{% endif %}) — for diagnosis</summary>
+      <pre class="raw-reply-pre">{{ result.raw_response }}</pre>
+    </details>
   {% endif %}
 </div>
 <script>

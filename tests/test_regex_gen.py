@@ -204,6 +204,8 @@ def test_unparseable_response_is_reported(monkeypatch):
     result = regex_gen.generate_from_loglines(["ERROR boom"], "error", FakeProvider(), existing_patterns={})
     assert result.candidates == []
     assert "parse" in (result.error or "").lower()
+    # The raw reply is captured so the UI can show it for diagnosis.
+    assert result.raw_response == "sorry, I cannot help with that"
 
 
 def test_empty_result_is_not_an_error(monkeypatch):
