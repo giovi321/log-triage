@@ -1,8 +1,11 @@
+import logging
 import sys
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import re
+
+logger = logging.getLogger(__name__)
 
 try:
     import yaml  # PyYAML
@@ -265,6 +268,19 @@ def build_modules(cfg: Dict[str, Any], llm_defaults: GlobalLLMConfig) -> List[Mo
         provider = None
         if provider_name:
             provider = llm_defaults.providers.get(provider_name)
+            if provider is None:
+                # A module pointing at an undefined provider (e.g. a renamed or
+                # removed one) must not fail every enrichment cycle. Warn once at
+                # load and fall back to default_provider instead of carrying a
+                # dangling name that resolve_provider() would later reject.
+                logger.warning(
+                    "Module %s: llm.provider '%s' is not defined under llm.providers; "
+                    "falling back to the default provider.",
+                    name, provider_name,
+                )
+                provider_name = None
+                if llm_defaults.default_provider:
+                    provider = llm_defaults.providers.get(llm_defaults.default_provider)
         elif llm_defaults.default_provider:
             provider = llm_defaults.providers.get(llm_defaults.default_provider)
 

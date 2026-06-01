@@ -7,7 +7,7 @@ import pytest
 from logtriage import llm_client
 from logtriage.llm_client import _ollama_chat_url, _call_ollama, _call_llm
 from logtriage.models import LLMProviderConfig
-from logtriage.config import build_llm_config
+from logtriage.config import build_llm_config, build_modules
 
 
 def _provider(provider_type="ollama", api_base="http://127.0.0.1:11434"):
@@ -136,3 +136,38 @@ def test_provider_type_autodetected():
     assert cfg.providers["o"].provider_type == "ollama"
     assert cfg.providers["a"].provider_type == "anthropic"
     assert cfg.providers["x"].provider_type == "openai"
+
+
+# ---- module provider fallback (undefined provider must not be fatal) ------
+
+def _raw_with_module_provider(module_provider):
+    return {
+        "llm": {
+            "enabled": True,
+            "default_provider": "ollama",
+            "providers": {"ollama": {"api_base": "http://127.0.0.1:11434", "model": "llama3.1"}},
+        },
+        "modules": [
+            {"name": "svc", "enabled": True, "path": "/var/log/svc.log", "mode": "follow",
+             "pipeline": "svc", "llm": {"enabled": True, "provider": module_provider}},
+        ],
+    }
+
+
+def test_module_with_undefined_provider_falls_back_to_default(caplog):
+    """A stale module provider (e.g. removed 'local_vllm') warns and falls back."""
+    llm_defaults = build_llm_config(_raw_with_module_provider("local_vllm"))
+    with caplog.at_level("WARNING"):
+        modules = build_modules(_raw_with_module_provider("local_vllm"), llm_defaults)
+    svc = next(m for m in modules if m.name == "svc")
+    # Dangling name is dropped so resolve_provider() falls back to default_provider.
+    assert svc.llm.provider_name is None
+    assert any("local_vllm" in r.message for r in caplog.records)
+
+
+def test_module_with_defined_provider_is_kept():
+    raw = _raw_with_module_provider("ollama")
+    llm_defaults = build_llm_config(raw)
+    modules = build_modules(raw, llm_defaults)
+    svc = next(m for m in modules if m.name == "svc")
+    assert svc.llm.provider_name == "ollama"
