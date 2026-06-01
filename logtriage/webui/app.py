@@ -199,6 +199,7 @@ def start_rag_monitor():
             timestamp_mode="iso",
             include_detailed_status=True,
             logger=logger,
+            on_ready=_resync_rag_on_ready,
         )
 
     _rag_monitor.start()
@@ -285,6 +286,14 @@ def _refresh_rag_client() -> None:
     global rag_client
     config_io.refresh_rag_client()
     rag_client = STATE.rag_client
+
+
+def _resync_rag_on_ready() -> None:
+    """RAG monitor edge callback: register any repo that was added while the
+    service was busy indexing (and thus rejected), once it is idle again."""
+    global rag_client
+    if config_io.resync_rag_if_repos_missing():
+        rag_client = STATE.rag_client
 
 
 # Initialize RAG client after function definition

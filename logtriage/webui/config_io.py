@@ -40,6 +40,62 @@ def refresh_llm_defaults() -> None:
         )
 
 
+def _rag_repo_id(source) -> str:
+    """Stable repo id for a knowledge source (matches the RAG service's hashing)."""
+    import hashlib
+
+    content = f"{source.repo_url}#{source.branch}"
+    return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def _desired_rag_repo_ids(modules) -> set:
+    """Repo ids that *should* be registered, per the current config."""
+    ids = set()
+    for module in modules:
+        if module.rag and module.rag.enabled:
+            for source in module.rag.knowledge_sources:
+                ids.add(_rag_repo_id(source))
+    return ids
+
+
+def resync_rag_if_repos_missing() -> bool:
+    """Re-register RAG modules iff a configured repo is missing from the service.
+
+    Registration is rejected while the service is indexing (HTTP 509) and only
+    re-attempted on a config reload, so a repo added mid-index is silently
+    dropped. The RAG monitor calls this on the rising edge of readiness: once the
+    service is idle, we diff the configured repo set against what the service
+    actually has and re-run registration only when something is missing (so it
+    converges and doesn't churn). Returns True if a resync was triggered.
+    """
+    if create_rag_client is None:
+        return False
+    try:
+        rag_config = build_rag_config(STATE.raw_config)
+        if not rag_config or not rag_config.enabled:
+            return False
+        desired = _desired_rag_repo_ids(build_modules_safe())
+        if not desired:
+            return False
+        url = getattr(rag_config, "service_url", None) or "http://127.0.0.1:8091"
+        probe = create_rag_client(url, fallback=False)
+        if not getattr(probe, "is_ready", None) or not probe.is_ready():
+            return False
+        current = {r.get("repo_id") for r in (probe.get_status() or {}).get("repositories", [])}
+        missing = desired - current
+        if not missing:
+            return False
+        logger.info(
+            "RAG resync: %d configured repo(s) missing from the service (%s); re-registering.",
+            len(missing), ", ".join(sorted(missing)),
+        )
+        refresh_rag_client()
+        return True
+    except Exception as exc:
+        logger.warning("RAG resync check failed: %s", exc)
+        return False
+
+
 def refresh_rag_client() -> None:
     """(Re)initialise STATE.rag_client from STATE.raw_config."""
     if create_rag_client is None:
@@ -52,15 +108,13 @@ def refresh_rag_client() -> None:
             client = create_rag_client(url, fallback=True)
             STATE.rag_client = client
             if client.is_healthy():
-                import hashlib
                 modules = build_modules_safe()
                 keep_repo_ids = []
                 for module in modules:
                     if module.rag and module.rag.enabled:
                         client.add_module_config(module.name, module.rag)
                         for source in module.rag.knowledge_sources:
-                            content = f"{source.repo_url}#{source.branch}"
-                            keep_repo_ids.append(hashlib.sha256(content.encode()).hexdigest()[:16])
+                            keep_repo_ids.append(_rag_repo_id(source))
                 # Tear down repos for knowledge sources that were removed from
                 # config so they stop showing (and indexing) on the dashboard.
                 try:

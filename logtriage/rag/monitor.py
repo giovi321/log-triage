@@ -18,6 +18,7 @@ class RAGServiceMonitor:
         timestamp_mode: str = "unix",
         include_detailed_status: bool = False,
         logger: Optional[logging.Logger] = None,
+        on_ready: Optional[Callable[[], None]] = None,
     ) -> None:
         self._status = status
         self._get_service_url = get_service_url
@@ -27,6 +28,11 @@ class RAGServiceMonitor:
         self._timestamp_mode = timestamp_mode
         self._include_detailed_status = include_detailed_status
         self._logger = logger or logging.getLogger(__name__)
+        # Fired (outside the lock) on the rising edge of readiness, so a repo
+        # added while the service was busy indexing can be (re)registered once
+        # the service is idle again.
+        self._on_ready = on_ready
+        self._prev_ready = False
 
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -60,6 +66,19 @@ class RAGServiceMonitor:
                 return self._get_client()
             return None
 
+    def _maybe_fire_on_ready(self, is_ready: bool) -> None:
+        """Invoke the on_ready callback on a False→True readiness transition.
+
+        Must be called OUTSIDE ``self._lock`` — the callback may do network I/O.
+        """
+        rose = bool(is_ready) and not self._prev_ready
+        self._prev_ready = bool(is_ready)
+        if rose and self._on_ready is not None:
+            try:
+                self._on_ready()
+            except Exception as exc:  # pragma: no cover - defensive
+                self._logger.warning("RAG on_ready callback failed: %s", exc)
+
     def _set_last_check(self) -> None:
         if self._timestamp_mode == "iso":
             self._status["last_check"] = datetime.datetime.now(
@@ -86,6 +105,7 @@ class RAGServiceMonitor:
                         if self._include_detailed_status:
                             self._status["detailed_status"] = None
                         self._set_last_check()
+                    self._maybe_fire_on_ready(False)
                     continue
 
                 client = self._get_client()
@@ -101,6 +121,7 @@ class RAGServiceMonitor:
                             if self._include_detailed_status:
                                 self._status["detailed_status"] = None
                             self._set_last_check()
+                        self._maybe_fire_on_ready(False)
                         continue
 
                     try:
@@ -136,6 +157,7 @@ class RAGServiceMonitor:
                                 self._status["detailed_status"] = detailed
 
                         self._set_last_check()
+                    self._maybe_fire_on_ready(is_ready)
                     continue
 
                 try:
@@ -158,6 +180,7 @@ class RAGServiceMonitor:
                             if detailed:
                                 self._status["detailed_status"] = detailed
                         self._set_last_check()
+                    self._maybe_fire_on_ready(is_ready)
 
                 except Exception as exc:
                     self._logger.debug(f"RAG service check failed: {exc}")
@@ -168,6 +191,7 @@ class RAGServiceMonitor:
                         if self._include_detailed_status:
                             self._status["detailed_status"] = None
                         self._set_last_check()
+                    self._maybe_fire_on_ready(False)
 
             except Exception as exc:
                 self._logger.error(f"RAG monitor worker error: {exc}")
@@ -175,3 +199,4 @@ class RAGServiceMonitor:
                     self._status["rag_available"] = False
                     self._status["rag_ready"] = False
                     self._set_last_check()
+                self._maybe_fire_on_ready(False)
