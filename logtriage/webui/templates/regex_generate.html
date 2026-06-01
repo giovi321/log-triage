@@ -15,6 +15,7 @@
   .cand-status.ok { color:var(--brand-bright); }
   .cand-status.err { color:#ffc9cb; }
   .stat { font-family:var(--font-mono); }
+  .stat.stale, td.stale { opacity:0.35; }
   .stat-danger { color:#ffc9cb; font-weight:600; }
   .stat-new { color:var(--brand-bright); font-weight:600; }
   .pill-warn { display:inline-block; font-size:0.7rem; padding:1px 7px; border-radius:var(--r-pill); background:rgba(245,99,99,0.12); color:#ffc9cb; border:1px solid rgba(245,99,99,0.4); }
@@ -97,20 +98,18 @@
         {% for c in result.candidates %}
         <tr class="{% if not c.valid %}row-invalid{% endif %}">
           <td>
-            <textarea class="cand-pattern-input" rows="2" spellcheck="false">{{ c.pattern }}</textarea>
+            <textarea class="cand-pattern-input" rows="2" spellcheck="false" oninput="markStale(this.closest('tr'))">{{ c.pattern }}</textarea>
             {% if c.rationale %}<div class="cand-rationale">{{ c.rationale }}</div>{% endif %}
             {% if not c.valid %}<div class="cand-rationale" style="color:#ffc9cb;">Heads up: the suggested pattern was invalid ({{ c.error }}) — edit it before adding.</div>{% endif %}
-            {% if c.examples %}
-              <div class="cand-examples">
-                {% for ex in c.examples %}<div>{{ ex }}</div>{% endfor %}
-              </div>
-            {% endif %}
+            <div class="cand-examples js-examples">
+              {% for ex in c.examples %}<div>{{ ex }}</div>{% endfor %}
+            </div>
             <span class="cand-status" aria-live="polite"></span>
           </td>
-          <td class="stat">{{ c.match_count }}</td>
-          <td class="stat {% if c.new_matches > 0 %}stat-new{% endif %}">{{ c.new_matches }}</td>
+          <td class="stat js-matches">{{ c.match_count }}</td>
+          <td class="stat js-new {% if c.new_matches > 0 %}stat-new{% endif %}">{{ c.new_matches }}</td>
           {% if regex_kind == 'ignore' %}
-          <td>
+          <td class="js-risk">
             {% if c.over_match > 0 %}
               <span class="pill-warn">risk</span> <span class="stat stat-danger">{{ c.over_match }}</span>
             {% else %}
@@ -118,7 +117,8 @@
             {% endif %}
           </td>
           {% endif %}
-          <td>
+          <td style="white-space:nowrap;">
+            <button type="button" class="secondary cand-retest" onclick="retest(this)">Re-test</button>
             <button type="button" class="secondary cand-add" data-over="{{ c.over_match }}" onclick="addRegex(this)">Add to config</button>
           </td>
         </tr>
@@ -131,8 +131,88 @@
 </div>
 <script>
   const ADD_URL = "{{ url_for('regex_add') }}";
+  const RETEST_URL = "{{ url_for('regex_retest') }}";
   const MODULE = {{ (current_module.name if current_module else '')|tojson }};
   const KIND = {{ regex_kind|tojson }};
+  const SAMPLE_SIZE = {{ sample_size|tojson }};
+  const IS_IGNORE = KIND === 'ignore';
+
+  function escapeHtml(text) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return (text || '').replace(/[&<>"']/g, m => map[m] || m);
+  }
+
+  // Editing a pattern invalidates its back-test numbers until Re-test runs.
+  function markStale(row) {
+    if (!row) return;
+    row.querySelectorAll('.js-matches, .js-new, .js-risk').forEach(c => c.classList.add('stale'));
+    const status = row.querySelector('.cand-status');
+    if (status && !status.classList.contains('ok')) {
+      status.textContent = 'Edited — click Re-test to refresh the stats.';
+      status.className = 'cand-status';
+    }
+  }
+
+  async function retest(btn) {
+    const row = btn.closest('tr');
+    const input = row.querySelector('.cand-pattern-input');
+    const status = row.querySelector('.cand-status');
+    const pattern = (input.value || '').trim();
+    if (!pattern) {
+      status.textContent = 'Pattern is empty.';
+      status.className = 'cand-status err';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Testing…';
+    status.className = 'cand-status';
+    try {
+      const resp = await fetch(RETEST_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ module: MODULE, regex_value: pattern, regex_kind: KIND, sample_size: SAMPLE_SIZE }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        status.textContent = data.error || ('Test failed (HTTP ' + resp.status + ').');
+        status.className = 'cand-status err';
+        return;
+      }
+      if (!data.valid) {
+        status.textContent = 'Invalid regex: ' + (data.error || 'cannot compile');
+        status.className = 'cand-status err';
+        return;
+      }
+      const matchesCell = row.querySelector('.js-matches');
+      const newCell = row.querySelector('.js-new');
+      const riskCell = row.querySelector('.js-risk');
+      const examples = row.querySelector('.js-examples');
+      const addBtn = row.querySelector('.cand-add');
+
+      matchesCell.textContent = data.match_count;
+      matchesCell.classList.remove('stale');
+      newCell.textContent = data.new_matches;
+      newCell.classList.toggle('stat-new', data.new_matches > 0);
+      newCell.classList.remove('stale');
+      if (riskCell) {
+        riskCell.innerHTML = data.over_match > 0
+          ? '<span class="pill-warn">risk</span> <span class="stat stat-danger">' + data.over_match + '</span>'
+          : '<span class="pill-ok">safe</span>';
+        riskCell.classList.remove('stale');
+      }
+      if (examples) {
+        examples.innerHTML = (data.examples || []).map(e => '<div>' + escapeHtml(e) + '</div>').join('');
+      }
+      if (addBtn) addBtn.dataset.over = data.over_match;
+      status.textContent = 'Stats refreshed for the edited pattern.';
+      status.className = 'cand-status ok';
+    } catch (e) {
+      status.textContent = 'Request failed — is the server reachable?';
+      status.className = 'cand-status err';
+    } finally {
+      btn.disabled = false;
+    }
+  }
 
   async function addRegex(btn) {
     const row = btn.closest('tr');

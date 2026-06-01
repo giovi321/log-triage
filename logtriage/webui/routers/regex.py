@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover
     yaml = None
 
 from ...models import ModuleConfig
-from ...regex_gen import generate_from_loglines, VALID_KINDS
+from ...regex_gen import generate_from_loglines, backtest_pattern, VALID_KINDS
 from ..auth import get_current_user, current_user_is_admin
 from ..db import get_module_stats, get_recent_findings_for_module
 from ..ingestion_status import _derive_ingestion_status
@@ -764,4 +764,58 @@ async def regex_add(request: Request):
     key = config_io._CLASSIFIER_KEYS.get(regex_kind, "ignore_regexes")
     return JSONResponse(
         {"ok": True, "message": f"Added to classifier.{key} for pipeline {module_obj.pipeline_name}."}
+    )
+
+
+@router.post("/regex/retest", name="regex_retest")
+async def regex_retest(request: Request):
+    """Re-back-test a single (edited) pattern against a fresh log sample, as JSON.
+
+    Lets the Suggest Regex page refresh a candidate's Matches/New/Risk stats after
+    its pattern is edited, so the numbers never go stale. Admin-only; JSON body so
+    it is CSRF-exempt like the other JSON APIs.
+    """
+    username = get_current_user(request, STATE.settings)
+    if not username:
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
+    if not current_user_is_admin(request, STATE.settings):
+        return JSONResponse({"error": "Admin access required"}, status_code=status.HTTP_403_FORBIDDEN)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    module = (data.get("module") or "").strip()
+    regex_value = (data.get("regex_value") or "").strip()
+    regex_kind = data.get("regex_kind") or "error"
+    if regex_kind not in VALID_KINDS:
+        regex_kind = "error"
+    try:
+        size = int(data.get("sample_size") or DEFAULT_SAMPLE_SIZE)
+    except (TypeError, ValueError):
+        size = DEFAULT_SAMPLE_SIZE
+    if size not in SAMPLE_SIZE_OPTIONS:
+        size = DEFAULT_SAMPLE_SIZE
+
+    module_obj = next((m for m in build_modules_from_config() if m.name == module), None)
+    if module_obj is None:
+        return JSONResponse({"error": "Unknown module."}, status_code=400)
+
+    lines, _start, _total, sample_error = _get_sample_lines_for_module(module_obj, "tail", max_lines=size)
+    if sample_error:
+        return JSONResponse({"error": sample_error}, status_code=400)
+
+    existing = _existing_patterns_for_module(module_obj)
+    cand = backtest_pattern(regex_value, regex_kind, lines, existing_patterns=existing)
+    return JSONResponse(
+        {
+            "ok": True,
+            "valid": cand.valid,
+            "error": cand.error,
+            "match_count": cand.match_count,
+            "new_matches": cand.new_matches,
+            "over_match": cand.over_match,
+            "examples": cand.examples,
+        }
     )

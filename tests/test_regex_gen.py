@@ -131,6 +131,37 @@ def test_invalid_regex_is_flagged_not_dropped(monkeypatch):
     assert by_pattern["[unclosed"].error
 
 
+def test_backtest_pattern_recomputes_stats():
+    lines = [
+        "ERROR db connection refused to 5432",
+        "ERROR db connection refused to 5599",
+        "INFO all good",
+    ]
+    cand = regex_gen.backtest_pattern("connection refused", "error", lines, existing_patterns={})
+    assert cand.valid is True
+    assert cand.match_count == 2
+    assert cand.new_matches == 2
+    assert len(cand.examples) == 2
+
+
+def test_backtest_pattern_flags_invalid():
+    cand = regex_gen.backtest_pattern("[unclosed", "error", ["whatever"], existing_patterns={})
+    assert cand.valid is False
+    assert cand.error
+    assert cand.match_count == 0
+
+
+def test_backtest_pattern_ignore_overmatch():
+    lines = ["heartbeat ok", "heartbeat failed boom"]
+    cand = regex_gen.backtest_pattern(
+        "heartbeat", "ignore", lines,
+        existing_patterns={"error": ["failed"], "warning": [], "ignore": []},
+    )
+    assert cand.match_count == 2
+    assert cand.over_match == 1
+    assert cand.safe is False
+
+
 def test_no_lines_returns_helpful_error(monkeypatch):
     _patch_llm(monkeypatch, "[]")
     result = regex_gen.generate_from_loglines([], "error", FakeProvider(), existing_patterns={})

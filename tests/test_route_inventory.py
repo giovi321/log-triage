@@ -53,6 +53,7 @@ EXPECTED = {
     ("/regex/add", ("POST",), "regex_add"),
     ("/regex/generate", ("GET",), "regex_generate_form"),
     ("/regex/generate", ("POST",), "regex_generate"),
+    ("/regex/retest", ("POST",), "regex_retest"),
     ("/regex/save", ("POST",), "regex_save"),
     ("/regex/suggest", ("POST",), "regex_suggest"),
     ("/regex/test", ("POST",), "regex_test"),

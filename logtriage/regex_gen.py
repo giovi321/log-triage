@@ -212,6 +212,41 @@ def backtest(
         cand.examples = matched[:DEFAULT_EXAMPLE_LINES]
 
 
+def backtest_pattern(
+    pattern: str,
+    kind: str,
+    lines: List[str],
+    *,
+    existing_patterns: Optional[Dict[str, List[str]]] = None,
+) -> RegexCandidate:
+    """Validate and back-test a single (possibly user-edited) pattern.
+
+    Mirrors what :func:`generate_from_loglines` computes per candidate, so the UI
+    can refresh Matches/New/Risk after a pattern is edited. Returns a
+    :class:`RegexCandidate` with ``valid``/``error`` and the stats populated.
+    """
+    kind = kind if kind in VALID_KINDS else "error"
+    cand = RegexCandidate(pattern=(pattern or "").strip(), kind=kind)
+    if not cand.pattern:
+        cand.valid = False
+        cand.error = "Pattern is empty."
+        return cand
+    try:
+        re.compile(cand.pattern, re.IGNORECASE)
+    except re.error as exc:
+        cand.valid = False
+        cand.error = str(exc)
+        return cand
+
+    existing_patterns = existing_patterns or {}
+    problem_rx = _compile_all(
+        list(existing_patterns.get("error") or []) + list(existing_patterns.get("warning") or [])
+    )
+    clean_lines = [ln for ln in (_clean(x) for x in lines) if ln.strip()]
+    backtest([cand], clean_lines, problem_rx)
+    return cand
+
+
 def generate_from_loglines(
     lines: List[str],
     kind: str,
