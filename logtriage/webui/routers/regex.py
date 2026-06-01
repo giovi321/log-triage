@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover
     yaml = None
 
 from ...models import ModuleConfig
+from ...regex_gen import generate_regex_candidates, VALID_KINDS
 from ..auth import get_current_user, current_user_is_admin
 from ..db import get_module_stats, get_recent_findings_for_module
 from ..ingestion_status import _derive_ingestion_status
@@ -542,3 +543,130 @@ async def regex_save(
             active_step="save",
         ),
     )
+
+
+def _provider_options() -> List[Dict[str, Any]]:
+    """List configured LLM providers for the generator dropdown."""
+    providers = getattr(STATE.llm_defaults, "providers", {}) or {}
+    options: List[Dict[str, Any]] = []
+    for name, cfg in providers.items():
+        options.append(
+            {
+                "name": name,
+                "model": getattr(cfg, "model", "") or "",
+                "type": getattr(cfg, "provider_type", "") or "",
+            }
+        )
+    return options
+
+
+def _resolve_generator_provider(provider_name: str):
+    """Resolve the provider to use: explicit choice → default → sole provider."""
+    providers = getattr(STATE.llm_defaults, "providers", {}) or {}
+    name = (provider_name or "").strip() or getattr(STATE.llm_defaults, "default_provider", None)
+    if not name and len(providers) == 1:
+        name = next(iter(providers))
+    return name, (providers.get(name) if name else None)
+
+
+def _generate_context(
+    request: Request,
+    username: str,
+    modules,
+    *,
+    current_module,
+    regex_kind: str,
+    provider_options: List[Dict[str, Any]],
+    selected_provider: Optional[str],
+    result=None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    return {
+        "request": request,
+        "username": username,
+        "modules": modules,
+        "current_module": current_module,
+        "regex_kind": regex_kind,
+        "provider_options": provider_options,
+        "selected_provider": selected_provider,
+        "result": result,
+        "error": error,
+        "valid_kinds": list(VALID_KINDS),
+        "current_path": request.url.path,
+    }
+
+
+@router.get("/regex/generate", name="regex_generate_form")
+async def regex_generate_form(request: Request, module: str = "", regex_kind: str = "error"):
+    username = get_current_user(request, STATE.settings)
+    if not username:
+        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("issues") + "?error=Admin+access+required", status_code=status.HTTP_303_SEE_OTHER)
+
+    modules = build_modules_from_config()
+    module_obj = next((m for m in modules if m.name == module), None)
+    kind = regex_kind if regex_kind in VALID_KINDS else "error"
+    selected_provider, _ = _resolve_generator_provider("")
+    return templates.TemplateResponse(
+        "regex_generate.html",
+        _generate_context(
+            request,
+            username,
+            modules,
+            current_module=module_obj,
+            regex_kind=kind,
+            provider_options=_provider_options(),
+            selected_provider=selected_provider,
+        ),
+    )
+
+
+@router.post("/regex/generate", name="regex_generate")
+async def regex_generate(
+    request: Request,
+    module: str = Form(...),
+    regex_kind: str = Form("error"),
+    provider: str = Form(""),
+):
+    username = get_current_user(request, STATE.settings)
+    if not username:
+        return RedirectResponse(url=request.app.url_path_for("login_form"), status_code=status.HTTP_303_SEE_OTHER)
+    if not current_user_is_admin(request, STATE.settings):
+        return RedirectResponse(url=request.app.url_path_for("issues") + "?error=Admin+access+required", status_code=status.HTTP_303_SEE_OTHER)
+
+    modules = build_modules_from_config()
+    module_obj = next((m for m in modules if m.name == module), None)
+    kind = regex_kind if regex_kind in VALID_KINDS else "error"
+    provider_options = _provider_options()
+    selected_provider, provider_cfg = _resolve_generator_provider(provider)
+
+    def render(result=None, error=None):
+        return templates.TemplateResponse(
+            "regex_generate.html",
+            _generate_context(
+                request,
+                username,
+                modules,
+                current_module=module_obj,
+                regex_kind=kind,
+                provider_options=provider_options,
+                selected_provider=selected_provider,
+                result=result,
+                error=error,
+            ),
+        )
+
+    if module_obj is None:
+        return render(error="Select a configured module.")
+    if not getattr(STATE.llm_defaults, "enabled", False):
+        return render(error="LLM is disabled in config; enable it under the LLM settings to generate regexes.")
+    if provider_cfg is None:
+        return render(error="No LLM provider selected or configured. Pick one above (a local Ollama provider is ideal for this batch job).")
+
+    try:
+        result = generate_regex_candidates(module_obj.name, kind, provider_cfg)
+    except Exception as exc:  # pragma: no cover - defensive
+        return render(error=f"Generation failed: {exc}")
+
+    return render(result=result, error=result.error)

@@ -171,6 +171,27 @@ def build_pages() -> list:
          regex_issues=None, sample_source="tail",
          ingestion_status=_NS(message="active · last line 4s ago"), _path="/regex")
 
+    # ---- regex generator (LLM from history) -------------------------------
+    gen_result = _NS(
+        candidates=[
+            _NS(pattern=r"Unable to connect to MQTT broker \S+", rationale="MQTT broker unreachable",
+                covers=[1], valid=True, error=None, distinct_issues=1, match_count=432,
+                over_match=0, safe=True),
+            _NS(pattern=r"Traceback", rationale="Python traceback", covers=[2], valid=True,
+                error=None, distinct_issues=3, match_count=27, over_match=2, safe=False),
+            _NS(pattern=r"[unclosed", rationale="malformed", covers=[], valid=False,
+                error="missing ], unterminated subpattern", distinct_issues=0, match_count=0,
+                over_match=0, safe=False),
+        ],
+        signatures_used=12, provider="ollama-local", model="qwen2.5", error=None,
+    )
+    page("regex_generate.html",
+         username="admin", modules=modules, current_module=modules[0], regex_kind="error",
+         provider_options=[{"name": "ollama-local", "model": "qwen2.5", "type": "ollama"},
+                           {"name": "claude", "model": "claude-sonnet-4-6", "type": "anthropic"}],
+         selected_provider="ollama-local", valid_kinds=["ignore", "error", "warning"],
+         result=gen_result, error=None, _path="/regex/generate")
+
     # ---- triage (issues + detail) -----------------------------------------
     issue1 = _NS(
         id=1, severity="CRITICAL", priority_score=132.0,

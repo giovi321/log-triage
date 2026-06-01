@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .gen-form { display:flex; gap:var(--s-3); align-items:flex-end; flex-wrap:wrap; margin-top:var(--s-3); }
+  .gen-form label { display:flex; flex-direction:column; gap:0.25rem; font-size:0.85rem; color:var(--text-dim); }
+  .gen-meta { color:var(--text-dim); font-size:0.85rem; margin:var(--s-3) 0; }
+  .cand-table { width:100%; border-collapse:collapse; margin-top:var(--s-2); }
+  .cand-table th, .cand-table td { text-align:left; padding:0.5rem 0.6rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:0.86rem; }
+  .cand-table th { color:var(--text-faint); font-weight:600; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em; }
+  .cand-pattern { font-family:var(--font-mono); white-space:pre-wrap; word-break:break-all; }
+  .cand-rationale { color:var(--text-dim); font-size:0.8rem; }
+  .stat { font-family:var(--font-mono); }
+  .stat-danger { color:#ffc9cb; font-weight:600; }
+  .stat-ok { color:var(--brand-bright); }
+  .pill-warn { display:inline-block; font-size:0.7rem; padding:1px 7px; border-radius:var(--r-pill); background:rgba(245,99,99,0.12); color:#ffc9cb; border:1px solid rgba(245,99,99,0.4); }
+  .pill-ok { display:inline-block; font-size:0.7rem; padding:1px 7px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--brand-bright); border:1px solid var(--accent-line); }
+  .row-invalid { opacity:0.55; }
+</style>
+<div class="card" data-reveal>
+  <div class="section-eyebrow">PATTERN WORKBENCH</div>
+  <h2 style="margin-top:0;">Generate regexes from history</h2>
+  <p class="helper-text" style="margin-top:0;">
+    Learn classifier patterns from the de-duplicated issues already collected for a module. The LLM
+    sees distinct issue <em>signatures</em> (not raw logs), and every candidate is back-tested against
+    history before you see it. Nothing is saved until you click <strong>Add to config</strong>.
+  </p>
+
+  <form class="gen-form" method="post" action="{{ url_for('regex_generate') }}">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+    <label>Module
+      <select name="module">
+        {% for m in modules %}{% if m.enabled %}
+        <option value="{{ m.name }}" {% if current_module and m.name == current_module.name %}selected{% endif %}>{{ m.name }}</option>
+        {% endif %}{% endfor %}
+      </select>
+    </label>
+    <label>Kind
+      <select name="regex_kind">
+        {% for k in valid_kinds %}
+        <option value="{{ k }}" {% if k == regex_kind %}selected{% endif %}>{{ k }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Provider
+      <select name="provider">
+        {% for p in provider_options %}
+        <option value="{{ p.name }}" {% if p.name == selected_provider %}selected{% endif %}>
+          {{ p.name }}{% if p.model %} ({{ p.model }}){% endif %}{% if p.type %} · {{ p.type }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Generate</button>
+  </form>
+
+  {% if not provider_options %}
+    <p class="helper-text" style="margin-top:var(--s-3); color:#ffc9cb;">No LLM providers configured. Add one under Settings → LLM (a local Ollama provider is ideal for this batch job).</p>
+  {% endif %}
+
+  {% if error %}
+    <p class="helper-text" style="margin-top:var(--s-3); color:#ffc9cb;">{{ error }}</p>
+  {% endif %}
+
+  {% if result and result.candidates %}
+    <p class="gen-meta">
+      Learned from <strong>{{ result.signatures_used }}</strong> signature(s)
+      via <strong>{{ result.provider }}</strong>{% if result.model %} / {{ result.model }}{% endif %}.
+      <span class="pill-ok">safe</span> = matches nothing protected;
+      <span class="pill-warn">risk</span> = would also catch {{ 'active error/warning' if regex_kind == 'ignore' else 'other-severity' }} issues.
+    </p>
+    <table class="cand-table">
+      <thead>
+        <tr>
+          <th>Pattern</th>
+          <th>Issues</th>
+          <th>Volume</th>
+          <th>Risk</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in result.candidates %}
+        <tr class="{% if not c.valid %}row-invalid{% endif %}">
+          <td>
+            <div class="cand-pattern">{{ c.pattern }}</div>
+            {% if c.rationale %}<div class="cand-rationale">{{ c.rationale }}</div>{% endif %}
+            {% if not c.valid %}<div class="cand-rationale" style="color:#ffc9cb;">Invalid: {{ c.error }}</div>{% endif %}
+          </td>
+          <td class="stat">{{ c.distinct_issues }}</td>
+          <td class="stat">{{ c.match_count }}</td>
+          <td>
+            {% if c.over_match > 0 %}
+              <span class="pill-warn">risk</span> <span class="stat stat-danger">{{ c.over_match }}</span>
+            {% else %}
+              <span class="pill-ok">safe</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if c.valid %}
+            <form method="post" action="{{ url_for('regex_save') }}" onsubmit="return confirmAdd(this, {{ c.over_match }});">
+              <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+              <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
+              <input type="hidden" name="regex_value" value="{{ c.pattern }}">
+              <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
+              <input type="hidden" name="sample_source" value="tail">
+              <button type="submit" class="secondary">Add to config</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% elif result and not result.error %}
+    <p class="helper-text" style="margin-top:var(--s-3);">No candidates were produced. Try a different kind or module with more history.</p>
+  {% endif %}
+</div>
+<script>
+  function confirmAdd(form, overMatch) {
+    if (overMatch > 0) {
+      return window.confirm('This pattern would also match ' + overMatch +
+        ' protected issue(s) and could suppress or misclassify real problems. Add it anyway?');
+    }
+    return true;
+  }
+</script>
+{% endblock %}

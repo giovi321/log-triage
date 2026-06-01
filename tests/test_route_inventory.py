@@ -50,6 +50,8 @@ EXPECTED = {
     ("/logs/finding/severity", ("POST",), "change_finding_severity"),
     ("/metrics", ("GET",), "metrics"),
     ("/regex", ("GET",), "regex_lab"),
+    ("/regex/generate", ("GET",), "regex_generate_form"),
+    ("/regex/generate", ("POST",), "regex_generate"),
     ("/regex/save", ("POST",), "regex_save"),
     ("/regex/suggest", ("POST",), "regex_suggest"),
     ("/regex/test", ("POST",), "regex_test"),
