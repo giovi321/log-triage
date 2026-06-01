@@ -162,6 +162,8 @@ def _build_messages(representatives: List[dict], kind: str) -> List[dict]:
         "file paths) with \\d+, \\S+, or character classes, but KEEP the stable, "
         "distinguishing words so each pattern stays specific.\n"
         "- One pattern per distinct family. Never an over-broad catch-all such as `.*`.\n"
+        "- Match the distinctive text of each problem. Do NOT try to parse the whole line "
+        "into fields, and do NOT use capture groups.\n"
         "- Write backslashes literally (e.g. \\d+, \\S+).\n\n"
         "Output format — EXACTLY this and NOTHING else, one line per pattern:\n"
         "REGEX: <pattern> # <short reason>\n"
@@ -181,6 +183,10 @@ def _build_messages(representatives: List[dict], kind: str) -> List[dict]:
 
 
 _REGEX_LINE = re.compile(r"^\s*(?:[-*]\s*)?REGEX:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+_FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+# .NET/JS named groups (?<name>...) — invalid in Python re, which wants (?P<name>...).
+# The negative class avoids touching lookbehind (?<= and (?<!.
+_NAMED_GROUP = re.compile(r"\(\?<([A-Za-z_][A-Za-z0-9_]*)>")
 
 
 def _strip_wrappers(value: str) -> str:
@@ -189,6 +195,31 @@ def _strip_wrappers(value: str) -> str:
         if len(s) >= 2 and s[0] == quote and s[-1] == quote:
             s = s[1:-1].strip()
     return s
+
+
+def _normalize_pattern_dialect(pattern: str) -> str:
+    """Convert common non-Python regex spellings to Python ``re`` syntax.
+
+    Models often emit .NET/JS named groups ``(?<name>...)``; Python uses
+    ``(?P<name>...)``. Lookbehind ``(?<=`` / ``(?<!`` is left untouched.
+    """
+    return _NAMED_GROUP.sub(r"(?P<\1>", pattern or "")
+
+
+def _fenced_lines(text: str) -> List[str]:
+    """Return non-empty lines found inside ```code fences``` (closed or trailing)."""
+    blocks = _FENCE.findall(text or "")
+    if not blocks:
+        # Tolerate an unclosed/truncated fence: take everything after the opener.
+        m = re.search(r"```[^\n]*\n(.*)$", text or "", re.DOTALL)
+        blocks = [m.group(1)] if m else []
+    lines: List[str] = []
+    for block in blocks:
+        for line in block.splitlines():
+            s = line.strip()
+            if s:
+                lines.append(s)
+    return lines
 
 
 def _sanitize_json(snippet: str) -> str:
@@ -240,7 +271,7 @@ def _parse_candidates(content: str) -> List[dict]:
     seen: set = set()
 
     def _add(pattern: str, rationale: str = "") -> None:
-        pat = _strip_wrappers(pattern)
+        pat = _normalize_pattern_dialect(_strip_wrappers(pattern))
         if pat and pat not in seen:
             seen.add(pat)
             out.append({"pattern": pat, "rationale": (rationale or "").strip()})
@@ -262,6 +293,13 @@ def _parse_candidates(content: str) -> List[dict]:
             _add(item.get("pattern") or "", item.get("rationale") or "")
         elif isinstance(item, str):
             _add(item, "")
+    if out:
+        return out
+
+    # 3) Fallback: patterns wrapped in a ```code fence``` with surrounding prose
+    #    (e.g. ```regex\n<pattern>\n```). Each fenced line is treated as a pattern.
+    for line in _fenced_lines(text):
+        _add(line, "")
     return out
 
 

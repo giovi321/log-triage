@@ -74,6 +74,41 @@ def test_parse_candidates_falls_back_to_json():
     assert parsed == [{"pattern": "boom", "rationale": "x"}]
 
 
+def test_parse_candidates_from_code_fence_with_prose():
+    # The actual jellyfin reply: a regex wrapped in a ```regex fence with prose,
+    # using .NET-style named groups that Python re rejects.
+    content = (
+        "Here is the regex pattern to match the log lines provided:\n\n"
+        "```regex\n"
+        r"\[(?<level>[A-Z]+)\] (?<message>.+)" "\n"
+        "```\n\n"
+        "This captures the level and message."
+    )
+    parsed = regex_gen._parse_candidates(content)
+    assert len(parsed) == 1
+    # Named groups normalized to Python syntax so the pattern compiles.
+    assert parsed[0]["pattern"] == r"\[(?P<level>[A-Z]+)\] (?P<message>.+)"
+
+
+def test_normalize_pattern_dialect_named_groups_but_not_lookbehind():
+    assert regex_gen._normalize_pattern_dialect(r"(?<ts>\d+)") == r"(?P<ts>\d+)"
+    # Lookbehind must be left intact.
+    assert regex_gen._normalize_pattern_dialect(r"(?<=foo)bar") == r"(?<=foo)bar"
+    assert regex_gen._normalize_pattern_dialect(r"(?<!foo)bar") == r"(?<!foo)bar"
+
+
+def test_generate_parses_fenced_named_group_reply(monkeypatch):
+    lines = ["[ERROR] db down", "[INFO] ok", "[ERROR] cache miss"]
+    reply = "Here you go:\n```regex\n" + r"\[ERROR\] (?<msg>.+)" + "\n```\nDone."
+    _patch_llm(monkeypatch, reply)
+    result = regex_gen.generate_from_loglines(lines, "error", FakeProvider(), existing_patterns={})
+    assert result.error is None
+    assert len(result.candidates) == 1
+    cand = result.candidates[0]
+    assert cand.valid is True            # compiles after (?<msg>->(?P<msg> normalization
+    assert cand.match_count == 2
+
+
 def test_discovers_and_backtests_from_raw_lines(monkeypatch):
     lines = [
         "2026-01-01 INFO service started ok",
