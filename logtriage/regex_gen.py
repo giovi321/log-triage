@@ -148,9 +148,15 @@ def _build_messages(representatives: List[dict], kind: str) -> List[dict]:
         "Generalize volatile tokens (numbers, ids, UUIDs, IPs, timestamps, hex digests, file paths) "
         "using character classes or \\S+ / \\d+, but KEEP the stable, distinguishing words so each "
         "pattern stays specific. One pattern per distinct family; never an over-broad catch-all such "
-        f"as `.*`. Given the log lines below, {intent}\n"
-        "Return ONLY a JSON array, no prose. Each element must be an object: "
-        '{"pattern": "<regex>", "rationale": "<short why this is a ' + kind + '>"}'
+        f"as `.*`. Given the log lines below, {intent}\n\n"
+        "OUTPUT FORMAT — follow exactly:\n"
+        "- Write each pattern on its OWN line, prefixed literally with `REGEX: `.\n"
+        "- After the pattern you MAY add ` # ` followed by a short reason.\n"
+        "- Write backslashes literally (e.g. \\d+, \\S+) — do NOT JSON-escape them.\n"
+        "- Output nothing else: no JSON, no markdown fences, no commentary.\n"
+        "Example:\n"
+        "REGEX: connection refused to \\S+ # cannot reach a dependency\n"
+        "REGEX: \\bFATAL\\b .* unhandled # fatal crash"
     )
     user = (
         "Here is a sample of log lines. Each is prefixed with a number and how many times its "
@@ -162,22 +168,95 @@ def _build_messages(representatives: List[dict], kind: str) -> List[dict]:
     ]
 
 
+_REGEX_LINE = re.compile(r"^\s*(?:[-*]\s*)?REGEX:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_wrappers(value: str) -> str:
+    s = (value or "").strip()
+    for quote in ("`", '"', "'"):
+        if len(s) >= 2 and s[0] == quote and s[-1] == quote:
+            s = s[1:-1].strip()
+    return s
+
+
+def _sanitize_json(snippet: str) -> str:
+    """Repair the two ways an LLM most often breaks JSON containing regexes.
+
+    Regex bodies are full of ``\\d`` / ``\\S`` / ``\\.`` which are *invalid* JSON
+    escapes, so a single bad backslash rejects the whole document. Double every
+    backslash that is not already a valid JSON escape, and drop trailing commas.
+    """
+    snippet = re.sub(r'\\(?![\\"/bfnrtu])', r"\\\\", snippet)
+    snippet = re.sub(r",(\s*[\]}])", r"\1", snippet)
+    return snippet
+
+
 def _extract_json_array(content: str) -> Optional[list]:
     """Best-effort extraction of a JSON array from an LLM response.
 
-    Tolerates ```code fences``` and leading/trailing prose by slicing from the
-    first ``[`` to the last ``]``.
+    Tolerates ```code fences```/prose by slicing from the first ``[`` to the last
+    ``]``, and retries after repairing invalid regex backslash escapes and
+    trailing commas.
     """
     text = (content or "").strip()
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1 or end <= start:
         return None
-    try:
-        data = json.loads(text[start : end + 1])
-    except (ValueError, TypeError):
-        return None
-    return data if isinstance(data, list) else None
+    snippet = text[start : end + 1]
+    for candidate in (snippet, _sanitize_json(snippet)):
+        try:
+            data = json.loads(candidate)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, list):
+            return data
+    return None
+
+
+def _parse_candidates(content: str) -> List[dict]:
+    """Parse LLM output into ``[{pattern, rationale}, ...]``, robustly.
+
+    Primary path is the line-oriented ``REGEX: <pattern> # <reason>`` format the
+    prompt asks for — regexes are written literally, so backslashes can't break
+    it and surrounding prose is simply ignored. Falls back to a (repaired) JSON
+    array for models that answer in JSON anyway, and salvages partial/truncated
+    output line-by-line.
+    """
+    text = content or ""
+    out: List[dict] = []
+    seen: set = set()
+
+    def _add(pattern: str, rationale: str = "") -> None:
+        pat = _strip_wrappers(pattern)
+        if pat and pat not in seen:
+            seen.add(pat)
+            out.append({"pattern": pat, "rationale": (rationale or "").strip()})
+
+    # 1) Preferred: explicit REGEX: lines (survives backslashes, prose, fences).
+    for match in _REGEX_LINE.finditer(text):
+        raw = match.group(1).strip()
+        rationale = ""
+        if " # " in raw:
+            raw, rationale = raw.split(" # ", 1)
+        _add(raw, rationale)
+    if out:
+        return out
+
+    # 2) Fallback: a JSON array (with backslash/trailing-comma repair).
+    items = _extract_json_array(text)
+    for item in items or []:
+        if isinstance(item, dict):
+            _add(item.get("pattern") or "", item.get("rationale") or "")
+        elif isinstance(item, str):
+            _add(item, "")
+    return out
+
+
+def _looks_like_empty_result(content: str) -> bool:
+    """True when the model legitimately proposed nothing (vs unparseable junk)."""
+    text = (content or "").strip().strip("`").strip()
+    return text in ("", "[]", "{}")
 
 
 def backtest(
@@ -283,7 +362,9 @@ def generate_from_loglines(
         "messages": _build_messages(representatives, kind),
         "temperature": getattr(provider, "temperature", 0.0) or 0.0,
         "top_p": getattr(provider, "top_p", 1.0),
-        "max_tokens": getattr(provider, "max_output_tokens", None) or 1000,
+        # Floor the budget so a low provider default can't truncate the list
+        # mid-answer (a common cause of unparseable output on chatty modules).
+        "max_tokens": max(getattr(provider, "max_output_tokens", None) or 0, 2000),
     }
 
     try:
@@ -298,27 +379,26 @@ def generate_from_loglines(
     content = (message.get("content") or "").strip()
     model = response.get("model", provider.model)
 
-    items = _extract_json_array(content)
-    if items is None:
+    parsed = _parse_candidates(content)
+    if not parsed:
+        # Distinguish "the model proposed nothing" (fine) from "we couldn't parse
+        # the reply" (actionable) so the UI message is honest.
+        err = None if _looks_like_empty_result(content) else (
+            "Could not parse any regex patterns from the model's reply. "
+            "Try a smaller sample size or a more capable model."
+        )
         return GenerationResult(
             candidates=[], lines_sampled=len(clean_lines), families=total_families,
-            families_omitted=omitted, provider=provider.name, model=model,
-            error="LLM did not return a parseable JSON array of patterns.",
+            families_omitted=omitted, provider=provider.name, model=model, error=err,
         )
 
     candidates: List[RegexCandidate] = []
-    seen: set = set()
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        pattern = (item.get("pattern") or "").strip()
-        if not pattern or pattern in seen:
-            continue
-        seen.add(pattern)
+    for item in parsed:
+        pattern = item["pattern"]
         cand = RegexCandidate(
             pattern=pattern,
             kind=kind,
-            rationale=(item.get("rationale") or "").strip()[:300],
+            rationale=(item.get("rationale") or "")[:300],
         )
         try:
             re.compile(pattern, re.IGNORECASE)
