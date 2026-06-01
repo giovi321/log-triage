@@ -127,17 +127,22 @@ def save_config_text(text: str) -> None:
     _atomic_write(STATE.config_path, text)
 
 
-def add_ignore_regex_to_pipeline(pipeline_name, regex_value, *, reload) -> Optional[str]:
-    """Append an ignore regex to a pipeline's classifier, write config, reload.
+_CLASSIFIER_KEYS = {"error": "error_regexes", "warning": "warning_regexes", "ignore": "ignore_regexes"}
 
+
+def add_regex_to_pipeline(pipeline_name, regex_value, kind="ignore", *, reload) -> Optional[str]:
+    """Append a regex to a pipeline's classifier list for ``kind``, write, reload.
+
+    ``kind`` is one of error/warning/ignore (unknown values fall back to ignore).
     ``reload`` is the no-arg reload callback (app.py passes _reload_from_disk so
     its globals stay mirrored). Returns an error message, or None on success.
     """
     import yaml
     from .regex_utils import _lint_regex_input
 
+    key = _CLASSIFIER_KEYS.get(kind, "ignore_regexes")
     if not pipeline_name:
-        return "Issue has no pipeline; cannot add an ignore rule."
+        return "Module has no pipeline; cannot add a rule."
     lint = _lint_regex_input(regex_value)
     if lint:
         return " ".join(lint)
@@ -148,15 +153,15 @@ def add_ignore_regex_to_pipeline(pipeline_name, regex_value, *, reload) -> Optio
 
     entry = next((p for p in (cfg_dict.get("pipelines") or []) if p.get("name") == pipeline_name), None)
     if entry is None:
-        return "Pipeline not found in config; cannot add an ignore rule."
+        return "Pipeline not found in config; cannot add a rule."
 
     classifier = entry.setdefault("classifier", {})
-    ignore_list = classifier.get("ignore_regexes")
-    if not isinstance(ignore_list, list):
-        ignore_list = []
-        classifier["ignore_regexes"] = ignore_list
-    if regex_value not in ignore_list:
-        ignore_list.append(regex_value)
+    target_list = classifier.get(key)
+    if not isinstance(target_list, list):
+        target_list = []
+        classifier[key] = target_list
+    if regex_value not in target_list:
+        target_list.append(regex_value)
 
     try:
         save_config_text(yaml.safe_dump(cfg_dict, sort_keys=False))
@@ -165,3 +170,8 @@ def add_ignore_regex_to_pipeline(pipeline_name, regex_value, *, reload) -> Optio
 
     (reload or reload_from_disk)()
     return None
+
+
+def add_ignore_regex_to_pipeline(pipeline_name, regex_value, *, reload) -> Optional[str]:
+    """Backwards-compatible wrapper: append an ignore regex to a pipeline."""
+    return add_regex_to_pipeline(pipeline_name, regex_value, "ignore", reload=reload)

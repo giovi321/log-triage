@@ -7,10 +7,13 @@
   .cand-table { width:100%; border-collapse:collapse; margin-top:var(--s-2); }
   .cand-table th, .cand-table td { text-align:left; padding:0.5rem 0.6rem; border-bottom:1px solid var(--line); vertical-align:top; font-size:0.86rem; }
   .cand-table th { color:var(--text-faint); font-weight:600; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em; }
-  .cand-pattern { font-family:var(--font-mono); white-space:pre-wrap; word-break:break-all; }
+  .cand-pattern-input { width:100%; min-width:240px; font-family:var(--font-mono); font-size:0.84rem; background:var(--bg-void); color:var(--text); border:1px solid var(--line); border-radius:var(--r-sm); padding:0.35rem 0.45rem; resize:vertical; }
   .cand-rationale { color:var(--text-dim); font-size:0.8rem; margin-top:0.2rem; }
   .cand-examples { margin-top:0.3rem; font-family:var(--font-mono); font-size:0.74rem; color:var(--text-faint); }
   .cand-examples div { white-space:pre-wrap; word-break:break-all; padding:1px 0; }
+  .cand-status { display:block; margin-top:0.3rem; font-size:0.78rem; }
+  .cand-status.ok { color:var(--brand-bright); }
+  .cand-status.err { color:#ffc9cb; }
   .stat { font-family:var(--font-mono); }
   .stat-danger { color:#ffc9cb; font-weight:600; }
   .stat-new { color:var(--brand-bright); font-weight:600; }
@@ -79,6 +82,7 @@
       <strong>New</strong> = matches not already caught by an existing error/warning rule.
       {% if regex_kind == 'ignore' %}<span class="pill-warn">risk</span> = would also suppress lines you currently flag as real problems.{% endif %}
     </p>
+    <p class="helper-text" style="margin-top:0;">You can edit a pattern before adding it. Adding happens in place — the list stays put.</p>
     <table class="cand-table">
       <thead>
         <tr>
@@ -93,14 +97,15 @@
         {% for c in result.candidates %}
         <tr class="{% if not c.valid %}row-invalid{% endif %}">
           <td>
-            <div class="cand-pattern">{{ c.pattern }}</div>
+            <textarea class="cand-pattern-input" rows="2" spellcheck="false">{{ c.pattern }}</textarea>
             {% if c.rationale %}<div class="cand-rationale">{{ c.rationale }}</div>{% endif %}
-            {% if not c.valid %}<div class="cand-rationale" style="color:#ffc9cb;">Invalid: {{ c.error }}</div>{% endif %}
+            {% if not c.valid %}<div class="cand-rationale" style="color:#ffc9cb;">Heads up: the suggested pattern was invalid ({{ c.error }}) — edit it before adding.</div>{% endif %}
             {% if c.examples %}
               <div class="cand-examples">
                 {% for ex in c.examples %}<div>{{ ex }}</div>{% endfor %}
               </div>
             {% endif %}
+            <span class="cand-status" aria-live="polite"></span>
           </td>
           <td class="stat">{{ c.match_count }}</td>
           <td class="stat {% if c.new_matches > 0 %}stat-new{% endif %}">{{ c.new_matches }}</td>
@@ -114,16 +119,7 @@
           </td>
           {% endif %}
           <td>
-            {% if c.valid %}
-            <form method="post" action="{{ url_for('regex_save') }}" onsubmit="return confirmAdd(this, {{ c.over_match }});">
-              <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
-              <input type="hidden" name="module" value="{{ current_module.name if current_module else '' }}">
-              <input type="hidden" name="regex_value" value="{{ c.pattern }}">
-              <input type="hidden" name="regex_kind" value="{{ regex_kind }}">
-              <input type="hidden" name="sample_source" value="tail">
-              <button type="submit" class="secondary">Add to config</button>
-            </form>
-            {% endif %}
+            <button type="button" class="secondary cand-add" data-over="{{ c.over_match }}" onclick="addRegex(this)">Add to config</button>
           </td>
         </tr>
         {% endfor %}
@@ -134,12 +130,53 @@
   {% endif %}
 </div>
 <script>
-  function confirmAdd(form, overMatch) {
-    if (overMatch > 0) {
-      return window.confirm('This pattern would also match ' + overMatch +
-        ' line(s) you currently flag as real problems, and could suppress them. Add it anyway?');
+  const ADD_URL = "{{ url_for('regex_add') }}";
+  const MODULE = {{ (current_module.name if current_module else '')|tojson }};
+  const KIND = {{ regex_kind|tojson }};
+
+  async function addRegex(btn) {
+    const row = btn.closest('tr');
+    const input = row.querySelector('.cand-pattern-input');
+    const status = row.querySelector('.cand-status');
+    const pattern = (input.value || '').trim();
+    const over = parseInt(btn.dataset.over || '0', 10);
+
+    if (!pattern) {
+      status.textContent = 'Pattern is empty.';
+      status.className = 'cand-status err';
+      return;
     }
-    return true;
+    if (over > 0 && !window.confirm('This pattern would also match ' + over +
+        ' line(s) you currently flag as real problems, and could suppress them. Add it anyway?')) {
+      return;
+    }
+
+    btn.disabled = true;
+    status.textContent = 'Adding…';
+    status.className = 'cand-status';
+    try {
+      const resp = await fetch(ADD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ module: MODULE, regex_value: pattern, regex_kind: KIND }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.ok) {
+        status.textContent = '✓ ' + (data.message || 'Added.');
+        status.className = 'cand-status ok';
+        btn.textContent = 'Added';
+        input.readOnly = true;
+        // Leave the button disabled so the same pattern can't be re-added.
+      } else {
+        status.textContent = data.error || ('Failed to add (HTTP ' + resp.status + ').');
+        status.className = 'cand-status err';
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'Request failed — is the server reachable?';
+      status.className = 'cand-status err';
+      btn.disabled = false;
+    }
   }
 </script>
 {% endblock %}

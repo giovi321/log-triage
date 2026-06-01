@@ -4,8 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import re
+
 from fastapi import APIRouter, Form, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 try:
     import yaml
@@ -714,3 +716,52 @@ async def regex_generate(
         return render(error=f"Generation failed: {exc}")
 
     return render(result=result, error=result.error)
+
+
+@router.post("/regex/add", name="regex_add")
+async def regex_add(request: Request):
+    """Append a single regex to a pipeline and reload, returning JSON.
+
+    Used by the Suggest Regex page so candidates can be added in place without
+    navigating away (the per-row "Add" action). JSON body, so it is CSRF-exempt
+    like the other JSON APIs. Admin-only.
+    """
+    username = get_current_user(request, STATE.settings)
+    if not username:
+        return JSONResponse({"error": "Unauthorized"}, status_code=status.HTTP_401_UNAUTHORIZED)
+    if not current_user_is_admin(request, STATE.settings):
+        return JSONResponse({"error": "Admin access required"}, status_code=status.HTTP_403_FORBIDDEN)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    module = (data.get("module") or "").strip()
+    regex_value = (data.get("regex_value") or "").strip()
+    regex_kind = data.get("regex_kind") or "error"
+    if regex_kind not in VALID_KINDS:
+        regex_kind = "error"
+    if not regex_value:
+        return JSONResponse({"error": "Pattern is empty."}, status_code=400)
+    try:
+        re.compile(regex_value)
+    except re.error as exc:
+        return JSONResponse({"error": f"Invalid regex: {exc}"}, status_code=400)
+
+    module_obj = next((m for m in build_modules_from_config() if m.name == module), None)
+    if module_obj is None:
+        return JSONResponse({"error": "Unknown module."}, status_code=400)
+    if not getattr(module_obj, "pipeline_name", None):
+        return JSONResponse({"error": "Module has no pipeline; cannot save automatically."}, status_code=400)
+
+    err = config_io.add_regex_to_pipeline(
+        module_obj.pipeline_name, regex_value, regex_kind, reload=STATE.reload_callback
+    )
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+
+    key = config_io._CLASSIFIER_KEYS.get(regex_kind, "ignore_regexes")
+    return JSONResponse(
+        {"ok": True, "message": f"Added to classifier.{key} for pipeline {module_obj.pipeline_name}."}
+    )

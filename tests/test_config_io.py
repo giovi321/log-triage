@@ -42,6 +42,43 @@ def test_save_config_text_atomic_with_backup(tmp_path):
     assert bak.exists() and "secret_key: old" in bak.read_text(encoding="utf-8")
 
 
+def test_add_regex_to_pipeline_appends_to_correct_kind(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    _write(cfg, {"pipelines": [{"name": "svc", "classifier": {"error_regexes": ["boom"]}}]})
+    STATE.config_path = cfg
+    reloads = {"n": 0}
+
+    err = config_io.add_regex_to_pipeline(
+        "svc", r"Connection refused", "error", reload=lambda: reloads.__setitem__("n", reloads["n"] + 1)
+    )
+    assert err is None
+    assert reloads["n"] == 1
+    data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+    classifier = data["pipelines"][0]["classifier"]
+    assert classifier["error_regexes"] == ["boom", "Connection refused"]
+
+    # A different kind creates its own list without touching the first.
+    err = config_io.add_regex_to_pipeline("svc", r"deprecated", "warning", reload=lambda: None)
+    assert err is None
+    data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+    assert data["pipelines"][0]["classifier"]["warning_regexes"] == ["deprecated"]
+
+
+def test_add_regex_to_pipeline_dedupes_and_validates(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    _write(cfg, {"pipelines": [{"name": "svc", "classifier": {"ignore_regexes": ["noise"]}}]})
+    STATE.config_path = cfg
+
+    # Re-adding the same pattern is a no-op (no duplicate).
+    assert config_io.add_regex_to_pipeline("svc", "noise", "ignore", reload=lambda: None) is None
+    data = yaml.safe_load(cfg.read_text(encoding="utf-8"))
+    assert data["pipelines"][0]["classifier"]["ignore_regexes"] == ["noise"]
+
+    # Unknown pipeline and empty pattern are reported, not written.
+    assert config_io.add_regex_to_pipeline("nope", "x", "error", reload=lambda: None)
+    assert config_io.add_regex_to_pipeline("svc", "   ", "error", reload=lambda: None)
+
+
 def test_reload_callbacks_invoked(tmp_path):
     cfg = tmp_path / "config.yaml"
     _write(cfg, {"webui": {"secret_key": "k"}, "llm": {"enabled": False}})
