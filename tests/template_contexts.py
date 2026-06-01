@@ -171,25 +171,28 @@ def build_pages() -> list:
          regex_issues=None, sample_source="tail",
          ingestion_status=_NS(message="active · last line 4s ago"), _path="/regex")
 
-    # ---- regex generator (LLM from history) -------------------------------
+    # ---- regex generator (LLM from raw log lines) -------------------------
     gen_result = _NS(
         candidates=[
             _NS(pattern=r"Unable to connect to MQTT broker \S+", rationale="MQTT broker unreachable",
-                covers=[1], valid=True, error=None, distinct_issues=1, match_count=432,
-                over_match=0, safe=True),
-            _NS(pattern=r"Traceback", rationale="Python traceback", covers=[2], valid=True,
-                error=None, distinct_issues=3, match_count=27, over_match=2, safe=False),
-            _NS(pattern=r"[unclosed", rationale="malformed", covers=[], valid=False,
-                error="missing ], unterminated subpattern", distinct_issues=0, match_count=0,
-                over_match=0, safe=False),
+                valid=True, error=None, match_count=14, new_matches=14, over_match=0, safe=True,
+                examples=["2026-05-29 14:31:05 ERROR mqtt: Unable to connect to MQTT broker 10.0.0.5:1883"]),
+            _NS(pattern=r"Traceback", rationale="Python traceback", valid=True, error=None,
+                match_count=27, new_matches=5, over_match=0, safe=True,
+                examples=["2026-05-29 14:31:05 ERROR bootstrap: Traceback (most recent call last):"]),
+            _NS(pattern=r"[unclosed", rationale="malformed", valid=False,
+                error="missing ], unterminated subpattern", match_count=0, new_matches=0,
+                over_match=0, safe=False, examples=[]),
         ],
-        signatures_used=12, provider="ollama-local", model="qwen2.5", error=None,
+        lines_sampled=1000, families=42, families_omitted=0,
+        provider="ollama-local", model="qwen2.5", error=None,
     )
     page("regex_generate.html",
          username="admin", modules=modules, current_module=modules[0], regex_kind="error",
          provider_options=[{"name": "ollama-local", "model": "qwen2.5", "type": "ollama"},
                            {"name": "claude", "model": "claude-sonnet-4-6", "type": "anthropic"}],
-         selected_provider="ollama-local", valid_kinds=["ignore", "error", "warning"],
+         selected_provider="ollama-local", sample_size=1000, sample_sizes=[500, 1000, 2000],
+         valid_kinds=["ignore", "error", "warning"],
          result=gen_result, error=None, _path="/regex/generate")
 
     # ---- triage (issues + detail) -----------------------------------------

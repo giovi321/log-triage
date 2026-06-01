@@ -1,18 +1,23 @@
-"""LLM-assisted regex generation from historical, de-duplicated issues.
+"""LLM-assisted regex discovery from raw log lines.
 
 Authoring classifier patterns by hand is the slow part of running log-triage.
-This module learns candidate patterns from the logs already collected, for both
-*ignore* (noise suppression) and *error*/*warning* (failure detection).
+This module reads a sample of *raw* log lines for a module and asks an LLM which
+lines represent errors/warnings worth capturing (or benign noise worth ignoring),
+then proposes a regex for each family.
 
-The key cost-saver: we never feed raw logs to the LLM. Fingerprint
-de-duplication (see :mod:`logtriage.fingerprint`) has already collapsed the logs
-into a handful of distinct *issue signatures*, each with a representative
-excerpt, a severity and an occurrence count. We hand the model those signatures
-and ask for a small set of regexes. Every candidate is then compiled and
-**back-tested against the full issue corpus** to measure coverage and, crucially,
-how many *protected* issues it would wrongly catch (an ignore rule that silences
-real errors, or an error rule that fires on noise). Nothing is ever auto-saved;
-the route layer presents ranked candidates for human review.
+Crucially it works from the **raw log**, not from already-classified issues: an
+issue only exists because an existing rule already matched it, so learning from
+issues can never surface a problem you are not already catching. Working from the
+log lets the model find *uncaptured* errors.
+
+Cost control: near-identical lines are collapsed into *families* via
+:func:`logtriage.fingerprint.normalize` (the same volatility-stripping used for
+de-duplication), so even a 2000-line sample becomes a few dozen representatives.
+Every proposed pattern is then compiled and back-tested against the full sample:
+how many lines it would match, how many of those are *new* (not already caught by
+an existing error/warning rule), and — for ignore rules — how many are lines that
+are currently classified as real problems (the dangerous over-match). Nothing is
+ever auto-saved.
 """
 from __future__ import annotations
 
@@ -20,17 +25,17 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Callable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
+from .fingerprint import normalize
 from .llm_client import _call_llm
 
 logger = logging.getLogger(__name__)
 
 VALID_KINDS = ("ignore", "error", "warning")
-DEFAULT_MAX_SIGNATURES = 40
-DEFAULT_CORPUS_LIMIT = 2000
-
-_ERROR_SEVERITIES = {"ERROR", "CRITICAL"}
+DEFAULT_FAMILY_CAP = 80          # max distinct line-families sent to the LLM
+DEFAULT_EXAMPLE_LINES = 3        # matched examples shown per candidate
+_MAX_LINE_CHARS = 500
 
 
 @dataclass
@@ -40,109 +45,116 @@ class RegexCandidate:
     pattern: str
     kind: str
     rationale: str = ""
-    covers: List[int] = field(default_factory=list)  # issue ids the LLM says it covers
     valid: bool = True
     error: Optional[str] = None
-    # Back-test stats (computed against the historical issue corpus):
-    distinct_issues: int = 0      # how many distinct issues this pattern matches
-    match_count: int = 0          # weighted by occurrence_count (volume it touches)
-    over_match: int = 0           # protected issues it would wrongly catch (DANGER)
+    # Back-test stats against the full raw sample:
+    match_count: int = 0     # total sample lines this pattern matches
+    new_matches: int = 0     # matched lines NOT already caught by an existing error/warning rule
+    over_match: int = 0      # ignore-kind only: matched lines currently classified as a real problem
+    examples: List[str] = field(default_factory=list)
 
     @property
     def safe(self) -> bool:
-        """A candidate is safe to apply when it is valid and catches nothing protected."""
+        """Safe to apply: valid and (for ignore) silences nothing currently flagged as a problem."""
         return self.valid and self.over_match == 0
 
 
 @dataclass
 class GenerationResult:
     candidates: List[RegexCandidate]
-    signatures_used: int
+    lines_sampled: int
+    families: int                  # distinct line-families found in the sample
+    families_omitted: int = 0      # families dropped from the prompt when over the cap (disclosed, not silent)
     provider: Optional[str] = None
     model: Optional[str] = None
     error: Optional[str] = None
 
 
-def _norm_severity(value) -> str:
-    return (value or "").upper()
+def _clean(line: str) -> str:
+    return (line or "").rstrip("\n").rstrip("\r")[:_MAX_LINE_CHARS]
 
 
-def _first_excerpt_line(issue) -> str:
-    for line in (getattr(issue, "sample_excerpt", "") or "").splitlines():
-        if line.strip():
-            return line.strip()[:300]
-    return ""
+def _compile_all(patterns) -> List["re.Pattern[str]"]:
+    compiled = []
+    for p in patterns or []:
+        try:
+            compiled.append(re.compile(p, re.IGNORECASE))
+        except re.error:
+            continue
+    return compiled
 
 
-def gather_signatures(
-    module_name: str,
-    kind: str,
+def _dedupe_families(
+    lines: List[str],
+    problem_rx: List["re.Pattern[str]"],
     *,
-    limit: int = DEFAULT_MAX_SIGNATURES,
-) -> Tuple[list, list]:
-    """Return ``(selected, corpus)`` issue lists for a module.
+    cap: int,
+) -> Tuple[List[dict], int, int]:
+    """Collapse raw lines into normalized families.
 
-    ``selected`` are the representatives shown to the LLM (intent-filtered, ranked
-    by occurrence count). ``corpus`` is the full set of issues for the module,
-    used as the back-test ground truth. DB access is imported lazily so this
-    module stays importable without sqlalchemy.
+    Returns ``(representatives, total_families, omitted)``. Representatives are
+    sorted so families *not* already matched by an existing error/warning rule
+    come first (the discovery value), then by frequency. When there are more
+    families than ``cap`` the tail is dropped and counted, never silently.
     """
-    from .webui.db import get_issues, ISSUE_ACTIVE_STATUSES
+    families: Dict[str, dict] = {}
+    for raw in lines:
+        line = _clean(raw)
+        if not line.strip():
+            continue
+        key = normalize(line) or line
+        fam = families.get(key)
+        if fam is None:
+            known = any(rx.search(line) for rx in problem_rx)
+            families[key] = {"example": line, "count": 1, "known": known}
+        else:
+            fam["count"] += 1
 
-    corpus = get_issues(module_name=module_name, limit=DEFAULT_CORPUS_LIMIT)
-
-    if kind == "ignore":
-        # Noise we want to suppress: explicitly muted/false-positive issues first,
-        # then the loudest non-error issues (likely benign chatter).
-        muted = [i for i in corpus if i.status in ("muted", "false_positive")]
-        muted_ids = {i.id for i in muted}
-        chatter = [
-            i for i in corpus
-            if i.id not in muted_ids and _norm_severity(i.severity) not in _ERROR_SEVERITIES
-        ]
-        chatter.sort(key=lambda i: i.occurrence_count or 0, reverse=True)
-        selected = muted + chatter
-    else:
-        target = _ERROR_SEVERITIES if kind == "error" else {"WARNING"}
-        active = [
-            i for i in corpus
-            if i.status in ISSUE_ACTIVE_STATUSES and _norm_severity(i.severity) in target
-        ]
-        active.sort(key=lambda i: i.occurrence_count or 0, reverse=True)
-        selected = active
-
-    return selected[: max(1, limit)], corpus
+    ordered = sorted(
+        families.values(),
+        key=lambda f: (f["known"], -f["count"]),  # unknown-first, then most frequent
+    )
+    total = len(ordered)
+    selected = ordered[: max(1, cap)]
+    omitted = max(0, total - len(selected))
+    return selected, total, omitted
 
 
-def _build_messages(signatures: List[dict], kind: str) -> List[dict]:
+def _build_messages(representatives: List[dict], kind: str) -> List[dict]:
     intent = {
-        "ignore": "benign, recurring NOISE lines that should be ignored/suppressed",
-        "error": "ERROR-level failures that should be detected",
-        "warning": "WARNING-level conditions that should be detected",
+        "error": (
+            "identify which lines indicate ERRORS or failures that should be detected, and "
+            "propose a regex to capture each distinct family. Ignore routine INFO/DEBUG and "
+            "clearly benign lines."
+        ),
+        "warning": (
+            "identify which lines indicate WARNING conditions worth flagging, and propose a "
+            "regex to capture each distinct family. Ignore routine INFO/DEBUG and benign lines."
+        ),
+        "ignore": (
+            "identify benign, recurring NOISE lines that are safe to ignore, and propose a regex "
+            "to suppress each family. Do NOT propose any pattern that could match a genuine error "
+            "or failure."
+        ),
     }[kind]
 
-    lines: List[str] = []
-    for idx, sig in enumerate(signatures, 1):
-        lines.append(
-            f"[{idx}] (severity={sig['severity']}, count={sig['count']}) {sig['signature']}"
-        )
-        if sig.get("excerpt"):
-            lines.append(f"      e.g. {sig['excerpt']}")
-    listing = "\n".join(lines)
+    listing = "\n".join(
+        f"[{i}] (x{rep['count']}) {rep['example']}"
+        for i, rep in enumerate(representatives, 1)
+    )
 
     system = (
-        "You write Python `re` regular expressions (used with re.IGNORECASE) that match "
-        "FAMILIES of log lines. Generalize volatile tokens (numbers, ids, UUIDs, IPs, "
-        "timestamps, hex digests, file paths) using character classes or \\S+ / \\d+, but "
-        "KEEP the stable, distinguishing words so each pattern stays specific. Prefer ONE "
-        "pattern per distinct family; never write an over-broad catch-all such as `.*`. "
-        f"Generate patterns to match {intent}.\n"
+        "You write Python `re` regular expressions (used with re.IGNORECASE) that match log lines. "
+        "Generalize volatile tokens (numbers, ids, UUIDs, IPs, timestamps, hex digests, file paths) "
+        "using character classes or \\S+ / \\d+, but KEEP the stable, distinguishing words so each "
+        "pattern stays specific. One pattern per distinct family; never an over-broad catch-all such "
+        f"as `.*`. Given the log lines below, {intent}\n"
         "Return ONLY a JSON array, no prose. Each element must be an object: "
-        '{"pattern": "<regex>", "rationale": "<short why>", "covers": [<signature numbers>]}'
+        '{"pattern": "<regex>", "rationale": "<short why this is a ' + kind + '>"}'
     )
     user = (
-        "Here are de-duplicated log signatures from history, each prefixed with its "
-        "number, severity and occurrence count:\n\n" + listing
+        "Here is a sample of log lines. Each is prefixed with a number and how many times its "
+        "family occurred in the sample:\n\n" + listing
     )
     return [
         {"role": "system", "content": system},
@@ -168,30 +180,20 @@ def _extract_json_array(content: str) -> Optional[list]:
     return data if isinstance(data, list) else None
 
 
-def _protected_predicate(kind: str) -> Callable[[object], bool]:
-    """Return a predicate marking issues a candidate of ``kind`` must NOT match."""
-    from .webui.db import ISSUE_ACTIVE_STATUSES
+def backtest(
+    candidates: List[RegexCandidate],
+    lines: List[str],
+    problem_rx: List["re.Pattern[str]"],
+) -> None:
+    """Populate match / new / over-match stats and example lines, in place.
 
-    if kind == "ignore":
-        # An ignore rule must never silence a still-active error/warning issue.
-        protected = _ERROR_SEVERITIES | {"WARNING"}
-        return lambda i: (
-            i.status in ISSUE_ACTIVE_STATUSES and _norm_severity(i.severity) in protected
-        )
-    if kind == "error":
-        return lambda i: _norm_severity(i.severity) not in _ERROR_SEVERITIES
-    if kind == "warning":
-        return lambda i: _norm_severity(i.severity) != "WARNING"
-    return lambda i: False
-
-
-def backtest(candidates: List[RegexCandidate], corpus: list, kind: str) -> None:
-    """Populate coverage / over-match stats on each valid candidate, in place."""
-    is_protected = _protected_predicate(kind)
-    compiled = []
-    for issue in corpus:
-        text = f"{getattr(issue, 'signature', '') or ''}\n{getattr(issue, 'sample_excerpt', '') or ''}"
-        compiled.append((issue, text))
+    ``problem_rx`` are the module's existing error+warning rules. A candidate's
+    "new" matches are those an existing problem rule does not already catch; for
+    ignore candidates, lines an existing problem rule *does* catch are counted as
+    over-match (an ignore rule that would silence a real finding).
+    """
+    cleaned = [_clean(ln) for ln in lines]
+    cleaned = [ln for ln in cleaned if ln.strip()]
 
     for cand in candidates:
         if not cand.valid:
@@ -201,72 +203,60 @@ def backtest(candidates: List[RegexCandidate], corpus: list, kind: str) -> None:
         except re.error:
             cand.valid = False
             continue
-        matched_ids = set()
-        occurrences = 0
-        over = 0
-        for issue, text in compiled:
-            if rx.search(text):
-                matched_ids.add(issue.id)
-                occurrences += issue.occurrence_count or 0
-                if is_protected(issue):
-                    over += 1
-        cand.distinct_issues = len(matched_ids)
-        cand.match_count = occurrences
-        cand.over_match = over
+        matched = [ln for ln in cleaned if rx.search(ln)]
+        already = sum(1 for ln in matched if any(p.search(ln) for p in problem_rx))
+        cand.match_count = len(matched)
+        cand.new_matches = len(matched) - already
+        if cand.kind == "ignore":
+            cand.over_match = already
+        cand.examples = matched[:DEFAULT_EXAMPLE_LINES]
 
 
-def generate_regex_candidates(
-    module_name: str,
+def generate_from_loglines(
+    lines: List[str],
     kind: str,
     provider,
     *,
-    max_signatures: int = DEFAULT_MAX_SIGNATURES,
+    existing_patterns: Optional[Dict[str, List[str]]] = None,
+    family_cap: int = DEFAULT_FAMILY_CAP,
 ) -> GenerationResult:
-    """Generate, validate and back-test regex candidates for one module/kind.
+    """Discover and back-test regex candidates from raw ``lines`` for one kind.
 
-    ``provider`` is a resolved ``LLMProviderConfig`` (the caller picks it from
-    config — e.g. a local Ollama provider). The LLM call goes through the shared
-    :func:`logtriage.llm_client._call_llm`, so all provider types and the token
-    budget apply. Never saves anything.
+    ``existing_patterns`` is ``{"error": [...], "warning": [...], "ignore": [...]}``
+    raw pattern strings from the module's pipeline (used to measure redundancy and
+    ignore-rule danger). ``provider`` is a resolved ``LLMProviderConfig`` (e.g. a
+    local Ollama provider). Never saves anything.
     """
     kind = kind if kind in VALID_KINDS else "error"
-    selected, corpus = gather_signatures(module_name, kind, limit=max_signatures)
-    if not selected:
+    existing_patterns = existing_patterns or {}
+    problem_rx = _compile_all(
+        list(existing_patterns.get("error") or []) + list(existing_patterns.get("warning") or [])
+    )
+
+    clean_lines = [ln for ln in (_clean(x) for x in lines) if ln.strip()]
+    if not clean_lines:
         return GenerationResult(
-            candidates=[],
-            signatures_used=0,
+            candidates=[], lines_sampled=0, families=0,
             provider=getattr(provider, "name", None),
-            error="No historical issues to learn from for this module/kind.",
+            error="No log lines to analyze for this module.",
         )
 
-    signatures = [
-        {
-            "id": i.id,
-            "signature": (getattr(i, "signature", None) or getattr(i, "title", "") or "").strip(),
-            "excerpt": _first_excerpt_line(i),
-            "severity": _norm_severity(i.severity),
-            "count": i.occurrence_count or 0,
-        }
-        for i in selected
-    ]
+    representatives, total_families, omitted = _dedupe_families(clean_lines, problem_rx, cap=family_cap)
 
     payload = {
         "model": provider.model,
-        "messages": _build_messages(signatures, kind),
+        "messages": _build_messages(representatives, kind),
         "temperature": getattr(provider, "temperature", 0.0) or 0.0,
         "top_p": getattr(provider, "top_p", 1.0),
-        "max_tokens": getattr(provider, "max_output_tokens", None) or 800,
+        "max_tokens": getattr(provider, "max_output_tokens", None) or 1000,
     }
 
     try:
         response = _call_llm(provider, payload)
     except Exception as exc:
         return GenerationResult(
-            candidates=[],
-            signatures_used=len(signatures),
-            provider=provider.name,
-            model=provider.model,
-            error=str(exc),
+            candidates=[], lines_sampled=len(clean_lines), families=total_families,
+            families_omitted=omitted, provider=provider.name, model=provider.model, error=str(exc),
         )
 
     message = (response.get("choices") or [{}])[0].get("message", {})
@@ -276,14 +266,11 @@ def generate_regex_candidates(
     items = _extract_json_array(content)
     if items is None:
         return GenerationResult(
-            candidates=[],
-            signatures_used=len(signatures),
-            provider=provider.name,
-            model=model,
+            candidates=[], lines_sampled=len(clean_lines), families=total_families,
+            families_omitted=omitted, provider=provider.name, model=model,
             error="LLM did not return a parseable JSON array of patterns.",
         )
 
-    idmap = {idx: s["id"] for idx, s in enumerate(signatures, 1)}
     candidates: List[RegexCandidate] = []
     seen: set = set()
     for item in items:
@@ -298,8 +285,6 @@ def generate_regex_candidates(
             kind=kind,
             rationale=(item.get("rationale") or "").strip()[:300],
         )
-        covers = item.get("covers") or []
-        cand.covers = [idmap[c] for c in covers if isinstance(c, int) and c in idmap]
         try:
             re.compile(pattern, re.IGNORECASE)
         except re.error as exc:
@@ -307,16 +292,18 @@ def generate_regex_candidates(
             cand.error = str(exc)
         candidates.append(cand)
 
-    backtest(candidates, corpus, kind)
+    backtest(candidates, clean_lines, problem_rx)
 
-    # Rank: valid first, then safest (fewest protected matches), then widest coverage.
+    # Rank: valid first, safest (no over-match), then most *new* coverage, then total.
     candidates.sort(
-        key=lambda c: (0 if c.valid else 1, c.over_match, -c.distinct_issues, -c.match_count)
+        key=lambda c: (0 if c.valid else 1, c.over_match, -c.new_matches, -c.match_count)
     )
 
     return GenerationResult(
         candidates=candidates,
-        signatures_used=len(signatures),
+        lines_sampled=len(clean_lines),
+        families=total_families,
+        families_omitted=omitted,
         provider=provider.name,
         model=model,
     )

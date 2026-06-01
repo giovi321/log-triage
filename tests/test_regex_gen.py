@@ -1,27 +1,15 @@
-"""Tests for LLM-assisted regex generation (logtriage.regex_gen).
+"""Tests for LLM-assisted regex discovery from raw log lines (logtriage.regex_gen).
 
-The LLM call and the DB-backed signature gathering are stubbed so these run
-without a model or a database; we exercise JSON parsing, validation, back-test
-statistics (coverage + over-match), and ranking.
+The LLM call is stubbed so these run without a model; we exercise family
+de-duplication, JSON parsing, validation, and the back-test statistics
+(total matches, new-vs-already-covered, and ignore-rule over-match).
 """
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
 
 from logtriage import regex_gen
-
-
-@dataclass
-class FakeIssue:
-    id: int
-    signature: str
-    sample_excerpt: str = ""
-    severity: str = "ERROR"
-    status: str = "open"
-    occurrence_count: int = 1
-    title: str = ""
 
 
 @dataclass
@@ -30,7 +18,7 @@ class FakeProvider:
     model: str = "qwen2.5"
     temperature: float = 0.0
     top_p: float = 1.0
-    max_output_tokens: int = 800
+    max_output_tokens: int = 1000
 
 
 def _stub_llm(content: str):
@@ -43,8 +31,7 @@ def _stub_llm(content: str):
     return _call
 
 
-def _patch(monkeypatch, selected, corpus, content):
-    monkeypatch.setattr(regex_gen, "gather_signatures", lambda *a, **k: (selected, corpus))
+def _patch_llm(monkeypatch, content: str):
     monkeypatch.setattr(regex_gen, "_call_llm", _stub_llm(content))
 
 
@@ -57,81 +44,102 @@ def test_extract_json_array_rejects_garbage():
     assert regex_gen._extract_json_array("no json here") is None
 
 
-def test_valid_and_invalid_candidates(monkeypatch):
-    err = FakeIssue(id=1, signature="Connection refused to <NUM>",
-                    sample_excerpt="Connection refused to 5432",
-                    severity="ERROR", occurrence_count=10)
-    warn = FakeIssue(id=2, signature="slow query <NUM>ms",
-                     sample_excerpt="slow query 1200ms",
-                     severity="WARNING", occurrence_count=3)
-    content = json.dumps([
-        {"pattern": "Connection refused", "rationale": "db down", "covers": [1]},
-        {"pattern": "[unclosed", "rationale": "bad", "covers": []},
-    ])
-    _patch(monkeypatch, selected=[err], corpus=[err, warn], content=content)
+def test_discovers_and_backtests_from_raw_lines(monkeypatch):
+    lines = [
+        "2026-01-01 INFO service started ok",
+        "2026-01-01 ERROR db connection refused to 5432",
+        "2026-01-01 ERROR db connection refused to 5599",  # same family (digits normalized)
+        "2026-01-01 WARN slow query 1200ms",
+    ]
+    _patch_llm(monkeypatch, json.dumps([{"pattern": "connection refused", "rationale": "db down"}]))
 
-    result = regex_gen.generate_regex_candidates("svc", "error", FakeProvider())
+    result = regex_gen.generate_from_loglines(lines, "error", FakeProvider(), existing_patterns={})
 
     assert result.error is None
-    assert result.signatures_used == 1
-    assert len(result.candidates) == 2
-    # Valid candidate ranks first.
-    top = result.candidates[0]
-    assert top.pattern == "Connection refused"
-    assert top.valid is True
-    assert top.distinct_issues == 1
-    assert top.match_count == 10
-    assert top.over_match == 0
-    assert top.safe is True
-    assert top.covers == [1]
-    # Invalid regex is flagged, not dropped.
-    bad = result.candidates[1]
-    assert bad.valid is False
-    assert bad.error
-
-
-def test_over_match_flags_protected_issue(monkeypatch):
-    err = FakeIssue(id=1, signature="connection refused",
-                    sample_excerpt="connection refused", severity="ERROR", occurrence_count=10)
-    warn = FakeIssue(id=2, signature="slow query slow",
-                     sample_excerpt="slow query slow", severity="WARNING", occurrence_count=3)
-    # Pattern matches both an ERROR (target) and a WARNING (protected for kind=error).
-    content = json.dumps([{"pattern": "refused|slow query", "covers": [1]}])
-    _patch(monkeypatch, selected=[err], corpus=[err, warn], content=content)
-
-    result = regex_gen.generate_regex_candidates("svc", "error", FakeProvider())
+    assert result.lines_sampled == 4
+    assert len(result.candidates) == 1
     cand = result.candidates[0]
-    assert cand.distinct_issues == 2
-    assert cand.match_count == 13
-    assert cand.over_match == 1
+    assert cand.valid is True
+    assert cand.match_count == 2          # both ERROR lines
+    assert cand.new_matches == 2          # nothing pre-existing to cover them
+    assert cand.over_match == 0           # not an ignore rule
+    assert len(cand.examples) == 2
+
+
+def test_new_matches_discounts_already_covered(monkeypatch):
+    lines = [
+        "ERROR db connection refused to 5432",
+        "ERROR db connection refused to 5599",
+    ]
+    _patch_llm(monkeypatch, json.dumps([{"pattern": "connection refused"}]))
+
+    # An existing error rule already catches these lines → zero NEW value.
+    result = regex_gen.generate_from_loglines(
+        lines, "error", FakeProvider(),
+        existing_patterns={"error": ["connection refused"], "warning": [], "ignore": []},
+    )
+    cand = result.candidates[0]
+    assert cand.match_count == 2
+    assert cand.new_matches == 0
+
+
+def test_ignore_rule_overmatch_flags_real_problems(monkeypatch):
+    lines = [
+        "heartbeat ok 1",
+        "heartbeat ok 2",
+        "heartbeat failed boom",  # a real problem, caught by the existing error rule below
+    ]
+    _patch_llm(monkeypatch, json.dumps([{"pattern": "heartbeat", "rationale": "noise"}]))
+
+    result = regex_gen.generate_from_loglines(
+        lines, "ignore", FakeProvider(),
+        existing_patterns={"error": ["failed"], "warning": [], "ignore": []},
+    )
+    cand = result.candidates[0]
+    assert cand.match_count == 3
+    assert cand.over_match == 1     # the "heartbeat failed" line is currently a real problem
     assert cand.safe is False
 
 
-def test_ignore_kind_protects_active_errors(monkeypatch):
-    # An ignore rule that would silence an active ERROR issue is unsafe.
-    noise = FakeIssue(id=1, signature="heartbeat ok", sample_excerpt="heartbeat ok",
-                      severity="INFO", status="muted", occurrence_count=99)
-    real = FakeIssue(id=2, signature="heartbeat failed", sample_excerpt="heartbeat failed",
-                     severity="ERROR", status="open", occurrence_count=5)
-    content = json.dumps([{"pattern": "heartbeat", "covers": [1]}])
-    _patch(monkeypatch, selected=[noise], corpus=[noise, real], content=content)
+def test_families_collapse_and_omission_is_disclosed(monkeypatch):
+    lines = [
+        "user 1 logged in", "user 2 logged in", "user 3 logged in",  # one family
+        "disk full on /dev/sda",                                     # second family
+        "cache miss for key abc",                                    # third family
+    ]
+    _patch_llm(monkeypatch, "[]")  # valid empty array; we only inspect family accounting
 
-    result = regex_gen.generate_regex_candidates("svc", "ignore", FakeProvider())
-    cand = result.candidates[0]
-    assert cand.over_match == 1  # the active ERROR issue
-    assert cand.safe is False
+    result = regex_gen.generate_from_loglines(
+        lines, "error", FakeProvider(), existing_patterns={}, family_cap=2,
+    )
+    assert result.error is None
+    assert result.lines_sampled == 5
+    assert result.families == 3
+    assert result.families_omitted == 1   # capped to 2, one dropped — disclosed, not silent
 
 
-def test_no_signatures_returns_helpful_error(monkeypatch):
-    monkeypatch.setattr(regex_gen, "gather_signatures", lambda *a, **k: ([], []))
-    result = regex_gen.generate_regex_candidates("svc", "error", FakeProvider())
+def test_invalid_regex_is_flagged_not_dropped(monkeypatch):
+    lines = ["ERROR something broke"]
+    _patch_llm(monkeypatch, json.dumps([
+        {"pattern": "something", "rationale": "ok"},
+        {"pattern": "[unclosed", "rationale": "bad"},
+    ]))
+    result = regex_gen.generate_from_loglines(lines, "error", FakeProvider(), existing_patterns={})
+    by_pattern = {c.pattern: c for c in result.candidates}
+    assert by_pattern["something"].valid is True
+    assert by_pattern["[unclosed"].valid is False
+    assert by_pattern["[unclosed"].error
+
+
+def test_no_lines_returns_helpful_error(monkeypatch):
+    _patch_llm(monkeypatch, "[]")
+    result = regex_gen.generate_from_loglines([], "error", FakeProvider(), existing_patterns={})
     assert result.candidates == []
-    assert "No historical issues" in (result.error or "")
+    assert "No log lines" in (result.error or "")
 
 
 def test_non_json_response_is_reported(monkeypatch):
-    issue = FakeIssue(id=1, signature="boom", sample_excerpt="boom")
-    _patch(monkeypatch, selected=[issue], corpus=[issue], content="sorry, no JSON")
-    result = regex_gen.generate_regex_candidates("svc", "error", FakeProvider())
+    _patch_llm(monkeypatch, "sorry, no JSON here")
+    result = regex_gen.generate_from_loglines(["ERROR boom"], "error", FakeProvider(), existing_patterns={})
     assert result.candidates == []
     assert "JSON" in (result.error or "")

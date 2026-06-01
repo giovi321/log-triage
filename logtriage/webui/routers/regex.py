@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
     yaml = None
 
 from ...models import ModuleConfig
-from ...regex_gen import generate_regex_candidates, VALID_KINDS
+from ...regex_gen import generate_from_loglines, VALID_KINDS
 from ..auth import get_current_user, current_user_is_admin
 from ..db import get_module_stats, get_recent_findings_for_module
 from ..ingestion_status import _derive_ingestion_status
@@ -545,6 +545,10 @@ async def regex_save(
     )
 
 
+SAMPLE_SIZE_OPTIONS = [500, 1000, 2000]
+DEFAULT_SAMPLE_SIZE = 1000
+
+
 def _provider_options() -> List[Dict[str, Any]]:
     """List configured LLM providers for the generator dropdown."""
     providers = getattr(STATE.llm_defaults, "providers", {}) or {}
@@ -569,6 +573,31 @@ def _resolve_generator_provider(provider_name: str):
     return name, (providers.get(name) if name else None)
 
 
+def _existing_patterns_for_module(module_obj) -> Dict[str, List[str]]:
+    """Read the module's pipeline classifier patterns from config.
+
+    Used to measure how many of a candidate's matches are already covered
+    (redundant) and, for ignore rules, how many would silence real findings.
+    """
+    out: Dict[str, List[str]] = {"error": [], "warning": [], "ignore": []}
+    pname = getattr(module_obj, "pipeline_name", None)
+    if not pname or yaml is None:
+        return out
+    try:
+        cfg = yaml.safe_load(STATE.config_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return out
+    entry = next((p for p in (cfg.get("pipelines") or []) if p.get("name") == pname), None)
+    if not entry:
+        return out
+    classifier = entry.get("classifier") or {}
+    for kind, key in (("error", "error_regexes"), ("warning", "warning_regexes"), ("ignore", "ignore_regexes")):
+        vals = classifier.get(key)
+        if isinstance(vals, list):
+            out[kind] = [str(v) for v in vals]
+    return out
+
+
 def _generate_context(
     request: Request,
     username: str,
@@ -578,6 +607,7 @@ def _generate_context(
     regex_kind: str,
     provider_options: List[Dict[str, Any]],
     selected_provider: Optional[str],
+    sample_size: int = DEFAULT_SAMPLE_SIZE,
     result=None,
     error: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -589,6 +619,8 @@ def _generate_context(
         "regex_kind": regex_kind,
         "provider_options": provider_options,
         "selected_provider": selected_provider,
+        "sample_size": sample_size,
+        "sample_sizes": SAMPLE_SIZE_OPTIONS,
         "result": result,
         "error": error,
         "valid_kinds": list(VALID_KINDS),
@@ -628,6 +660,7 @@ async def regex_generate(
     module: str = Form(...),
     regex_kind: str = Form("error"),
     provider: str = Form(""),
+    sample_size: int = Form(DEFAULT_SAMPLE_SIZE),
 ):
     username = get_current_user(request, STATE.settings)
     if not username:
@@ -638,6 +671,7 @@ async def regex_generate(
     modules = build_modules_from_config()
     module_obj = next((m for m in modules if m.name == module), None)
     kind = regex_kind if regex_kind in VALID_KINDS else "error"
+    size = sample_size if sample_size in SAMPLE_SIZE_OPTIONS else DEFAULT_SAMPLE_SIZE
     provider_options = _provider_options()
     selected_provider, provider_cfg = _resolve_generator_provider(provider)
 
@@ -652,6 +686,7 @@ async def regex_generate(
                 regex_kind=kind,
                 provider_options=provider_options,
                 selected_provider=selected_provider,
+                sample_size=size,
                 result=result,
                 error=error,
             ),
@@ -664,8 +699,17 @@ async def regex_generate(
     if provider_cfg is None:
         return render(error="No LLM provider selected or configured. Pick one above (a local Ollama provider is ideal for this batch job).")
 
+    lines, _start, _total, sample_error = _get_sample_lines_for_module(
+        module_obj, "tail", max_lines=size
+    )
+    if sample_error:
+        return render(error=sample_error)
+    if not lines:
+        return render(error="No log lines available to analyze for this module (is the log file present and non-empty?).")
+
+    existing = _existing_patterns_for_module(module_obj)
     try:
-        result = generate_regex_candidates(module_obj.name, kind, provider_cfg)
+        result = generate_from_loglines(lines, kind, provider_cfg, existing_patterns=existing)
     except Exception as exc:  # pragma: no cover - defensive
         return render(error=f"Generation failed: {exc}")
 
