@@ -81,7 +81,7 @@
         <div class="form-grid">
           <label class="fld check"><input type="checkbox" x-model="cfg.llm.enabled"><span class="fld-label" style="text-transform:none;">LLM enabled</span></label>
           <label class="fld"><span class="fld-label">Default provider</span>
-            <select x-model="cfg.llm.default_provider">
+            <select id="cfg-llm-default-provider" x-model="cfg.llm.default_provider">
               <option value="">(none)</option>
               <template x-for="p in providers" :key="p.name"><option :value="p.name" x-text="p.name"></option></template>
             </select>
@@ -636,6 +636,19 @@
         try { raw = JSON.parse((document.getElementById('config-json-data') || {}).textContent || '{}') || {}; } catch (e) { raw = {}; }
         this.cfg = raw;
         this.normalize();
+        // A <select> whose <option>s are built by x-for has no options in the
+        // DOM yet on first paint, so x-model can't preselect the saved value —
+        // the "Default provider" dropdown then shows "(none)" and can write an
+        // empty value back on save. Capture the loaded value now (before the
+        // child x-model initialises) and re-assert it onto both the model and
+        // the element once the options have mounted.
+        const loadedDefaultProvider = (this.cfg.llm && this.cfg.llm.default_provider) || '';
+        this.$nextTick(() => {
+          if (!this.cfg.llm) return;
+          this.cfg.llm.default_provider = loadedDefaultProvider;
+          const sel = document.getElementById('cfg-llm-default-provider');
+          if (sel) sel.value = loadedDefaultProvider;
+        });
         // Restore the active section from the URL hash so a refresh or a save
         // round-trip (POST re-render) keeps you on the same tab instead of
         // silently bouncing back to General.
